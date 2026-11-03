@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ПРОТОТИП · Alpi CRM — екрани MVP</title>
+<!--
+  PROTOTYPE — throwaway. Не production-код.
+  Вопрос, на который отвечает: как должны выглядеть три экрана MVP своей CRM
+  (канбан воронки, карточка сделки, список сделок) при двух изолированных проектах.
+  Один файл, без сети, без сборки; все данные выдуманы и живут в памяти (перезагрузка = сброс).
+-->
+<style>
+:root{--acc:#2563eb;--accl:#eff6ff;--bg:#f4f5f7;--line:#e2e5ea;--txt:#1f2937;--mut:#6b7280;--red:#dc2626;--green:#16a34a;--yellow:#b45309;--grey:#9ca3af}
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--txt);background:var(--bg)}
+a{color:var(--acc);cursor:pointer}
+button{font:inherit;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
+button.ok{color:var(--green);border-color:#86efac}
+button.bad{color:var(--red);border-color:#fca5a5}
+button.dis{color:#9ca3af;background:#f3f4f6;cursor:not-allowed}
+button.mini{padding:1px 7px;font-size:12px}
+select,input,textarea{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radius:6px;background:#fff}
+.mut{color:var(--mut);font-weight:normal;font-size:12px}
+.tag{display:inline-block;background:#f3f4f6;border:1px solid var(--line);border-radius:10px;padding:0 6px;font-size:11px;color:#4b5563}
+/* header */
+header{height:54px;background:#fff;border-bottom:3px solid var(--acc);display:flex;align-items:center;gap:12px;padding:0 12px;position:sticky;top:0;z-index:30}
+.brand{font-weight:700;font-size:15px}
+.proto{background:#fde68a;color:#78350f;font-size:11px;padding:2px 6px;border-radius:4px;white-space:nowrap}
+.hl{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px;white-space:nowrap}
+#projSel{font-weight:700;border:2px solid var(--acc);color:var(--acc);font-size:13px}
+.search{position:relative;flex:1;max-width:440px}
+.search input{width:100%}
+#sres{position:absolute;top:34px;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px #0002;display:none;max-height:380px;overflow:auto;z-index:40}
+.shead{padding:6px 10px;font-size:11px;color:var(--mut);background:#f9fafb;border-bottom:1px solid var(--line)}
+.sitem{padding:7px 10px;border-bottom:1px solid #f1f2f4;cursor:pointer}
+.sitem:hover{background:var(--accl)}
+.lang button{padding:2px 7px;font-size:11px}
+.lang button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.me{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.av{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:700;flex:none}
+/* layout */
+.wrap{display:flex;min-height:calc(100vh - 54px)}
+nav{width:170px;background:#fff;border-right:1px solid var(--line);padding:10px 0;flex:none}
+nav a{display:block;padding:8px 14px;color:var(--txt);text-decoration:none;border-left:3px solid transparent}
+nav a.on{background:var(--accl);border-left-color:var(--acc);font-weight:600}
+nav .sub{display:block;font-size:11px;color:var(--mut);font-weight:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav .pnote{margin:16px 12px 0;font-size:11px;color:var(--mut);border-top:1px solid var(--line);padding-top:10px}
+main{flex:1;min-width:0;padding:12px}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:10px}
+.note{font-size:11px;color:var(--mut);flex-basis:100%}
+.legend{display:flex;gap:10px;font-size:12px}
+/* task indicator */
+.ti{font-size:11px;white-space:nowrap}
+.ti.overdue{color:var(--red);font-weight:600}
+.ti.today{color:var(--green);font-weight:600}
+.ti.future{color:var(--grey)}
+.ti.none{color:var(--yellow);font-weight:600}
+/* kanban */
+.board{display:flex;gap:8px;overflow-x:auto;padding-bottom:70px;align-items:flex-start}
+.col{width:232px;flex:none;background:#eceef1;border-radius:8px;border:2px solid transparent}
+.col.over{border-color:var(--acc);background:var(--accl)}
+.colh{padding:8px;border-bottom:1px solid #dcdfe4}
+.cn{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm{font-size:12px;color:var(--mut)}
+.cards{padding:6px;max-height:calc(100vh - 250px);overflow-y:auto;min-height:60px}
+.card{background:#fff;border-radius:6px;padding:7px 8px;margin-bottom:6px;box-shadow:0 1px 2px #0001;cursor:grab;border-left:3px solid transparent}
+.card:hover{box-shadow:0 2px 6px #0002}
+.card.k-overdue{border-left-color:var(--red)}
+.card.k-today{border-left-color:var(--green)}
+.card.k-none{border-left-color:#f59e0b}
+.ct{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cf{display:flex;align-items:center;gap:6px;margin-top:4px}
+.cf .amt{font-size:12px;font-weight:600;flex:1}
+.cf .amt.zero{color:var(--grey);font-weight:normal}
+.more{display:block;text-align:center;padding:8px 4px;font-size:12px;background:#fff;border:1px dashed #b6bcc6;border-radius:6px;text-decoration:none}
+.empty{color:var(--grey);text-align:center;font-size:12px;padding:12px 0}
+.dropbar{position:fixed;left:182px;right:12px;bottom:10px;display:flex;gap:10px;z-index:25;opacity:.35;pointer-events:none}
+body.dragging .dropbar{opacity:1;pointer-events:auto}
+body.dragging .dz{padding:22px}
+.dz{flex:1;text-align:center;padding:5px;border-radius:8px;font-weight:700;font-size:15px;border:2px dashed}
+.dz.won{background:#ecfdf5;color:var(--green);border-color:#86efac}
+.dz.lost{background:#fef2f2;color:var(--red);border-color:#fca5a5}
+.dz.over{filter:brightness(.93);border-style:solid}
+/* deal */
+.dealh{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row h2{margin:0;font-size:18px}
+.sp{flex:1}
+.big{font-size:16px;font-weight:700}
+.badge{font-size:11px;padding:2px 7px;border-radius:10px;background:#e5e7eb}
+.st-open{background:#dbeafe;color:#1e40af}.st-won{background:#dcfce7;color:#166534}.st-lost{background:#fee2e2;color:#991b1b}.arch{background:#f3f4f6;color:#6b7280}
+.stages{display:flex;gap:2px;margin-top:10px;flex-wrap:wrap}
+.stg{flex:1;min-width:90px;text-align:center;font-size:11px;padding:5px 4px;background:#e5e7eb;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stg:first-child{border-radius:6px 0 0 6px}.stg:last-child{border-radius:0 6px 6px 0}
+.stg.past{background:#bfdbfe}.stg.on{background:var(--acc);color:#fff;font-weight:700}
+.dgrid{display:grid;grid-template-columns:minmax(380px,1fr) minmax(400px,1.15fr);gap:10px;align-items:start}
+.box{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.box h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px}
+.grp h4{cursor:pointer;user-select:none}
+.lock{font-size:11px;font-weight:600;color:#92400e;background:#fef3c7;border-radius:10px;padding:1px 7px}
+table.kv{width:100%;border-collapse:collapse}
+.kv th{width:42%;text-align:left;font-weight:normal;color:var(--mut);padding:3px 6px 3px 0;vertical-align:top}
+.kv td{padding:3px 6px;border-radius:4px}
+.kv td.ed{cursor:text}.kv td.ed:hover{background:#f3f4f6;outline:1px dashed #cbd5e1}
+.kv td.ro{color:#6b7280;background:#fafafa}
+.kv td input{width:100%}
+.kv.small th,.kv.small td{font-size:12px;padding:2px 4px;word-break:break-all}
+.code{font-family:Consolas,monospace;white-space:pre-wrap;font-size:11px}
+.hidden-grp{margin:-4px 0 10px 4px}
+table.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;color:var(--mut);font-weight:normal;border-bottom:1px solid var(--line);padding:4px}
+.tbl td{padding:4px;border-bottom:1px solid #f1f2f4}
+.tbl tr.tot td{font-weight:700;border-bottom:none}
+.ps{font-size:11px;padding:1px 6px;border-radius:10px}
+.ps.ok{background:#dcfce7;color:#166534}.ps.wait{background:#fef3c7;color:#92400e}.ps.fail{background:#fee2e2;color:#991b1b}
+.paid{margin-top:6px;font-size:12px}
+.pp{padding:5px 0;border-bottom:1px solid #f1f2f4}
+.next{border-width:2px}
+.next.overdue{border-color:#fca5a5}.next.today{border-color:#86efac}.next.none{border-color:#fcd34d}
+.nt{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px;background:#f9fafb;border-radius:6px}
+.nt .sp{flex:1}
+.warn{color:var(--yellow);font-weight:600;padding:6px;background:#fffbeb;border-radius:6px}
+.asknext{margin-top:8px;padding:8px;background:#eff6ff;border-radius:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.qa{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+.qa #qaSubj{flex:1;min-width:120px}
+.qchips{font-size:12px;margin-top:4px;color:var(--mut)}
+.qchips a{margin-right:8px}
+.noteadd{display:flex;gap:6px;align-items:flex-start}
+.noteadd textarea{flex:1}
+.ffilter{display:flex;gap:4px;flex-wrap:wrap;margin:10px 0 6px}
+.fchip{font-size:12px;padding:2px 9px;border-radius:12px;border:1px solid var(--line);cursor:pointer;background:#fff}
+.fchip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.fi{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid #f1f2f4}
+.fi .ic{width:22px;flex:none;text-align:center}
+.fi .fb{flex:1;min-width:0}
+.meta{font-size:11px;color:var(--mut)}
+.fi s{color:#9ca3af}
+.fi.call.missed b{color:var(--red)}
+.auto{font-size:12px;color:var(--green);margin-top:2px}
+details summary{cursor:pointer}
+details[open] summary{margin-bottom:4px}
+.fi.note .txt{background:#fffbeb;border-radius:6px;padding:5px 8px;margin-top:2px;white-space:pre-wrap}
+/* list */
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.filters label{display:flex;flex-direction:column;font-size:11px;color:var(--mut);gap:2px}
+.saved{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.summary{font-size:12px;color:var(--mut);margin:6px 0}
+.bulk{position:sticky;top:58px;z-index:10;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:#1f2937;color:#fff;border-radius:8px;padding:6px 10px;margin-bottom:6px}
+.bulk a{color:#93c5fd}
+.bulk button.dis{background:#374151;color:#9ca3af;border-color:#4b5563}
+table.list{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:8px}
+.list th{text-align:left;font-weight:600;font-size:12px;color:#4b5563;padding:6px;border-bottom:1px solid var(--line);background:#f9fafb;position:sticky;top:54px}
+.list td{padding:5px 6px;border-bottom:1px solid #f1f2f4;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.list tr:hover td{background:#f9fafb;cursor:pointer}
+.list tr.sel td{background:var(--accl)}
+.pager{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:12px}
+.colmenu{position:relative;display:inline-block}
+.colmenu .dd{position:absolute;right:0;top:30px;background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px #0002;padding:8px 10px;z-index:20;width:230px}
+.colmenu .dd label{display:block;padding:2px 0}
+/* modal, toast, panel */
+#modal{position:fixed;inset:0;background:#0006;display:none;align-items:center;justify-content:center;z-index:60}
+.mbox{background:#fff;border-radius:10px;padding:16px 18px;width:420px;max-width:92vw}
+.mbox h3{margin:0 0 10px}
+.mbox label{display:block;margin:8px 0;font-size:12px;color:var(--mut)}
+.mbox select,.mbox textarea{width:100%;margin-top:2px}
+.mbtn{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.err{color:var(--red);font-size:12px;min-height:16px}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#111827;color:#fff;padding:9px 14px;border-radius:8px;font-size:13px;display:none;z-index:70;max-width:640px;box-shadow:0 8px 24px #0004}
+#panel{position:fixed;right:12px;bottom:12px;width:370px;max-height:48vh;overflow:auto;background:#fffbeb;border:2px solid #f59e0b;border-radius:10px;padding:10px 14px;z-index:50;box-shadow:0 8px 30px #0003;font-size:12px}
+#panel h3{margin:0 0 6px;font-size:14px;display:flex;align-items:center}
+#panel h4{margin:10px 0 4px;font-size:12px}
+#panel ol{margin:0;padding-left:18px}
+#panel li{margin-bottom:3px}
+#panel.min{width:auto;max-height:none;padding:6px 10px;cursor:pointer}
+#panel.min .pbody{display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand">Alpi CRM</span>
+  <span class="proto" data-i="proto"></span>
+  <label class="hl"><span data-i="project"></span>
+    <select id="projSel" onchange="setProject(this.value)">
+      <option value="alpi">AI-школа ALPI</option>
+      <option value="franch">«Франч»</option>
+    </select>
+  </label>
+  <div class="search">
+    <input id="q" autocomplete="off" oninput="onSearch(this.value)" onfocus="onSearch(this.value)" onblur="setTimeout(function(){$('#sres').style.display='none'},200)">
+    <div id="sres"></div>
+  </div>
+  <label class="hl"><span data-i="role"></span>
+    <select id="roleSel" onchange="state.role=this.value;state.sel.clear();render()">
+      <option>Адміністратор</option><option>Керівник</option><option>Тімлід</option><option>Менеджер</option>
+    </select>
+  </label>
+  <span class="lang" title="Мова інтерфейсу"><button data-l="uk" onclick="setLang('uk')">UK</button><button data-l="ru" onclick="setLang('ru')">RU</button></span>
+  <span class="me"><span class="av" style="background:#2563eb">ОК</span><span>Олена Коваль</span></span>
+</header>
+
+<div class="wrap">
+  <nav>
+    <a data-s="kanban" onclick="go('kanban')"><span data-i="nav_kanban"></span></a>
+    <a data-s="deal" onclick="go('deal')"><span data-i="nav_deal"></span><span class="sub" id="navDeal"></span></a>
+    <a data-s="list" onclick="go('list')"><span data-i="nav_list"></span></a>
+    <div class="pnote" id="pnote"></div>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<div id="modal"></div>
+<div id="toast"></div>
+
+<div id="panel">
+  <h3><span>📌 Припущення прототипу</span><span style="flex:1"></span><button class="mini" onclick="togglePanel(event)">згорнути</button></h3>
+  <div class="pbody">
+    <div class="mut">Пишу по-русски для владельца. Данные выдуманы; всё в памяти, перезагрузка страницы = сброс.</div>
+    <h4>Допущения</h4>
+    <ol>
+      <li>Один вариант на каждый экран (по заданию), а не три альтернативы. Варианты — следующим шагом, если какой-то экран «не тот».</li>
+      <li>Проект выбирается в шапке. При переключении сбрасываются экран, фильтры, выделение, поиск; данных другого проекта не видно нигде, включая быстрый поиск.</li>
+      <li>Роль — своя в каждом проекте: Олена в AI-школе «Менеджер», во «Франче» «Керівник». Переключатель роли в шапке — только для демонстрации прав.</li>
+      <li>Сумма этапа на канбане — в ₴ по курсу НБУ на сегодня (курсы выдуманы: 1 € = 45,20 ₴, 1 $ = 41,45 ₴). На карточках — сумма в валюте сделки.</li>
+      <li>Первый этап «Новий лід» (~84 тыс.): на доске первые 20 карточек (новые сверху), остальные — ссылкой в список. Счётчик и сумма этапа приходят с сервера, а не считаются в браузере.</li>
+      <li>Зона «Виграно / Програно» появляется внизу при перетаскивании. Проигрыш требует группу и причину из справочника проекта + необязательный комментарий; свободного ввода причины нет.</li>
+      <li>Права на группы полей: для менеджера группа «Закриття» только для чтения (🔒), группа «Службове» скрыта; для администратора и руководителя обе открыты.</li>
+      <li>Массовые действия: архив, смена этапа и удаление — у администратора и руководителя; передача другому менеджеру — ещё и у тимлида. Для менеджера кнопки серые, с подсказкой «немає права».</li>
+      <li>В карточке одна лента с чипами-фильтрами по типам, новые события сверху. Регистрации свёрнуты; «перша/остання» вычисляется из списка.</li>
+      <li>Пропущенный входящий звонок сам ставит задачу «Передзвонити» на сегодня ответственному.</li>
+      <li>Список: серверная пагинация по 25 строк. В прототипе ~240 сгенерированных строк на воронку ALPI, фильтры работают по ним.</li>
+      <li>Язык UI — украинский; переключатель RU переводит только шапку, меню и зоны закрытия (показывает намерение i18n). Названия этапов, полей, причин — данные проекта и не переводятся.</li>
+      <li>Телефоны с несуществующим кодом +380 00, почта @example.com, сайты *.example.</li>
+    </ol>
+    <h4>Открытые вопросы к владельцу</h4>
+    <ol>
+      <li>В AI-школе выигрыш фиксирует платёж. Разрешать ли менеджеру вручную тянуть сделку в «Виграно» или только автоматически по оплате?</li>
+      <li>Первый этап на канбане: сколько карточек показывать и в каком порядке — новые, с ближайшей задачей или «без задач» первыми? Или первый этап вообще прятать с доски?</li>
+      <li>Сумма этапа: в ₴ по НБУ (как здесь) или в основной валюте проекта (EUR, как в Pipedrive)?</li>
+      <li>Нужен ли свободный ввод причины проигрыша (в Pipedrive он разрешён) или только справочник + комментарий?</li>
+      <li>Лента: одна общая с фильтрами (как здесь) или вкладки по типам? Регистрации свёрнуты или развёрнуты по умолчанию?</li>
+      <li>Где показывать «возможный дубль» и «клиент уже в работе у …» — плашкой над карточкой? (в прототипе нет)</li>
+      <li>Сохранённые фильтры: только личные или ещё и общие на проект (их задаёт руководитель)? Какие колонки списка по умолчанию?</li>
+      <li>Нужен ли на канбане фильтр «мои / моя команда / все» и быстрый фильтр по индикатору задачи?</li>
+      <li>Группы полей в карточке: какие развёрнуты по умолчанию и должен ли набор групп зависеть от воронки и этапа?</li>
+      <li>Массовое действие на «все 86 тыс. по фильтру» — разрешать или ограничить (например, до 1000 за раз с подтверждением)?</li>
+      <li>Список на 86 тыс.: страницы (как здесь) или бесконечная прокрутка?</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const TODAY='2026-11-04';
+const RATES={UAH:1,EUR:45.20,USD:41.45};
+const SYM={UAH:'₴',EUR:'€',USD:'$'};
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const R=mulberry32(20261104);
+const pick=a=>a[Math.floor(R()*a.length)];
+const rint=(a,b)=>a+Math.floor(R()*(b-a+1));
+const rstr=n=>{const c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_';let s='';for(let i=0;i<n;i++)s+=c[Math.floor(R()*c.length)];return s};
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtN=n=>Math.round(n).toLocaleString('uk-UA');
+const money=(a,c)=>a?fmtN(a)+' '+SYM[c]:'без суми';
+function addDays(s,n){const d=new Date(s+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)}
+function dayDiff(s){return Math.round((Date.parse(s+'T12:00:00Z')-Date.parse(TODAY+'T12:00:00Z'))/864e5)}
+const dm=s=>s.slice(8,10)+'.'+s.slice(5,7);
+const dmy=s=>dm(s)+'.'+s.slice(0,4);
+const fmtAt=at=>dmy(at.slice(0,10))+(at.length>10?' '+at.slice(11,16):'');
+function nowAt(){const d=new Date();return TODAY+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
+const hm=()=>String(rint(8,21)).padStart(2,'0')+':'+String(rint(0,59)).padStart(2,'0');
+const minS=(a,b)=>a<b?a:b;
+const dur=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+let TID=1;const tid=()=>'T'+(TID++);
+
+/* ---------- i18n (только шапка, меню, зоны закрытия) ---------- */
+const I18N={
+ uk:{proto:'ПРОТОТИП · дані вигадані',project:'Проєкт',search:'Швидкий пошук: угода, ім’я, телефон, email, №…',role:'Роль у проєкті',nav_kanban:'Канбан',nav_deal:'Угода',nav_list:'Список угод',won:'Виграно',lost:'Програно',scope:'Пошук лише в проєкті',pnote:'Ви в проєкті «{p}». Дані інших проєктів тут недоступні.'},
+ ru:{proto:'ПРОТОТИП · данные выдуманы',project:'Проект',search:'Быстрый поиск: сделка, имя, телефон, email, №…',role:'Роль в проекте',nav_kanban:'Канбан',nav_deal:'Сделка',nav_list:'Список сделок',won:'Выиграно',lost:'Проиграно',scope:'Поиск только в проекте',pnote:'Вы в проекте «{p}». Данные других проектов здесь недоступны.'}
+};
+const t=k=>I18N[state.lang][k]||k;
+
+/* ---------- reference data ---------- */
+const FN_UK=[['Ірина','iryna'],['Олег','oleh'],['Наталія','nataliia'],['Максим','maksym'],['Тетяна','tetiana'],['Богдан','bohdan'],['Юлія','yuliia'],['Віктор','viktor'],['Оксана','oksana'],['Артем','artem'],['Світлана','svitlana'],['Роман','roman'],['Катерина','kateryna'],['Денис','denys'],['Анастасія','anastasiia'],['Ігор','ihor'],['Людмила','liudmyla'],['Павло','pavlo'],['Вікторія','viktoriia'],['Сергій','serhii']];
+const LN_UK=[['Мельник','melnyk'],['Шевченко','shevchenko'],['Бойко','boiko'],['Кравченко','kravchenko'],['Ковальчук','kovalchuk'],['Олійник','oliinyk'],['Поліщук','polishchuk'],['Савченко','savchenko'],['Руденко','rudenko'],['Марченко','marchenko'],['Мороз','moroz'],['Гнатюк','hnatiuk'],['Петренко','petrenko'],['Литвин','lytvyn'],['Кузьменко','kuzmenko'],['Онищенко','onyshchenko'],['Павленко','pavlenko'],['Захарченко','zakharchenko']];
+const FN_RU=[['Алексей','aleksei'],['Марина','marina'],['Дмитрий','dmitrii'],['Елена','elena'],['Игорь','igor'],['Ольга','olga'],['Константин','konstantin'],['Светлана','svetlana'],['Андрей','andrei'],['Юлия','yulia']];
+const LN_RU=[['Смирнов','smirnov'],['Волков','volkov'],['Соколов','sokolov'],['Лебедев','lebedev'],['Новиков','novikov'],['Козлов','kozlov'],['Морозов','morozov'],['Павлов','pavlov']];
+const ORGS=['Кофейня «Зерно»','Пекарня «Колос»','Барбершоп «Борода»','Студия йоги «Прана»','Автомойка «Блеск»','Детский центр «Умка»','Суши «Мастер»','Фитнес «Атлет»','Клиника «Дента+»','Цветы «Лаванда»','Школа английского «Speak Up»','Кондитерская «Эклер»'];
+const WEBINARS=[{n:'AI-контент з нуля: перший заробіток',d:'28.10.2026 19:00',slug:'ai-content'},{n:'AI-відео: Sora, Kling, Runway',d:'02.11.2026 19:00',slug:'ai-video'},{n:'Нейромережі для дизайнера',d:'21.10.2026 19:00',slug:'ai-design'}];
+const UAS=['Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 [FBAN/FBIOS]','Mozilla/5.0 (Linux; Android 15; SM-A556B) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36','Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 Version/18.1 Safari/605.1.15'];
+const CH_ALPI=[{label:'Facebook Ads',s:'facebook',m:'cpc',c:'ai_content_webinar_oct',content:'video_v3',fb:1,ref:'https://l.facebook.com/'},{label:'Instagram Stories',s:'instagram',m:'stories',c:'ai_video_nov',content:'reels_2',fb:1,ref:'https://l.instagram.com/'},{label:'Google Ads',s:'google',m:'cpc',c:'search_ai_kurs',term:'курс ai контент',g:1,ref:'https://www.google.com/'},{label:'ManyChat',s:'manychat',m:'bot',c:'dm_webinar'},{label:'Прямий захід',s:'—',m:'—',c:'—'}];
+const CH_FR=[{label:'Google Ads',s:'google',m:'cpc',c:'franchise_upakovka',term:'упаковка франшизы',g:1,ref:'https://www.google.com/'},{label:'Facebook Ads',s:'facebook',m:'cpc',c:'leadform_owners',fb:1,ref:'https://l.facebook.com/'},{label:'LinkedIn',s:'linkedin',m:'social',c:'owners_b2b',ref:'https://www.linkedin.com/'},{label:'Рекомендація',s:'—',m:'—',c:'—'}];
+const PROD_ALPI=[{n:'AI-контент START',EUR:690,UAH:31000,USD:750},{n:'AI-контент PRO',EUR:1190,UAH:53500,USD:1290},{n:'AI-контент MAX',EUR:1990,UAH:89500,USD:2150},{n:'Модуль «AI-відео»',EUR:100,UAH:4500,USD:110}];
+const PROD_PLAT=[{n:'Платформа: річний доступ',EUR:290,UAH:13000,USD:315},{n:'Платформа: менторський пакет',EUR:590,UAH:26500,USD:640}];
+const PROD_FR=[{n:'Пакет START 2.0',EUR:3500,UAH:158000,USD:3800},{n:'Пакет PRO 2.0',EUR:6900,UAH:312000,USD:7500},{n:'Пакет MAX 2.0',EUR:12000,UAH:542000,USD:13000},{n:'Пакет VIP',EUR:19000,UAH:858000,USD:20600},{n:'Стратегия и концепция',EUR:1500,UAH:68000,USD:1630}];
+
+const FIELDS_ALPI=[
+ {name:'Кваліфікація',open:true,items:[['Тип клієнта',['Новачок','Фрилансер','Підприємець','Найманий працівник']],['Професія клієнта',['Дизайнер','Бухгалтер','SMM-спеціаліст','Вчитель','Програміст']],['Головний мотив в AI',['Додатковий дохід','Нова професія','Для свого бізнесу']],['Якість ліда',['Гарячий','Теплий','Холодний']],['Score',['78','42','91','15']],['Бар’єр',['Ціна','Час','Недовіра']]]},
+ {name:'Вебінар',open:true,items:[['Вебінар',['AI-контент з нуля','AI-відео: Sora, Kling, Runway']],['Дата вебінару',['28.10.2026','02.11.2026']],['Рівень прогріву',['Високий','Середній','Низький']],['Почав дивитись',['19:03','19:15']],['Закінчив дивитись',['20:41','19:40']],['% перегляду',['86','40','12']]]},
+ {name:'Курс',open:false,items:[['Дата броні',['30.10.2026']],['Потік',['Потік 7','Потік 8']],['Інтерес до курсу',['AI-відео','AI-фото','AI-тексти']],['Девайс',['MacBook','Windows-ноутбук','Тільки телефон']]]},
+ {name:'Закриття',lock:'closing',open:true,items:[['Пакет',['PRO','START','MAX']],['Тип закриття',['Бронь + доплата','Повна оплата','Розстрочка']],['Деталізація закриття',['—']],['Дата виграної угоди',['—']]]},
+ {name:'Службове',lock:'service',open:true,items:[['Bitrix ID',['48213','51907']],['Підрядник',['Агенція «Північ»','Свій таргет']],['Вартість ліда',['3,10 $','4,80 $']]]}
+];
+const FIELDS_FR=[
+ {name:'Квалификация',open:true,items:[['Сфера бизнеса',['Кофейни','Пекарни','Барбершопы','Детские центры']],['Кол-во точек',['3','1','7','12']],['Как давно работают (лет)',['5','2','9']],['Страна регистрации',['Украина','Польша','Молдова']],['Приоритет',['Высокий','Средний','Низкий']],['VIP',['нет','да']]]},
+ {name:'Встреча',open:true,items:[['Оценка встречи',['Хорошая','Средняя','Плохая']],['Материалы перед встречей',['Отправлены','Нет']],['Пакет услуг',['PRO 2.0','MAX 2.0','START 2.0']],['Потенциальный бюджет',['5–10 тыс. €','до 5 тыс. €','10+ тыс. €']]]},
+ {name:'ВПК',open:false,items:[['Что хочу от встречи',['Понять стоимость упаковки','Оценить потенциал сети']],['Какие проблемы',['Нет системы обучения','Сложно масштабироваться']]]},
+ {name:'Закриття',lock:'closing',open:true,items:[['Пакет',['PRO 2.0','MAX 2.0']],['Дата подписания',['—']],['Тип оплаты',['Поэтапно','100% предоплата']]]},
+ {name:'Службове',lock:'service',open:true,items:[['Bitrix ID',['12077']],['Подрядчик',['—']]]}
+];
+const S=a=>a.map(([name,total,render,hiddenSum])=>({name,total,render,hiddenSum,hidden:0}));
+
+const PROJECTS={
+ alpi:{key:'alpi',name:'AI-школа ALPI',acc:'#2563eb',accl:'#eff6ff',defRole:'Менеджер',fields:FIELDS_ALPI,
+  users:[{id:'ok',n:'Олена Коваль',c:'#2563eb'},{id:'as',n:'Андрій Шевчук',c:'#7c3aed'},{id:'mb',n:'Марія Бондар',c:'#db2777'},{id:'dt',n:'Дмитро Ткач',c:'#0891b2'},{id:'il',n:'Ірина Лисенко',c:'#65a30d'}],
+  taskTypes:['Зв’язатися','КОНСУЛЬТАЦІЯ','Дожим','Дізнатись рішення','Очікую оплату','Доплата','Мессенджер','Передзвонити'],
+  missedType:'Передзвонити',
+  lost:{'АІ 1 · До вебінару':['Невірний номер','Не виходить на зв’язок','Не цільовий (без доходу / неповнолітній)','Не пам’ятає реєстрацію'],'АІ 2 · Після вебінару':['Дорого','Немає часу зараз','Не вірить у результат','Обрав інший курс'],'АІ 3 · Після броні':['Повернення броні','Фінансові обставини','Не погодила родина']},
+  pipelines:[
+   {id:'alpi',name:'ALPI',amountFrom:5,fillers:220,stages:S([['Новий лід',84332,20,0],['Передано в роботу',0,0,0],['Був на вебінарі',890,8,0],['Не вийшов на зв’язок',325,6,0],['Дивиться запис вебінар',60,5,0],['!Приймає рішення',130,6,1254000],['Сплатив бронювання',80,6,3381000],['Виставили рахунок',30,5,1270500],['Відкладений попит',500,5,2102000]])},
+   {id:'plat',name:'Платформа (допродаж)',amountFrom:3,fillers:40,stages:S([['Новий лід (Д)',425,6,0],['Передано в роботу (Д)',40,4,0],['Не вийшов на зв’язок (Д)',150,4,0],['Приймає рішення (Д)',90,4,612000],['Сплатив бронювання (Д)',15,3,203000],['Виставили рахунок (Д)',10,3,148000],['Відкладений попит (Д)',160,3,420000]])}
+  ]},
+ franch:{key:'franch',name:'«Франч»',acc:'#b45309',accl:'#fff7ed',defRole:'Керівник',fields:FIELDS_FR,
+  users:[{id:'ok',n:'Олена Коваль',c:'#2563eb'},{id:'sm',n:'Сергей Морозов',c:'#9333ea'},{id:'ab',n:'Анна Белова',c:'#e11d48'},{id:'vk',n:'Виктор Кравец',c:'#0d9488'}],
+  taskTypes:['Звонок 📞','1-я Встреча 👫','2-я Встреча 👫','Повторная встреча 🔄','Фоллоу-ап ⬆️','Задача','Перезвонить'],
+  missedType:'Перезвонить',
+  lost:{'Квалификация':['Нецелевой (покупатель франшизы)','Нет действующего бизнеса','Одна точка, нет системы'],'После встречи':['Дорого','Не готов сейчас','Ушёл к конкуренту'],'Договор':['Не согласовали условия','Юридические вопросы']},
+  pipelines:[
+   {id:'fr',name:'Франч',amountFrom:5,fillers:120,stages:S([['Новый лид',1300,10,0],['Первый контакт',200,5,0],['Не вышел на контакт',240,5,0],['Прошёл квалификацию',20,4,0],['Назначена встреча',55,4,0],['Встреча проведена',210,5,1850000],['Вторая встреча назначена',100,4,1420000],['Вторая встреча проведена',190,4,2260000],['Повторные встречи',120,4,1630000],['Подписание договора',10,3,920000]])}
+  ]}
+};
+
+/* ---------- generation ---------- */
+function userName(P,id){const u=P.users.find(x=>x.id===id);return u?u.n:'—'}
+function genContact(P){
+ const isF=P.key==='franch';const fn=pick(isF?FN_RU:FN_UK);let ln=pick(isF?LN_RU:LN_UK);
+ let lnU=ln[0],lnL=ln[1];if(isF&&/[ая]$/.test(fn[0])){lnU+='а';lnL+='a'}
+ return {name:fn[0]+' '+lnU,phone:'+380 00 '+rint(100,999)+' '+rint(10,99)+' '+rint(10,99),email:(fn[1]+'.'+lnL+rint(1,99)+'@example.com')};
+}
+function genReg(P,date,time,over){
+ const isF=P.key==='franch';const ch=pick(isF?CH_FR:CH_ALPI);const web=pick(WEBINARS);
+ const other={ad_id:(ch.fb||ch.g)?String(rint(100000000,999999999))+String(rint(100000,999999)):null,fbp:ch.fb?'fb.1.'+Date.parse(date)+'.'+rint(100000000,999999999):null,client_id:rint(100000000,999999999)+'.'+rint(100000000,999999999),form:isF?'consult_form_v2':'webinar_form_v3',lang:'uk',button:isF?'hero_cta':'register_top'};
+ const r={'Джерело':ch.label,'utm_source':ch.s,'utm_medium':ch.m,'utm_campaign':ch.c,'utm_term':ch.term||'—','utm_content':ch.content||'—','fbclid':ch.fb?'IwAR'+rstr(24):'—','gclid':ch.g?'Cj0KCQjw'+rstr(20):'—','Сторінка':isF?'https://franch.example/konsultaciya':'https://alpi.example/webinar/'+web.slug,'Referrer':ch.ref||'—','User agent':pick(UAS),'Вебінар':isF?'—':web.n+' · '+web.d,'Час реєстрації':dmy(date)+' '+time,'Інші параметри':JSON.stringify(other,null,1)};
+ return Object.assign(r,over||{});
+}
+function addPay(d,kind,amount,status,date,rate){
+ date=minS(date,TODAY);
+ if(rate===undefined)rate=d.cur==='UAH'?null:+(RATES[d.cur]+(R()-.5)*0.3).toFixed(2);
+ const p={kind,amount,status,date,rate,uah:status==='ok'?Math.round(amount*(rate||1)):null};
+ d.payments.push(p);d.feed.push({t:'pay',at:date+' '+hm(),p});
+}
+function genDeal(P,pl,si,filler,num){
+ const isF=P.key==='franch';const c=genContact(P);const org=isF?pick(ORGS):null;
+ const created=addDays(TODAY,-(si===0?rint(0,25):rint(si*2,si*2+45)));
+ let amount=0,cur='EUR',products=[];
+ if(si>=pl.amountFrom||(!isF&&si>=2&&R()<.1)){
+  cur=isF?(R()<.85?'EUR':'USD'):(R()<.6?'EUR':(R()<.6?'UAH':'USD'));
+  const pr=pick(pl.id==='plat'?PROD_PLAT:isF?PROD_FR:PROD_ALPI.slice(0,3));
+  products=[{n:pr.n,qty:1,price:pr[cur]}];amount=pr[cur];
+ }
+ const owner=pick(P.users).id;
+ const d={id:'D'+num,num,pipeline:pl.id,stage:si,title:isF?org+' — франшиза':(pl.id==='plat'?c.name+' — допродаж':c.name),contact:c,org,amount,cur,products,owner,status:'open',archived:false,deleted:false,created,tasks:[],payments:[],feed:[],filler,fields:null,participants:[]};
+ if(isF&&R()<.4)d.participants.push({n:genContact(P).name,role:'партнёр',phone:genContact(P).phone});
+ const r=R();const kind=si===0?(r<.7?'none':r<.85?'future':r<.95?'overdue':'today'):(r<.3?'overdue':r<.55?'today':r<.85?'future':'none');
+ if(kind!=='none'){const date=kind==='overdue'?addDays(TODAY,-rint(1,9)):kind==='today'?TODAY:addDays(TODAY,rint(1,14));d.tasks.push({id:tid(),type:pick(P.taskTypes),subj:'',date,time:R()<.6?hm():'',done:false,who:owner})}
+ const sname=pl.stages[si].name;
+ if(!isF&&amount&&/бронювання|рахунок/.test(sname)){const b=cur==='UAH'?5000:100;addPay(d,'Бронь',b,'ok',addDays(created,1));if(/рахунок/.test(sname))addPay(d,'Рахунок',amount-b,'wait',addDays(created,3))}
+ if(isF&&amount&&si===pl.stages.length-1)addPay(d,'Рахунок',amount,'wait',addDays(created,5));
+ const t0=hm();
+ d.feed.push({t:'reg',at:created+' '+t0,data:genReg(P,created,t0)});
+ d.feed.push({t:'change',at:created+' '+t0,who:'Система (з реєстрації)',f:'Етап',from:'—',to:pl.stages[0].name});
+ if(si>0)d.feed.push({t:'change',at:minS(addDays(created,1),TODAY)+' '+hm(),who:userName(P,owner),f:'Етап',from:pl.stages[0].name,to:sname});
+ if(si>1&&R()<.7)d.feed.push({t:'call',at:minS(addDays(created,1),TODAY)+' '+hm(),dir:R()<.5?'out':'in',dur:rint(30,900),who:userName(P,owner),rec:true});
+ d.tasks.forEach(tk=>d.feed.push({t:'task',at:minS(addDays(tk.date,-1),TODAY)+' '+hm(),who:userName(P,owner),act:'created',task:tk}));
+ return d;
+}
+function makeDemo(P,num){
+ const pl=P.pipelines[0];
+ const d={id:'D'+num,num,demo:true,pipeline:'alpi',stage:6,title:'Ірина Мельник — AI-контент PRO',contact:{name:'Ірина Мельник',phone:'+380 00 123 45 67',email:'iryna.melnyk@example.com'},org:null,amount:1290,cur:'EUR',
+  products:[{n:'AI-контент PRO',qty:1,price:1190},{n:'Модуль «AI-відео»',qty:1,price:100}],owner:'ok',status:'open',archived:false,deleted:false,created:'2026-10-26',tasks:[],payments:[],feed:[],filler:false,fields:null,
+  participants:[{n:'Андрій Мельник',role:'співрішення (чоловік)',phone:'+380 00 765 43 21'}]};
+ const t1={id:tid(),type:'Зв’язатися',subj:'Після ефіру',date:'2026-10-29',time:'11:00',done:true,who:'ok'};
+ const t2={id:tid(),type:'Очікую оплату',subj:'Рахунок 590 €',date:'2026-11-06',time:'',done:false,who:'ok'};
+ const t3={id:tid(),type:'Передзвонити',subj:'Пропущений дзвінок о 09:12',date:TODAY,time:'',done:false,who:'ok',auto:true};
+ d.tasks=[t1,t2,t3];
+ const me='Олена Коваль';
+ const reg1=genReg(P,'2026-10-26','19:02',{'Джерело':'Facebook Ads','utm_source':'facebook','utm_medium':'cpc','utm_campaign':'ai_content_webinar_oct','utm_term':'—','utm_content':'video_v3','fbclid':'IwAR2xQ'+rstr(20),'gclid':'—','Сторінка':'https://alpi.example/webinar/ai-content?utm_source=facebook&utm_medium=cpc','Referrer':'https://l.facebook.com/','Вебінар':'AI-контент з нуля: перший заробіток · 28.10.2026 19:00'});
+ const reg2=genReg(P,'2026-10-31','18:30',{'Джерело':'Google Ads','utm_source':'google','utm_medium':'cpc','utm_campaign':'search_ai_kurs','utm_term':'ai відео курс','utm_content':'—','fbclid':'—','gclid':'Cj0KCQjw'+rstr(20),'Сторінка':'https://alpi.example/webinar/ai-video','Referrer':'https://www.google.com/','Вебінар':'AI-відео: Sora, Kling, Runway · 02.11.2026 19:00'});
+ d.feed.push(
+  {t:'reg',at:'2026-10-26 19:02',data:reg1},
+  {t:'change',at:'2026-10-26 19:02',who:'Система (з реєстрації)',f:'Етап',from:'—',to:'Новий лід'},
+  {t:'call',at:'2026-10-27 10:15',dir:'out',dur:277,who:me,rec:true},
+  {t:'note',at:'2026-10-27 10:21',who:me,text:'Працює дизайнером, хоче перейти в AI-контент. Буде на ефірі 28.10. Цікавить саме відео.'},
+  {t:'task',at:'2026-10-27 10:22',who:me,act:'created',task:t1},
+  {t:'change',at:'2026-10-28 21:40',who:'Система (вебінарна платформа)',f:'Етап',from:'Новий лід',to:'Був на вебінарі'},
+  {t:'change',at:'2026-10-28 21:40',who:'Система (вебінарна платформа)',f:'Вебінар · % перегляду',from:'—',to:'86'},
+  {t:'task',at:'2026-10-29 11:02',who:me,act:'done',task:t1},
+  {t:'call',at:'2026-10-29 11:05',dir:'in',dur:768,who:me,rec:true},
+  {t:'change',at:'2026-10-29 11:24',who:me,f:'Етап',from:'Був на вебінарі',to:'!Приймає рішення'},
+  {t:'change',at:'2026-10-29 11:25',who:me,f:'Закриття · Пакет',from:'—',to:'PRO'},
+  {t:'change',at:'2026-10-30 14:04',who:'Система (з платежу)',f:'Етап',from:'!Приймає рішення',to:'Сплатив бронювання'},
+  {t:'change',at:'2026-10-30 14:04',who:me,f:'Сума',from:'0 €',to:'1 290 €'},
+  {t:'reg',at:'2026-10-31 18:30',data:reg2},
+  {t:'note',at:'2026-11-01 12:15',who:me,text:'Доплатила 500 €. Залишок 590 € — чекає зарплату, обіцяла до 06.11.'},
+  {t:'task',at:'2026-11-03 16:41',who:me,act:'created',task:t2},
+  {t:'call',at:'2026-11-04 09:12',dir:'missed',dur:0,who:me,rec:false},
+  {t:'task',at:'2026-11-04 09:12',who:'Система (з пропущеного дзвінка)',act:'created',task:t3}
+ );
+ addPay(d,'Бронь',200,'ok','2026-10-30',45.32);
+ addPay(d,'Доплата',500,'ok','2026-11-01',45.22);
+ addPay(d,'Рахунок',590,'wait','2026-11-03',null);
+ // фиксированное время у платёжных событий демо-сделки
+ const pf=d.feed.filter(e=>e.t==='pay');pf[0].at='2026-10-30 14:03';pf[1].at='2026-11-01 12:10';pf[2].at='2026-11-03 16:40';
+ pl.stages[6].hidden-=1;
+ return d;
+}
+function genProject(P){
+ P.deals=[];let num=P.key==='alpi'?100000:5000;
+ P.pipelines.forEach(pl=>{
+  pl.stages.forEach((s,si)=>{s.hidden=s.total-s.render;for(let i=0;i<s.render;i++)P.deals.push(genDeal(P,pl,si,false,++num))});
+  const cands=pl.stages.map((s,i)=>({i,w:Math.sqrt(s.hidden)})).filter(x=>x.w>0);const W=cands.reduce((a,x)=>a+x.w,0);
+  for(let k=0;k<(pl.fillers||0);k++){let r=R()*W,si=cands[0].i;for(const x of cands){if((r-=x.w)<=0){si=x.i;break}}
+   const d=genDeal(P,pl,si,true,++num);if(R()<.12)d.archived=true;P.deals.push(d)}
+ });
+ if(P.key==='alpi')P.deals.push(makeDemo(P,++num));
+}
+Object.values(PROJECTS).forEach(genProject);
+
+/* ---------- state ---------- */
+const defaultF=()=>({stage:'',owner:'',task:'',arch:'no',status:'open',from:'',to:''});
+const state={proj:'alpi',pl:'alpi',lang:'uk',screen:'kanban',role:'Менеджер',dealId:null,f:defaultF(),page:1,sel:new Set(),
+ cols:new Set(['contact','stage','amount','owner','task','created','arch']),colMenu:false,
+ saved:[{n:'Мої прострочені',f:{owner:'ok',task:'overdue'}},{n:'Без задач ⚠',f:{task:'none'}},{n:'Новий лід за 7 днів',f:{stage:'0',from:addDays(TODAY,-7)}},{n:'Архівні',f:{arch:'only'}}],
+ open:{},feedF:'all',askNext:null,lastType:null,playing:null};
+const proj=()=>PROJECTS[state.proj];
+const curPl=()=>proj().pipelines.find(p=>p.id===state.pl);
+const plOf=d=>proj().pipelines.find(p=>p.id===d.pipeline);
+const byId=id=>proj().deals.find(d=>d.id===id);
+const me=()=>'Олена Коваль';
+const uah=d=>d.amount*RATES[d.cur];
+const isActive=d=>d.status==='open'&&!d.archived&&!d.deleted;
+function perms(){const r=state.role,top=r==='Адміністратор'||r==='Керівник';return{bulk:top,del:top,transfer:r!=='Менеджер',closing:r!=='Менеджер',service:top}}
+/* скрытые («серверные») счётчики этапа держим согласованными при любом изменении сделки */
+function eff(d,sign){if(!d.filler||!isActive(d))return;const s=plOf(d).stages[d.stage];s.hidden+=sign;s.hiddenSum=Math.max(0,s.hiddenSum+sign*uah(d))}
+function mutate(d,fn){eff(d,-1);fn();eff(d,1)}
+function log(d,f,from,to,who){d.feed.push({t:'change',at:nowAt(),who:who||me(),f,from,to})}
+function taskState(d){
+ const open=d.tasks.filter(x=>!x.done).sort((a,b)=>(a.date+(a.time||'99')).localeCompare(b.date+(b.time||'99')));
+ if(!open.length)return{k:'none',label:'⚠ немає задач',task:null,open};
+ const tk=open[0],dd=dayDiff(tk.date);
+ if(dd<0)return{k:'overdue',label:'● прострочено '+(-dd)+' дн',task:tk,open};
+ if(dd===0)return{k:'today',label:'● сьогодні'+(tk.time?' '+tk.time:''),task:tk,open};
+ return{k:'future',label:'● '+dm(tk.date)+(tk.time?' '+tk.time:''),task:tk,open};
+}
+function avatar(P,id){const u=P.users.find(x=>x.id===id)||{n:'?',c:'#999'};const ini=u.n.split(' ').map(w=>w[0]).join('').slice(0,2);return `<span class="av" style="background:${u.c}" title="Відповідальний: ${esc(u.n)}">${esc(ini)}</span>`}
+
+/* ---------- chrome ---------- */
+function updateChrome(){
+ const P=proj();
+ document.documentElement.style.setProperty('--acc',P.acc);document.documentElement.style.setProperty('--accl',P.accl);
+ document.querySelectorAll('[data-i]').forEach(el=>el.textContent=t(el.dataset.i));
+ $('#q').placeholder=t('search');
+ document.querySelectorAll('.lang button').forEach(b=>b.classList.toggle('on',b.dataset.l===state.lang));
+ document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.s===state.screen));
+ $('#projSel').value=state.proj;$('#roleSel').value=state.role;
+ $('#pnote').textContent=t('pnote').replace('{p}',P.name);
+ const d=byId(state.dealId);$('#navDeal').textContent=d?d.title:'';
+ document.documentElement.lang=state.lang;
+}
+function render(){updateChrome();const m=$('#main');m.innerHTML=state.screen==='kanban'?renderKanban():state.screen==='deal'?renderDeal():renderList()}
+function go(s){state.screen=s;state.colMenu=false;try{if(location.hash!=='#'+s)history.replaceState(null,'','#'+s)}catch(e){}render();window.scrollTo(0,0)}
+function setLang(l){state.lang=l;render()}
+function setProject(p){
+ state.proj=p;const P=proj();state.pl=P.pipelines[0].id;state.role=P.defRole;state.dealId=null;state.f=defaultF();state.page=1;state.sel.clear();state.feedF='all';state.askNext=null;$('#q').value='';
+ render();toast('Проєкт: '+P.name+'. Ваша роль тут — «'+P.defRole+'». Дані іншого проєкту не показуються ніде, зокрема в пошуку.');
+}
+let toastT=null;function toast(s){const el=$('#toast');el.textContent=s;el.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>el.style.display='none',3800)}
+function openModal(title,body,ok,onOk){const m=$('#modal');m.innerHTML=`<div class="mbox"><h3>${title}</h3>${body}<div id="merr" class="err"></div><div class="mbtn"><button onclick="closeModal()">Скасувати</button><button class="pri" id="mok">${ok}</button></div></div>`;m.style.display='flex';$('#mok').onclick=()=>{if(onOk()!==false)closeModal()}}
+function closeModal(){$('#modal').style.display='none'}
+function togglePanel(e){if(e)e.stopPropagation();const p=$('#panel');p.classList.toggle('min');p.querySelector('button').textContent=p.classList.contains('min')?'розгорнути':'згорнути'}
+$('#panel').addEventListener('click',()=>{if($('#panel').classList.contains('min'))togglePanel()});
+
+/* ---------- search ---------- */
+function onSearch(q){
+ const box=$('#sres');q=q.trim().toLowerCase();if(q.length<2){box.style.display='none';return}
+ const dig=q.replace(/\D/g,'');const P=proj();
+ const all=P.deals.filter(d=>!d.deleted&&(d.title.toLowerCase().includes(q)||d.contact.name.toLowerCase().includes(q)||d.contact.email.includes(q)||(d.org||'').toLowerCase().includes(q)||String(d.num)===q.replace('#','')||(dig.length>=3&&d.contact.phone.replace(/\D/g,'').includes(dig))));
+ const res=all.slice(0,8);
+ box.innerHTML=`<div class="shead">${t('scope')} ${esc(P.name)} · знайдено ${all.length} · телефон можна вводити в будь-якому форматі</div>`+
+  (res.map(d=>`<div class="sitem" onmousedown="openDeal('${d.id}');$('#q').value=''">${esc(d.title)} <span class="mut">#${d.num}</span><br><span class="mut">${esc(d.contact.name)} · ${esc(d.contact.phone)} · ${esc(plOf(d).name)} → ${esc(plOf(d).stages[d.stage].name)}${d.archived?' · архів':''}${d.status!=='open'?' · '+(d.status==='won'?'виграна':'програна'):''}</span></div>`).join('')||'<div class="sitem mut">У цьому проєкті нічого не знайдено</div>');
+ box.style.display='block';
+}
+
+/* ---------- kanban ---------- */
+function cardHtml(d){const P=proj(),ts=taskState(d);
+ return `<div class="card k-${ts.k}" draggable="true" ondragstart="dragStart(event,'${d.id}')" ondragend="dragEnd()" onclick="openDeal('${d.id}')">
+ <div class="ct" title="${esc(d.title)}">${esc(d.title)}</div><div class="cc">${esc(d.org?d.contact.name+' · '+d.org:(d.title===d.contact.name?d.contact.phone:d.contact.name))}</div>
+ <div class="cf"><span class="amt ${d.amount?'':'zero'}">${money(d.amount,d.cur)}</span><span class="ti ${ts.k}" title="${ts.task?esc(ts.task.type+(ts.task.subj?' — '+ts.task.subj:'')):'Немає запланованих задач'}">${ts.label}</span>${avatar(P,d.owner)}</div></div>`}
+function renderKanban(){
+ const P=proj(),pl=curPl();
+ let h=`<div class="toolbar"><label class="hl">Воронка <select onchange="state.pl=this.value;render()">${P.pipelines.map(p=>`<option value="${p.id}" ${p.id===pl.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+ <span class="legend"><span class="ti overdue">● прострочено</span><span class="ti today">● сьогодні</span><span class="ti future">● у майбутньому</span><span class="ti none">⚠ немає задач</span></span>
+ <button onclick="toast('Створення угоди — заглушка прототипу')">+ Угода</button>
+ <span class="note">Суми етапів — у ₴ <b>за курсом НБУ</b> на ${dmy(TODAY)} (1 € = ${RATES.EUR.toFixed(2)} ₴, 1 $ = ${RATES.USD.toFixed(2)} ₴); на картках — валюта угоди. Перетягніть картку на інший етап або вниз — у «${t('won')}» / «${t('lost')}». Клік по картці — відкрити угоду.</span></div><div class="board">`;
+ pl.stages.forEach((s,i)=>{
+  const vis=P.deals.filter(d=>!d.filler&&d.pipeline===pl.id&&d.stage===i&&isActive(d)).sort((a,b)=>b.created.localeCompare(a.created)||b.num-a.num);
+  const cnt=s.hidden+vis.length,sum=s.hiddenSum+vis.reduce((a,d)=>a+uah(d),0);
+  h+=`<div class="col" ondragover="colOver(event)" ondragleave="this.classList.remove('over')" ondrop="colDrop(event,${i})">
+   <div class="colh"><div class="cn" title="${esc(s.name)}">${esc(s.name)}</div><div class="cm"><b>${fmtN(cnt)}</b> угод · ${sum?'≈ '+fmtN(sum)+' ₴':'0 ₴'}</div></div>
+   <div class="cards">${vis.map(cardHtml).join('')}${s.hidden?`<a class="more" onclick="openListStage(${i})">ще ${fmtN(s.hidden)} угод — відкрити списком →</a>`:''}${!cnt?'<div class="empty">Порожньо — сюди можна перетягнути</div>':''}</div></div>`;
+ });
+ h+=`</div><div class="dropbar"><div class="dz won" ondragover="colOver(event)" ondragleave="this.classList.remove('over')" ondrop="dropClose(event,'won')">✓ ${t('won')}</div><div class="dz lost" ondragover="colOver(event)" ondragleave="this.classList.remove('over')" ondrop="dropClose(event,'lost')">✕ ${t('lost')} <span style="font-weight:normal;font-size:12px">(попросимо причину)</span></div></div>`;
+ return h;
+}
+let dragId=null;
+function dragStart(e,id){dragId=id;e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';setTimeout(()=>document.body.classList.add('dragging'),0)}
+function dragEnd(){document.body.classList.remove('dragging');document.querySelectorAll('.over').forEach(x=>x.classList.remove('over'))}
+function colOver(e){e.preventDefault();e.currentTarget.classList.add('over')}
+function colDrop(e,i){e.preventDefault();const d=byId(dragId);dragEnd();if(d&&d.stage!==i){const from=plOf(d).stages[d.stage].name;setStage(d,i);toast('«'+d.title+'»: '+from+' → '+plOf(d).stages[i].name+'. Зміну записано в стрічку угоди.')}render()}
+function dropClose(e,k){e.preventDefault();const d=byId(dragId);dragEnd();if(!d)return;if(k==='won')winDeal(d);else askLost(d)}
+function openListStage(i){state.f=defaultF();state.f.stage=String(i);state.page=1;state.sel.clear();go('list')}
+
+/* ---------- deal actions ---------- */
+function setStage(d,i,who){const pl=plOf(d);const from=pl.stages[d.stage].name;mutate(d,()=>d.stage=i);log(d,'Етап',from,pl.stages[i].name,who)}
+function winDeal(d){mutate(d,()=>d.status='won');log(d,'Статус','відкрита','виграна');toast('«'+d.title+'» — виграно.'+(state.proj==='alpi'?' Увага: в AI-школі виграш зазвичай фіксує платіж (питання №1 у панелі).':''));render()}
+function askLost(d){const P=proj();
+ openModal('Причина програшу',`<div>Угода <b>${esc(d.title)}</b>. Причина обов’язкова: спершу група, потім причина (довідник проєкту ${esc(P.name)}).</div>
+ <label>Група<select id="lg" onchange="fillReasons()"><option value="">— оберіть групу —</option>${Object.keys(P.lost).map(g=>`<option>${esc(g)}</option>`).join('')}</select></label>
+ <label>Причина<select id="lr" disabled><option value="">— спершу оберіть групу —</option></select></label>
+ <label>Коментар (необов’язково)<textarea id="lc" rows="2"></textarea></label>`,'Позначити програною',()=>{
+  const g=$('#lg').value,r=$('#lr').value;if(!g||!r){$('#merr').textContent='Оберіть і групу, і причину.';return false}
+  mutate(d,()=>{d.status='lost';d.lostReason=g+' → '+r});log(d,'Статус','відкрита','програна');log(d,'Причина програшу','—',g+' → '+r);
+  const c=$('#lc').value.trim();if(c)d.feed.push({t:'note',at:nowAt(),who:me(),text:'Коментар до програшу: '+c});
+  toast('«'+d.title+'» — програно: '+r);render()})}
+function fillReasons(){const g=$('#lg').value,s=$('#lr');s.disabled=!g;s.innerHTML=g?'<option value="">— оберіть причину —</option>'+proj().lost[g].map(r=>`<option>${esc(r)}</option>`).join(''):'<option value="">— спершу оберіть групу —</option>'}
+function reopen(id){const d=byId(id);const was=d.status==='won'?'виграна':'програна';mutate(d,()=>{d.status='open';d.lostReason=null});log(d,'Статус',was,'відкрита (повторно)');render()}
+function toggleArchive(id){const d=byId(id);mutate(d,()=>d.archived=!d.archived);log(d,'Архів',d.archived?'ні':'так',d.archived?'так':'ні');toast(d.archived?'Угоду прибрано з канбану і робочих списків; у пошуку й звітах вона лишається.':'Угоду повернуто з архіву.');render()}
+function openDeal(id){state.dealId=id;state.feedF='all';state.askNext=null;state.playing=null;go('deal')}
+function curDeal(){return byId(state.dealId)}
+function dealStage(i){const d=curDeal();if(d.stage!==i){setStage(d,i);render()}}
+function movePipeline(pid){const d=curDeal(),from=plOf(d).name;mutate(d,()=>{d.pipeline=pid;d.stage=0});log(d,'Воронка',from,plOf(d).name);toast('Угоду перенесено у воронку «'+plOf(d).name+'» (на перший етап). В інший проєкт перенести не можна.');render()}
+function setOwner(uid){const d=curDeal(),P=proj();const from=userName(P,d.owner);d.owner=uid;log(d,'Відповідальний',from,userName(P,uid));render()}
+function ensureFields(d){if(d.fields)return;const tmpl=proj().fields;
+ d.fields=tmpl.map(g=>({name:g.name,lock:g.lock||null,open:g.open,items:g.items.map(([l,vals])=>({l,v:d.demo?vals[0]:(g.lock==='closing'?'—':(g.lock==='service'?pick(vals):(R()<.55?pick(vals):'—')))}))}))}
+function toggleGrp(name,open){state.open[name]=!open;render()}
+function editField(gi,fi,el){if(el.querySelector('input'))return;const d=curDeal(),g=d.fields[gi],it=g.items[fi],old=it.v;
+ el.innerHTML=`<input value="${esc(old==='—'?'':old)}">`;const inp=el.firstChild;inp.focus();let done=false;
+ const commit=()=>{if(done)return;done=true;const nv=inp.value.trim()||'—';if(nv!==old){it.v=nv;log(d,g.name+' · '+it.l,old,nv)}render()};
+ inp.onblur=commit;inp.onkeydown=e=>{if(e.key==='Enter')inp.blur();if(e.key==='Escape'){inp.value=old==='—'?'':old;inp.blur()}}}
+function doneTask(id){const d=curDeal(),tk=d.tasks.find(x=>x.id===id);tk.done=true;d.feed.push({t:'task',at:nowAt(),who:me(),act:'done',task:tk});state.askNext=d.id;state.lastType=tk.type;render()}
+function nextAfter(n){const d=curDeal();const tk={id:tid(),type:state.lastType||proj().taskTypes[0],subj:'Наступний крок',date:addDays(TODAY,n),time:'',done:false,who:d.owner};d.tasks.push(tk);d.feed.push({t:'task',at:nowAt(),who:me(),act:'created',task:tk});state.askNext=null;render()}
+function addTask(){const d=curDeal();const tk={id:tid(),type:$('#qaType').value,subj:$('#qaSubj').value.trim(),date:$('#qaDate').value||TODAY,time:$('#qaTime').value,done:false,who:d.owner};d.tasks.push(tk);d.feed.push({t:'task',at:nowAt(),who:me(),act:'created',task:tk});toast('Задачу додано: '+tk.type+' на '+dmy(tk.date));render()}
+function quickTask(n){$('#qaDate').value=addDays(TODAY,n);addTask()}
+function addNote(){const d=curDeal(),v=$('#noteTxt').value.trim();if(!v){toast('Порожня нотатка');return}d.feed.push({t:'note',at:nowAt(),who:me(),text:v});render()}
+function play(k){state.playing=state.playing===k?null:k;render()}
+
+/* ---------- deal screen ---------- */
+const FEED_TYPES=[['all','Усе'],['change','Зміни'],['note','Нотатки'],['reg','Реєстрації'],['pay','Платежі'],['task','Задачі'],['call','Дзвінки']];
+function feedItem(d,e,regInfo){
+ if(e.t==='change')return `<div class="fi"><div class="ic">✎</div><div class="fb"><div class="meta">${fmtAt(e.at)} · ${esc(e.who)}</div><div><b>${esc(e.f)}</b>: <s>${esc(e.from)}</s> → <b>${esc(e.to)}</b></div></div></div>`;
+ if(e.t==='note')return `<div class="fi note"><div class="ic">📝</div><div class="fb"><div class="meta">${fmtAt(e.at)} · ${esc(e.who)} · нотатка</div><div class="txt">${esc(e.text)}</div></div></div>`;
+ if(e.t==='reg'){const x=e.data,ri=regInfo.get(e);
+  return `<div class="fi"><div class="ic">📥</div><div class="fb"><details><summary><b>Реєстрація ${ri.n} з ${ri.total}</b>${ri.n===1?' <span class="tag">перша</span>':''}${ri.n===ri.total&&ri.total>1?' <span class="tag">остання</span>':''} · ${esc(x['Вебінар']!=='—'?x['Вебінар']:'заявка з сайту')} · ${esc(x['Джерело'])} <span class="meta">${fmtAt(e.at)}</span></summary>
+  <table class="kv small">${Object.entries(x).map(([k,v])=>`<tr><th>${esc(k)}</th><td class="${k==='Інші параметри'?'code':''}">${esc(v)}</td></tr>`).join('')}</table></details></div></div>`}
+ if(e.t==='pay'){const p=e.p;
+  return `<div class="fi"><div class="ic">💳</div><div class="fb"><div class="meta">${fmtAt(e.at)} · WayForPay</div><div><b>${esc(p.kind)}</b> · ${money(p.amount,d.cur)} · ${p.status==='ok'?`списано ${fmtN(p.uah)} ₴${p.rate?' за курсом WFP '+p.rate.toFixed(2):''} · <span class="ps ok">успішно</span>`:p.status==='wait'?'<span class="ps wait">рахунок виставлено, очікує оплати</span>':'<span class="ps fail">неуспішно</span>'}</div></div></div>`}
+ if(e.t==='task'){const tk=e.task;
+  return `<div class="fi"><div class="ic">${e.act==='done'?'☑':'☐'}</div><div class="fb"><div class="meta">${fmtAt(e.at)} · ${esc(e.who)}</div><div>${e.act==='done'?'Задачу виконано':'Задачу створено'}: <b>${esc(tk.type)}</b>${tk.subj?' — '+esc(tk.subj):''} · на ${dmy(tk.date)}${tk.time?' '+tk.time:''}${tk.auto?' <span class="tag">авто</span>':''}</div></div></div>`}
+ if(e.t==='call'){const dirs={out:['↗','Вихідний дзвінок'],in:['↙','Вхідний дзвінок'],missed:['✕','Пропущений вхідний']};const key=d.id+'_'+e.at;
+  return `<div class="fi call ${e.dir}"><div class="ic">📞</div><div class="fb"><div class="meta">${fmtAt(e.at)} · Ringostat · лінія відділу продажів</div><div><b>${dirs[e.dir][0]} ${dirs[e.dir][1]}</b> · ${e.dir==='missed'?'ніхто не відповів':'тривалість '+dur(e.dur)} · ${esc(d.contact.phone)} · ${esc(e.who)}</div>
+  ${e.rec?`<button class="mini" onclick="play('${key}')">${state.playing===key?'⏸ відтворюється… (заглушка: запис з Ringostat)':'▶ Запис розмови'}</button>`:''}
+  ${e.dir==='missed'?`<div class="auto">→ Автоматично створено задачу «${esc(proj().missedType)}» для ${esc(userName(proj(),d.owner))} на ${dmy(e.at.slice(0,10))}</div>`:''}</div></div>`}
+ return '';
+}
+function renderDeal(){
+ const P=proj();let d=curDeal();
+ if(!d||d.deleted){d=P.deals.find(x=>x.demo)||P.deals.find(x=>!x.filler&&x.stage>=5&&isActive(x))||P.deals[0];state.dealId=d.id;updateChrome()}
+ ensureFields(d);
+ const pl=plOf(d),pm=perms(),ts=taskState(d);
+ const status={open:'відкрита',won:'виграна',lost:'програна'}[d.status];
+ let h=`<div class="dealh"><div class="row"><a onclick="go('kanban')">← до канбану</a><h2>${esc(d.title)}</h2><span class="badge st-${d.status}">${status}${d.lostReason?' · '+esc(d.lostReason):''}</span>${d.archived?'<span class="badge arch">в архіві</span>':''}<span class="ti ${ts.k}">${d.status==='open'?ts.label:''}</span><span class="sp"></span><span class="big">${money(d.amount,d.cur)}</span>
+ ${d.status==='open'?`<button class="ok" onclick="winDeal(curDeal())">✓ Виграно</button><button class="bad" onclick="askLost(curDeal())">✕ Програно</button>`:`<button onclick="reopen('${d.id}')">↺ Відкрити знову</button>`}
+ <button onclick="toggleArchive('${d.id}')">${d.archived?'Повернути з архіву':'В архів'}</button></div>
+ <div class="stages">${pl.stages.map((s,i)=>`<span class="stg ${i<d.stage?'past':''} ${i===d.stage?'on':''}" onclick="dealStage(${i})" title="${esc(s.name)} — клацніть, щоб перемістити">${esc(s.name)}</span>`).join('')}</div></div>
+ <div class="dgrid"><div class="left">`;
+ // system
+ h+=`<section class="box"><h4>Основне <span class="mut">системні поля</span></h4><table class="kv">
+ <tr><th>Номер</th><td>#${d.num}</td></tr>
+ <tr><th>Проєкт</th><td>${esc(P.name)} <span class="mut">— не змінюється</span></td></tr>
+ <tr><th>Воронка</th><td><select onchange="movePipeline(this.value)">${P.pipelines.map(p=>`<option value="${p.id}" ${p.id===d.pipeline?'selected':''}>${esc(p.name)}</option>`).join('')}</select></td></tr>
+ <tr><th>Етап</th><td>${esc(pl.stages[d.stage].name)}</td></tr>
+ <tr><th>Відповідальний</th><td><select onchange="setOwner(this.value)">${P.users.map(u=>`<option value="${u.id}" ${u.id===d.owner?'selected':''}>${esc(u.n)}</option>`).join('')}</select></td></tr>
+ <tr><th>Сума / валюта</th><td>${money(d.amount,d.cur)} <span class="mut">валюта угоди ${d.cur}${d.cur!=='UAH'&&d.amount?' · ≈ '+fmtN(uah(d))+' ₴ за НБУ':''}</span></td></tr>
+ <tr><th>Основний контакт</th><td>${esc(d.contact.name)}</td></tr>
+ ${d.org?`<tr><th>Організація</th><td>${esc(d.org)}</td></tr>`:''}
+ <tr><th>Створено</th><td>${dmy(d.created)}</td></tr>
+ <tr><th>Архів</th><td>${d.archived?'так':'ні'}</td></tr></table></section>`;
+ // groups
+ let hidden=[];
+ d.fields.forEach((g,gi)=>{
+  if(g.lock==='service'&&!pm.service){hidden.push(g.name);return}
+  const ro=g.lock==='closing'&&!pm.closing;const open=g.name in state.open?state.open[g.name]:g.open;
+  h+=`<section class="box grp"><h4 onclick="toggleGrp('${esc(g.name)}',${open})">${open?'▾':'▸'} ${esc(g.name)} ${ro?`<span class="lock" title="Права на групу полів: для ролі «${esc(state.role)}» — тільки читання">🔒 тільки читання</span>`:''}<span class="mut">${g.items.filter(x=>x.v!=='—').length}/${g.items.length} заповнено</span></h4>
+  ${open?`<table class="kv">${g.items.map((it,fi)=>`<tr><th>${esc(it.l)}</th><td class="${ro?'ro':'ed'}" ${ro?'':`onclick="editField(${gi},${fi},this)" title="Клацніть, щоб змінити"`}>${esc(it.v)}</td></tr>`).join('')}</table>`:''}</section>`;
+ });
+ if(hidden.length)h+=`<div class="mut hidden-grp">🙈 Група полів «${hidden.map(esc).join('», «')}» прихована для ролі «${esc(state.role)}» (права на групи полів)</div>`;
+ // participants
+ h+=`<section class="box"><h4>Учасники <button class="mini" onclick="toast('Додавання учасника — заглушка прототипу')">+ учасник</button></h4>
+ <div class="pp"><b>${esc(d.contact.name)}</b> <span class="tag">основний контакт</span><br><span class="mut">${esc(d.contact.phone)} · ${esc(d.contact.email)}</span></div>
+ ${d.org?`<div class="pp"><b>${esc(d.org)}</b> <span class="tag">організація</span></div>`:''}
+ ${d.participants.map(p=>`<div class="pp">${esc(p.n)} <span class="tag">${esc(p.role)}</span><br><span class="mut">${esc(p.phone)}</span></div>`).join('')}</section>`;
+ // products
+ const psum=d.products.reduce((a,p)=>a+p.qty*p.price,0);
+ h+=`<section class="box"><h4>Товари <button class="mini" onclick="toast('Вибір товару з каталогу проєкту — заглушка')">+ товар</button></h4>${d.products.length?`<table class="tbl"><tr><th>Товар</th><th>К-сть</th><th>Ціна</th><th>Сума</th></tr>${d.products.map(p=>`<tr><td>${esc(p.n)}</td><td>${p.qty}</td><td>${money(p.price,d.cur)}</td><td>${money(p.qty*p.price,d.cur)}</td></tr>`).join('')}<tr class="tot"><td colspan="3">Разом</td><td>${money(psum,d.cur)}</td></tr></table>`:'<div class="mut">Товарів немає</div>'}</section>`;
+ // payments
+ const paid=d.payments.filter(p=>p.status==='ok').reduce((a,p)=>a+p.amount,0);
+ h+=`<section class="box"><h4>Платежі <span class="mut">WayForPay</span></h4>${d.payments.length?`<table class="tbl"><tr><th>Тип</th><th>Сума, ${d.cur}</th><th>Списано, ₴</th><th>Курс WFP</th><th>Статус</th><th>Дата</th></tr>
+ ${d.payments.map(p=>`<tr><td>${esc(p.kind)}</td><td>${money(p.amount,d.cur)}</td><td>${p.uah?fmtN(p.uah)+' ₴':'—'}</td><td>${p.rate&&p.status==='ok'?p.rate.toFixed(2):'—'}</td><td>${p.status==='ok'?'<span class="ps ok">успішно</span>':p.status==='wait'?'<span class="ps wait">очікує</span>':'<span class="ps fail">неуспішно</span>'}</td><td>${dmy(p.date)}</td></tr>`).join('')}</table>
+ <div class="paid">Сплачено: <b>${money(paid,d.cur)}</b> з ${money(d.amount,d.cur)} · залишок ${money(Math.max(0,d.amount-paid),d.cur)}</div>`:'<div class="mut">Платежів немає</div>'}</section>`;
+ h+=`</div><div class="right">`;
+ // next
+ const others=ts.open.slice(1);
+ h+=`<section class="box next ${ts.k}"><h4>Що зробити далі</h4>
+ ${ts.task?`<div class="nt"><span class="ti ${ts.k}">${ts.label}</span><b>${esc(ts.task.type)}</b>${ts.task.subj?' — '+esc(ts.task.subj):''}<span class="mut">· ${esc(userName(P,ts.task.who))}</span>${ts.task.auto?'<span class="tag">авто з пропущеного дзвінка</span>':''}<span class="sp"></span><button class="mini ok" onclick="doneTask('${ts.task.id}')">✓ Виконано</button></div>`:`<div class="warn">⚠ Немає запланованих задач — угода нікуди не рухається. Заплануйте наступний крок.</div>`}
+ ${state.askNext===d.id?`<div class="asknext">Задачу виконано. Запланувати наступну? <button class="mini" onclick="nextAfter(1)">Завтра</button><button class="mini" onclick="nextAfter(3)">Через 3 дні</button><button class="mini" onclick="nextAfter(7)">Через тиждень</button><button class="mini" onclick="state.askNext=null;render()">Ні, не зараз</button></div>`:''}
+ ${others.length?`<div class="mut" style="margin-top:6px">Ще відкриті: ${others.map(x=>esc(x.type)+' · '+dm(x.date)).join('; ')}</div>`:''}
+ <div class="qa"><select id="qaType">${P.taskTypes.map(x=>`<option>${esc(x)}</option>`).join('')}</select><input id="qaSubj" placeholder="Тема (необов’язково)"><input id="qaDate" type="date" value="${addDays(TODAY,1)}"><input id="qaTime" type="time" title="Час — необов’язково; без часу задача «на день»"><button class="pri" onclick="addTask()">+ Задача</button></div>
+ <div class="qchips">Швидко: <a onclick="quickTask(0)">сьогодні</a><a onclick="quickTask(1)">завтра</a><a onclick="quickTask(3)">через 3 дні</a><a onclick="quickTask(7)">через тиждень</a></div></section>`;
+ // feed
+ const regs=d.feed.filter(e=>e.t==='reg').sort((a,b)=>a.at.localeCompare(b.at));const regInfo=new Map(regs.map((e,i)=>[e,{n:i+1,total:regs.length}]));
+ const cnt=k=>k==='all'?d.feed.length:d.feed.filter(e=>e.t===k).length;
+ const items=d.feed.map((e,i)=>({e,i})).filter(x=>state.feedF==='all'||x.e.t===state.feedF).sort((a,b)=>b.e.at.localeCompare(a.e.at)||b.i-a.i);
+ h+=`<section class="box"><h4>Стрічка <span class="mut">зміни, нотатки, реєстрації, платежі, задачі, дзвінки — нові зверху</span></h4>
+ <div class="noteadd"><textarea id="noteTxt" rows="2" placeholder="Написати нотатку…"></textarea><button onclick="addNote()">Зберегти</button></div>
+ <div class="ffilter">${FEED_TYPES.map(([k,l])=>`<span class="fchip ${state.feedF===k?'on':''}" onclick="state.feedF='${k}';render()">${l} ${cnt(k)}</span>`).join('')}</div>
+ <div class="feed">${items.map(x=>feedItem(d,x.e,regInfo)).join('')||'<div class="mut">Подій цього типу немає</div>'}</div></section></div></div>`;
+ return h;
+}
+
+/* ---------- list ---------- */
+const COLS=[['contact','Контакт'],['stage','Етап'],['amount','Сума'],['owner','Відповідальний'],['task','Наступна задача'],['created','Створено'],['source','Джерело (перша реєстрація)'],['arch','Архів']];
+const PER=25;
+function listRows(){const P=proj(),pl=curPl(),f=state.f;
+ return P.deals.filter(d=>d.pipeline===pl.id&&!d.deleted&&(f.status==='all'||d.status===f.status)&&(f.stage===''||d.stage===+f.stage)&&(!f.owner||d.owner===f.owner)&&(!f.task||taskState(d).k===f.task)&&(f.arch==='all'||(f.arch==='only'?d.archived:!d.archived))&&(!f.from||d.created>=f.from)&&(!f.to||d.created<=f.to))
+  .sort((a,b)=>b.created.localeCompare(a.created)||b.num-a.num)}
+function setF(k,v){state.f[k]=v;state.page=1;state.sel.clear();render()}
+function bulkBtn(k,label,allowed,right){return allowed?`<button onclick="bulk('${k}')">${label}</button>`:`<button class="dis" title="Немає права: «${right}» вимкнено для ролі «${esc(state.role)}»" onclick="toast('Немає права: «${right}» для ролі «${esc(state.role)}»')">🔒 ${label}</button>`}
+function renderList(){
+ const P=proj(),pl=curPl(),f=state.f,pm=perms();const rows=listRows();
+ const pages=Math.max(1,Math.ceil(rows.length/PER));if(state.page>pages)state.page=pages;
+ const pageRows=rows.slice((state.page-1)*PER,state.page*PER);
+ const totalOpen=pl.stages.reduce((a,s,i)=>a+s.hidden+P.deals.filter(d=>!d.filler&&d.pipeline===pl.id&&d.stage===i&&isActive(d)).length,0);
+ const sel=state.sel;const allPage=pageRows.length&&pageRows.every(d=>sel.has(d.id));
+ const opt=(v,l,cur)=>`<option value="${v}" ${String(cur)===String(v)?'selected':''}>${esc(l)}</option>`;
+ let h=`<div class="toolbar"><label class="hl">Воронка <select onchange="state.pl=this.value;state.f=defaultF();state.page=1;state.sel.clear();render()">${P.pipelines.map(p=>opt(p.id,p.name,pl.id)).join('')}</select></label>
+ <span class="sp" style="flex:1"></span>
+ <span class="colmenu"><button onclick="state.colMenu=!state.colMenu;render()">⚙ Колонки</button>${state.colMenu?`<div class="dd"><div class="mut">Показати колонки (налаштування користувача — заглушка, не зберігається)</div>${COLS.map(([k,l])=>`<label><input type="checkbox" ${state.cols.has(k)?'checked':''} onchange="state.cols.has('${k}')?state.cols.delete('${k}'):state.cols.add('${k}');render()"> ${esc(l)}</label>`).join('')}<div class="mut">+ будь-яке поле угоди з груп — у справжній системі</div></div>`:''}</span>
+ ${bulkBtn('export','Вивантажити у файл',state.role==='Адміністратор','вивантаження у файл')}</div>
+ <div class="filters">
+  <label>Етап<select onchange="setF('stage',this.value)">${opt('','усі етапи',f.stage)}${pl.stages.map((s,i)=>opt(i,s.name,f.stage)).join('')}</select></label>
+  <label>Відповідальний<select onchange="setF('owner',this.value)">${opt('','усі',f.owner)}${P.users.map(u=>opt(u.id,u.n,f.owner)).join('')}</select></label>
+  <label>Наступна задача<select onchange="setF('task',this.value)">${opt('','будь-яка',f.task)}${opt('overdue','прострочена',f.task)}${opt('today','сьогодні',f.task)}${opt('future','у майбутньому',f.task)}${opt('none','немає задач ⚠',f.task)}</select></label>
+  <label>Статус<select onchange="setF('status',this.value)">${opt('open','відкриті',f.status)}${opt('won','виграні',f.status)}${opt('lost','програні',f.status)}${opt('all','усі',f.status)}</select></label>
+  <label>Архів<select onchange="setF('arch',this.value)">${opt('no','без архівних',f.arch)}${opt('only','лише архівні',f.arch)}${opt('all','усі',f.arch)}</select></label>
+  <label>Створено з<input type="date" value="${f.from}" onchange="setF('from',this.value)"></label>
+  <label>по<input type="date" value="${f.to}" onchange="setF('to',this.value)"></label>
+  <button onclick="state.f=defaultF();state.page=1;state.sel.clear();render()">Скинути</button>
+ </div>
+ <div class="saved"><span class="mut">Збережені фільтри:</span>${state.saved.map((s,i)=>`<span class="fchip" onclick="applySaved(${i})">${esc(s.n)}</span>`).join('')}<a onclick="saveFilter()">+ зберегти поточний</a></div>
+ <div class="summary">У воронці «${esc(pl.name)}»: <b>${fmtN(totalOpen)}</b> відкритих угод без архіву (лічильник з сервера). Під поточний фільтр у прототипі: <b>${rows.length}</b> зі згенерованих рядків. У справжній системі — серверна пагінація й сортування; 86 тис. рядків у браузер не вантажимо.</div>`;
+ if(sel.size)h+=`<div class="bulk">Обрано: <b>${sel.size}</b> <a onclick="selAllFiltered()">вибрати всі ${rows.length} за фільтром${rows.length<totalOpen&&!f.stage&&!f.owner&&!f.task?' (у справжній системі — до '+fmtN(totalOpen)+')':''}</a> ·
+ ${bulkBtn('archive','Архівувати',pm.bulk,'масові операції')} ${bulkBtn('transfer','Передати іншому менеджеру',pm.transfer,'передача угод іншому')} ${bulkBtn('stage','Змінити етап',pm.bulk,'масові операції')} ${bulkBtn('delete','Видалити',pm.del,'видалення угод')}
+ <span class="sp" style="flex:1"></span><a onclick="state.sel.clear();render()">зняти виділення</a></div>`;
+ const C=k=>state.cols.has(k);
+ h+=`<table class="list"><tr><th style="width:26px"><input type="checkbox" ${allPage?'checked':''} onchange="selPage(this.checked)" title="Вибрати сторінку"></th><th>Назва</th>${COLS.filter(([k])=>C(k)).map(([k,l])=>`<th>${esc(l)}</th>`).join('')}</tr>
+ ${pageRows.map(d=>{const ts=taskState(d);const src=(d.feed.filter(e=>e.t==='reg').sort((a,b)=>a.at.localeCompare(b.at))[0]||{data:{}}).data['Джерело']||'—';
+  return `<tr class="${sel.has(d.id)?'sel':''}" onclick="openDeal('${d.id}')"><td onclick="event.stopPropagation()"><input type="checkbox" ${sel.has(d.id)?'checked':''} onchange="toggleSel('${d.id}',this.checked)"></td><td title="${esc(d.title)}"><b>${esc(d.title)}</b> <span class="mut">#${d.num}</span></td>
+  ${C('contact')?`<td>${esc(d.contact.name)} <span class="mut">${esc(d.contact.phone)}</span></td>`:''}
+  ${C('stage')?`<td>${esc(plOf(d).stages[d.stage].name)}${d.status!=='open'?' <span class="badge st-'+d.status+'">'+(d.status==='won'?'виграна':'програна')+'</span>':''}</td>`:''}
+  ${C('amount')?`<td>${d.amount?money(d.amount,d.cur):'<span class="mut">—</span>'}</td>`:''}
+  ${C('owner')?`<td>${avatar(P,d.owner)} ${esc(userName(P,d.owner))}</td>`:''}
+  ${C('task')?`<td><span class="ti ${ts.k}">${ts.label}</span>${ts.task?' <span class="mut">'+esc(ts.task.type)+'</span>':''}</td>`:''}
+  ${C('created')?`<td>${dmy(d.created)}</td>`:''}
+  ${C('source')?`<td>${esc(src)}</td>`:''}
+  ${C('arch')?`<td>${d.archived?'<span class="badge arch">архів</span>':''}</td>`:''}</tr>`}).join('')||`<tr><td colspan="12" class="mut" style="padding:14px">Нічого не знайдено під цей фільтр</td></tr>`}</table>
+ <div class="pager"><button ${state.page<=1?'disabled':''} onclick="state.page--;render()">‹ Назад</button> Сторінка ${state.page} з ${pages} <span class="mut">(у справжній системі для всієї воронки — ${fmtN(Math.ceil(totalOpen/PER))} сторінок по ${PER})</span><button ${state.page>=pages?'disabled':''} onclick="state.page++;render()">Далі ›</button></div>`;
+ return h;
+}
+function toggleSel(id,on){on?state.sel.add(id):state.sel.delete(id);render()}
+function selPage(on){const rows=listRows().slice((state.page-1)*PER,state.page*PER);rows.forEach(d=>on?state.sel.add(d.id):state.sel.delete(d.id));render()}
+function selAllFiltered(){listRows().forEach(d=>state.sel.add(d.id));render()}
+function applySaved(i){state.f=Object.assign(defaultF(),state.saved[i].f);state.page=1;state.sel.clear();render();toast('Фільтр «'+state.saved[i].n+'»')}
+function saveFilter(){const n='Мій фільтр '+(state.saved.length+1);state.saved.push({n,f:Object.assign({},state.f)});render();toast('Збережено як «'+n+'» (особистий фільтр; спільні — питання №7)')}
+function bulk(k){
+ const P=proj(),pl=curPl();const ds=[...state.sel].map(byId).filter(Boolean);
+ if(k==='export'){toast('Вивантаження у файл — заглушка (право є лише в адміністратора)');return}
+ if(k==='archive'){ds.forEach(d=>{if(!d.archived){mutate(d,()=>d.archived=true);log(d,'Архів','ні','так')}});state.sel.clear();toast('Заархівовано угод: '+ds.length+'. Вони зникли з канбану, у пошуку лишились.');render();return}
+ if(k==='transfer'){openModal('Передати '+ds.length+' угод',`<label>Новий відповідальний<select id="bu">${P.users.map(u=>`<option value="${u.id}">${esc(u.n)}</option>`).join('')}</select></label>`,'Передати',()=>{const uid=$('#bu').value;ds.forEach(d=>{const from=userName(P,d.owner);if(d.owner!==uid){d.owner=uid;log(d,'Відповідальний',from,userName(P,uid))}});state.sel.clear();toast('Передано '+ds.length+' угод: '+userName(P,uid));render()});return}
+ if(k==='stage'){openModal('Змінити етап для '+ds.length+' угод',`<label>Новий етап (воронка «${esc(pl.name)}»)<select id="bs">${pl.stages.map((s,i)=>`<option value="${i}">${esc(s.name)}</option>`).join('')}</select></label>`,'Змінити',()=>{const i=+$('#bs').value;ds.forEach(d=>{if(d.stage!==i)setStage(d,i)});state.sel.clear();toast('Етап змінено: '+ds.length+' угод → '+pl.stages[i].name);render()});return}
+ if(k==='delete'){openModal('Видалити '+ds.length+' угод?','<div>Угоди потраплять у кошик на 30 днів; звідти їх можна відновити. Остаточно видаляє адміністратор.</div>','Перемістити в кошик',()=>{ds.forEach(d=>mutate(d,()=>d.deleted=true));state.sel.clear();toast('У кошику: '+ds.length+' угод (30 днів)');render()})}
+}
+document.addEventListener('click',e=>{if(state.colMenu&&!e.target.closest('.colmenu')){state.colMenu=false;render()}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+window.addEventListener('hashchange',()=>{const s=location.hash.slice(1);if(['kanban','deal','list'].includes(s)&&s!==state.screen){state.screen=s;render()}});
+{const s=location.hash.slice(1);if(['kanban','deal','list'].includes(s))state.screen=s}
+render();
+</script>
+</body>
+</html>
