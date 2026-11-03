@@ -1,0 +1,16 @@
+# SITE_ADDRESS — домен сервера (тогда Caddy сам выпустит сертификат TLS) или :80 для проверки без TLS.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# API без префикса /api: так же устроен прокси Vite в разработке.
+	handle_path /api/* {
+		reverse_proxy api:3000
+	}
+
+	# SPA: неизвестные пути отдают index.html, маршрутизацией занимается клиент.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

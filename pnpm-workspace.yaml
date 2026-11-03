@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Сборочные скрипты зависимостей pnpm по умолчанию не запускает.
+# Платформенным пакетам embedded-postgres скрипт нужен: он восстанавливает
+# символические ссылки на библиотеки PostgreSQL (важно на Linux и macOS).
+allowBuilds:
+  "@embedded-postgres/windows-x64": true
+  "@embedded-postgres/linux-x64": true
+  "@embedded-postgres/linux-arm64": true
+  "@embedded-postgres/darwin-x64": true
+  "@embedded-postgres/darwin-arm64": true

@@ -1,0 +1,3 @@
+# Переводы строк в рабочей копии — всегда LF, независимо от core.autocrlf на машине:
+# форматтер Biome ожидает LF, и с CRLF-копией `pnpm lint` падает на Windows.
+* text=auto eol=lf

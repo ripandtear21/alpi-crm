@@ -8,3 +8,5 @@ build/
 Thumbs.db
 *.log
 .claude/worktrees/
+coverage/
+*.tsbuildinfo
