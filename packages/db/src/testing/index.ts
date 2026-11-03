@@ -11,13 +11,23 @@ export interface TestDatabase {
   stop(): Promise<void>
 }
 
+export interface StartTestDatabaseOptions {
+  /** Порт сервера. По умолчанию — свободный порт; задают тесты сбоя запуска. */
+  port?: number
+  /** Где создать временную папку `alpi-pg-*`. По умолчанию — системная временная папка. */
+  parentDir?: string
+}
+
 /**
  * Поднимает настоящий PostgreSQL (npm-пакет embedded-postgres, без Docker) во временной
  * папке на свободном порту. Вызывать в beforeAll, `stop()` — в afterAll.
  */
-export async function startTestDatabase(): Promise<TestDatabase> {
-  const root = await mkdtemp(path.join(tmpdir(), 'alpi-pg-'))
-  const port = await findFreePort()
+export async function startTestDatabase(
+  options: StartTestDatabaseOptions = {},
+): Promise<TestDatabase> {
+  // Порт — до создания папки: если его не получить, удалять будет нечего.
+  const port = options.port ?? (await findFreePort())
+  const root = await mkdtemp(path.join(options.parentDir ?? tmpdir(), 'alpi-pg-'))
   const user = 'postgres'
   const password = 'postgres'
   const log: string[] = []
@@ -37,8 +47,13 @@ export async function startTestDatabase(): Promise<TestDatabase> {
     await pg.initialise()
     await pg.start()
   } catch (error) {
-    await pg.stop().catch(() => {})
-    await removeDir(root)
+    // Если сервер уже завершился (например, порт занят), pg.stop() ждёт событие exit,
+    // которое уже прошло, и не вернётся никогда — поэтому ожидание ограничено.
+    await withTimeout(pg.stop(), STOP_AFTER_FAILED_START_MS).catch(() => {})
+    // Ошибка удаления не должна заслонить причину сбоя: она уходит в журнал.
+    await removeDir(root).catch((rmError: unknown) => {
+      log.push(`Не удалось удалить временную папку ${root}: ${String(rmError)}`)
+    })
     throw new Error(`embedded PostgreSQL не запустился:\n${log.join('\n')}`, { cause: error })
   }
 
@@ -68,6 +83,22 @@ function findFreePort(): Promise<number> {
       })
     })
   })
+}
+
+/** Сколько ждать остановки сервера после неудачного запуска. */
+const STOP_AFTER_FAILED_START_MS = 5_000
+
+/** Отклоняется, если `promise` не завершился за `ms`; таймер снимается сразу после исхода. */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Не завершилось за ${ms} мс`)), ms)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // На Windows файлы базы могут быть заняты ещё несколько мгновений после остановки сервера.
