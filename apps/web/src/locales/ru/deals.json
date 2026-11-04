@@ -1,0 +1,6 @@
+{
+  "count_one": "{{count}} сделка",
+  "count_few": "{{count}} сделки",
+  "count_many": "{{count}} сделок",
+  "count_other": "{{count}} сделки"
+}

@@ -1,0 +1,6 @@
+{
+  "count_one": "{{count}} угода",
+  "count_few": "{{count}} угоди",
+  "count_many": "{{count}} угод",
+  "count_other": "{{count}} угоди"
+}

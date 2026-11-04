@@ -1,5 +1,6 @@
 import type { HealthResponse } from '@alpi/shared'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 
 async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch('/api/health')
@@ -11,14 +12,20 @@ async function fetchHealth(): Promise<HealthResponse> {
 
 // Страница-заглушка: показывает, что клиент собран и видит API.
 export function HomePage() {
+  const { t } = useTranslation(['home', 'common'])
   const health = useQuery({ queryKey: ['health'], queryFn: fetchHealth })
 
   return (
-    <main>
-      <h1>Alpi CRM</h1>
+    <section>
+      <h1>{t('common:appName')}</h1>
       <p>
-        API: {health.isPending ? 'проверяем…' : health.isError ? 'недоступен' : health.data.status}
+        {t('api.label')}:{' '}
+        {health.isPending
+          ? t('api.checking')
+          : health.isError
+            ? t('api.unavailable')
+            : health.data.status}
       </p>
-    </main>
+    </section>
   )
 }

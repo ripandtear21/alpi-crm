@@ -1,0 +1,214 @@
+/* Цвета и размеры — по прототипу docs/prototypes/crm-mvp-screens/index.html. */
+:root {
+  --color-accent: #2563eb;
+  --color-accent-light: #eff6ff;
+  --color-bg: #f4f5f7;
+  --color-line: #e2e5ea;
+  --color-text: #1f2937;
+  --color-muted: #6b7280;
+  --header-height: 54px;
+  --nav-width: 170px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font:
+    13px / 1.4 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  color: var(--color-muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Шапка */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--header-height);
+  padding: 0 12px;
+  background: #fff;
+  border-bottom: 3px solid var(--color-accent);
+}
+
+.app-header__brand {
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.app-header__project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.app-header__search {
+  flex: 1;
+  min-width: 0;
+  max-width: 440px;
+}
+
+.app-header__icon,
+.app-header__menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+}
+
+.app-header__avatar {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.language-switcher {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.language-switcher button {
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.language-switcher button[aria-pressed="true"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+/* Меню и содержимое */
+.app-layout__body {
+  display: flex;
+  min-height: calc(100vh - var(--header-height));
+}
+
+.app-nav {
+  flex: none;
+  width: var(--nav-width);
+  padding: 10px 0;
+  background: #fff;
+  border-right: 1px solid var(--color-line);
+}
+
+.app-nav[hidden] {
+  display: none;
+}
+
+.app-nav__link {
+  display: block;
+  padding: 8px 14px;
+  color: var(--color-text);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+
+.app-nav__link.is-active {
+  background: var(--color-accent-light);
+  border-left-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.app-layout__main {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+}
+
+/* Телефон: та же граница, что MOBILE_MEDIA_QUERY в use-media-query.ts */
+@media (max-width: 767px) {
+  /* Шапка в две строки: элементы управления сверху, поиск во всю ширину снизу. */
+  .app-header {
+    flex-wrap: wrap;
+    height: auto;
+    gap: 6px 8px;
+    padding: 6px 8px;
+  }
+
+  .app-header__project {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .app-header__project-label {
+    display: none;
+  }
+
+  .app-header__project select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .app-header__search {
+    order: 1;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .app-layout__body {
+    position: relative;
+  }
+
+  /* Открытое меню ложится поверх содержимого, не сдвигая его. */
+  .app-nav {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(260px, 80vw);
+    overflow-y: auto;
+    box-shadow: 0 8px 24px #0003;
+  }
+}
