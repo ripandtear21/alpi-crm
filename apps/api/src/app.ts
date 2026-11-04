@@ -3,6 +3,7 @@ import type { HealthResponse } from '@alpi/shared'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { Kysely } from 'kysely'
+import { auditRoutes, systemAuditRoutes } from './audit/routes.ts'
 import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { projectContext } from './middleware/project-context.ts'
@@ -63,10 +64,12 @@ export function createApp({ auth, db }: AppDeps) {
         })
       })
       .route('/projects', projectsRoutes(db))
+      .route('/system-audit', systemAuditRoutes(db))
       .use('*', projectContext(db))
       .route('/project', currentProjectRoutes())
       .route('/roles', rolesRoutes())
       .route('/members', membersRoutes())
+      .route('/audit', auditRoutes())
   )
 }
 

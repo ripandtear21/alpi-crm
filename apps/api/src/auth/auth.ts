@@ -3,6 +3,7 @@ import { betterAuth } from 'better-auth'
 import { createAuthMiddleware } from 'better-auth/api'
 import { admin, twoFactor } from 'better-auth/plugins'
 import type { Kysely } from 'kysely'
+import { authAuditHooks } from '../audit/auth-events.ts'
 
 // Вход: Better Auth (email и пароль, плагины twoFactor и admin). Таблицы — глобальные, вне
 // проектов (docs/adr/0001-izolyatsiya-proektov.md), создаёт их наша миграция
@@ -55,7 +56,15 @@ function snakeFields<const K extends string>(...names: K[]): Record<K, string> {
   ) as Record<K, string>
 }
 
+/**
+ * Вход под чужой учётной записью (плагин admin) выключен (решение владельца): эндпоинты
+ * отвечают 404, даже владельцу системы. Владелец получает в проекте только права своей роли.
+ */
+export const IMPERSONATION_PATHS = ['/admin/impersonate-user', '/admin/stop-impersonating']
+
 export function createAuth(config: AuthConfig) {
+  // Журнал входов и 2FA (тикет crm-foundation/07).
+  const auditHooks = authAuditHooks(config.db)
   return betterAuth({
     appName: 'Alpi CRM',
     secret: config.secret,
@@ -63,6 +72,7 @@ export function createAuth(config: AuthConfig) {
     basePath: AUTH_BASE_PATH,
     database: { db: config.db, type: 'postgres', transaction: true },
     telemetry: { enabled: false },
+    disabledPaths: IMPERSONATION_PATHS,
     // Открытой регистрации нет: учётные записи заводит администратор (плагин admin) или CLI.
     emailAndPassword: {
       enabled: true,
@@ -104,6 +114,7 @@ export function createAuth(config: AuthConfig) {
             return { data: { ...session, twoFactorVerified: verified } }
           },
         },
+        delete: { after: auditHooks.sessionDeleted },
       },
       user: {
         update: {
@@ -132,6 +143,7 @@ export function createAuth(config: AuthConfig) {
           return { context: { body: { ...ctx.body, trustDevice: false } } }
         }
       }),
+      after: auditHooks.after,
     },
     account: {
       fields: snakeFields(

@@ -1,10 +1,21 @@
+import { getIP } from 'better-auth/api'
 import { createMiddleware } from 'hono/factory'
+import { normalizeIp } from '../audit/record.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth.ts'
 
 export type AuthSession = Auth['$Infer']['Session']
 
 /** Переменные контекста Hono после проверки доступа. */
-export type AccessEnv = { Variables: { session: AuthSession } }
+export type AccessEnv = {
+  Variables: {
+    session: AuthSession
+    /**
+     * Адрес клиента — тем же правилом, что у ограничителя входа Better Auth (X-Forwarded-For и
+     * TRUSTED_PROXIES); для журнала действий. null — не определён.
+     */
+    clientIp: string | null
+  }
+}
 
 /**
  * Пути Better Auth (после AUTH_BASE_PATH), которым сессия не нужна: вход, выход, чтение сессии
@@ -36,6 +47,7 @@ const TWO_FACTOR_SETUP_PATHS = new Set(['/two-factor/enable', '/two-factor/get-t
  */
 export function accessGuard(auth: Auth) {
   return createMiddleware<AccessEnv>(async (c, next) => {
+    c.set('clientIp', normalizeIp(getIP(c.req.raw, auth.options)))
     const authPath = c.req.path.startsWith(`${AUTH_BASE_PATH}/`)
       ? c.req.path.slice(AUTH_BASE_PATH.length)
       : null

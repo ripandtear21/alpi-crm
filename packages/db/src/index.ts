@@ -3,10 +3,12 @@ import pg from 'pg'
 import type { Database } from './schema.ts'
 
 export { APP_GROUP_ROLE, assertRestrictedRole, ensureAppLoginRole } from './app-role.ts'
+export { FAILED_SIGN_IN_RETENTION_DAYS, purgeExpiredFailedSignIns } from './audit.ts'
 export { createMigrator, migrateToLatest } from './migrate.ts'
 export { createProject, withProject } from './project.ts'
 export type {
   AccountTable,
+  AuditLogTable,
   Database,
   ExternalLinkTable,
   ProjectMemberTable,
@@ -14,6 +16,7 @@ export type {
   RateLimitTable,
   RoleTable,
   SessionTable,
+  SystemAuditLogTable,
   TwoFactorTable,
   UserTable,
   VerificationTable,

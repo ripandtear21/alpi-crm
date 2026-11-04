@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts и 0004_roles.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts и 0006_audit.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -148,6 +148,39 @@ export interface RateLimitTable {
   last_request: ColumnType<string, number | string, number | string>
 }
 
+/**
+ * Запись журнала (migrations/0006_audit.ts). Только добавление: роль приложения не может ни
+ * изменить, ни удалить строку.
+ */
+interface AuditColumns {
+  id: Generated<string>
+  occurred_at: Timestamp
+  /** Кто действовал (`user.id`); null — неизвестный пользователь или система. */
+  actor_id: string | null
+  /** Адрес клиента (inet; `pg` читает строкой). */
+  ip: string | null
+  /** Код действия из `@alpi/shared` (AuditAction). */
+  action: string
+  entity_type: string | null
+  entity_id: string | null
+  /** Подробности. Читается объектом, пишется строкой JSON. */
+  details: ColumnType<Record<string, unknown>, string | undefined, never>
+}
+
+/** Журнал проекта: виден только в контексте своего проекта. */
+export interface AuditLogTable extends AuditColumns {
+  project_id: string
+}
+
+/**
+ * Журнал событий вне проекта (входы, 2FA). Роль приложения только добавляет строки; читает их
+ * владелец системы через функцию `system_audit_events`.
+ */
+export interface SystemAuditLogTable extends AuditColumns {
+  /** Email, который вводили при неудачном входе; у остальных событий null. */
+  attempted_email: string | null
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -160,4 +193,6 @@ export interface Database {
   verification: VerificationTable
   two_factor: TwoFactorTable
   rate_limit: RateLimitTable
+  audit_log: AuditLogTable
+  system_audit_log: SystemAuditLogTable
 }

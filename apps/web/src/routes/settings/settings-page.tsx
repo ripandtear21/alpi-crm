@@ -1,9 +1,10 @@
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
-// Настройки проекта: пока один подраздел — роли; остальные придут со своими тикетами.
+// Настройки проекта: роли и журнал действий; остальные подразделы придут со своими тикетами.
 export function SettingsPage() {
   const { t } = useTranslation('settings')
+  const { t: tAudit } = useTranslation('audit')
 
   return (
     <section>
@@ -12,6 +13,9 @@ export function SettingsPage() {
         <ul>
           <li>
             <Link to="/settings/roles">{t('roles.title')}</Link>
+          </li>
+          <li>
+            <Link to="/settings/audit">{tAudit('title')}</Link>
           </li>
         </ul>
       </nav>

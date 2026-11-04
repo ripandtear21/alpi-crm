@@ -10,6 +10,7 @@ import {
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
+import { recordInRequest } from '../audit/record.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { effectivePermissions } from './access.ts'
 import { checkAssignment, checkRoleCreate, checkRoleEdit, type GuardFailure } from './guard.ts'
@@ -19,7 +20,8 @@ import { checkAssignment, checkRoleCreate, checkRoleEdit, type GuardFailure } fr
 // Защиты роли администратора и последнего администратора держит база
 // (packages/db/migrations/0004_roles.ts); здесь их ошибки становятся ответами 409.
 // Кто какие роли может выдавать — guard.ts: каждый маршрут записи зовёт его проверку до записи,
-// отказ — 403 с кодом правила.
+// отказ — 403 с кодом правила. Каждое изменение пишется в журнал проекта (audit/record.ts) той
+// же транзакцией, с «было → стало».
 
 const MAX_NAME_LENGTH = 60
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -178,6 +180,11 @@ export function rolesRoutes() {
             .returning('id')
             .executeTakeFirstOrThrow(),
         )
+        await recordInRequest(c, {
+          action: 'role.created',
+          entity: { type: 'role', id },
+          details: { after: { name, permissions } },
+        })
         const [created] = await listRoles(db, id)
         return c.json<RoleSummary>(created as RoleSummary, 201)
       } catch (error) {
@@ -193,7 +200,7 @@ export function rolesRoutes() {
       // Строка роли блокируется до конца транзакции: проверка и запись видят одни и те же права.
       const current = await db
         .selectFrom('role')
-        .select(['id', 'is_admin', 'permissions'])
+        .select(['id', 'name', 'is_admin', 'permissions'])
         .where('id', '=', id)
         .forUpdate()
         .executeTakeFirst()
@@ -217,6 +224,18 @@ export function rolesRoutes() {
       } catch (error) {
         return protectionFailure(c, error)
       }
+      const { name, permissions } = input.value
+      await recordInRequest(c, {
+        action: 'role.updated',
+        entity: { type: 'role', id },
+        details: {
+          before: {
+            ...(name === undefined ? {} : { name: current.name }),
+            ...(permissions === undefined ? {} : { permissions: effectivePermissions(current) }),
+          },
+          after: input.value,
+        },
+      })
       const [role] = await listRoles(db, id)
       return c.json<RoleSummary>(role as RoleSummary)
     })
@@ -224,9 +243,14 @@ export function rolesRoutes() {
       const id = c.req.param('id')
       if (!UUID.test(id)) return fail(c, 404, 'ROLE_NOT_FOUND')
       const db = c.get('db')
+      let deleted: { name: string; is_admin: boolean; permissions: unknown } | undefined
       try {
-        const deleted = await inSavepoint(db, () =>
-          db.deleteFrom('role').where('id', '=', id).returning('id').executeTakeFirst(),
+        deleted = await inSavepoint(db, () =>
+          db
+            .deleteFrom('role')
+            .where('id', '=', id)
+            .returning(['name', 'is_admin', 'permissions'])
+            .executeTakeFirst(),
         )
         if (!deleted) return fail(c, 404, 'ROLE_NOT_FOUND')
       } catch (error) {
@@ -234,6 +258,13 @@ export function rolesRoutes() {
         if (sqlState(error) === FOREIGN_KEY_VIOLATION) return fail(c, 409, 'ROLE_IN_USE')
         return protectionFailure(c, error)
       }
+      await recordInRequest(c, {
+        action: 'role.deleted',
+        entity: { type: 'role', id },
+        details: {
+          before: { name: deleted.name, permissions: effectivePermissions(deleted) },
+        },
+      })
       return c.body(null, 204)
     })
 }
@@ -253,7 +284,7 @@ export function membersRoutes() {
       const db = c.get('db')
       const role = await db
         .selectFrom('role')
-        .select(['id', 'is_admin', 'permissions'])
+        .select(['id', 'name', 'is_admin', 'permissions'])
         .where('id', '=', roleId)
         .executeTakeFirst()
       if (!role) return fail(c, 404, 'ROLE_NOT_FOUND')
@@ -263,7 +294,7 @@ export function membersRoutes() {
         .innerJoin('role as r', (join) =>
           join.onRef('r.id', '=', 'm.role_id').onRef('r.project_id', '=', 'm.project_id'),
         )
-        .select('r.is_admin')
+        .select(['r.id', 'r.name', 'r.is_admin'])
         .where('m.project_id', '=', c.get('projectId'))
         .where('m.user_id', '=', userId)
         .forUpdate('m')
@@ -288,6 +319,16 @@ export function membersRoutes() {
         if (!updated) return fail(c, 404, 'MEMBER_NOT_FOUND')
       } catch (error) {
         return protectionFailure(c, error)
+      }
+      if (target.id !== role.id) {
+        await recordInRequest(c, {
+          action: 'member.role_changed',
+          entity: { type: 'user', id: userId },
+          details: {
+            before: { roleId: target.id, roleName: target.name },
+            after: { roleId: role.id, roleName: role.name },
+          },
+        })
       }
       return c.json({ userId, roleId })
     },

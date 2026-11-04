@@ -13,7 +13,13 @@ import { startTestDatabase, type TestDatabase } from './testing/index.ts'
 const APP_USER = 'alpi_test_app'
 const APP_PASSWORD = 'alpi_test_app'
 
-const migrationNames = ['0001_project_isolation', '0002_auth', '0003_projects', '0004_roles']
+const migrationNames = [
+  '0001_project_isolation',
+  '0002_auth',
+  '0003_projects',
+  '0004_roles',
+  '0006_audit',
+]
 
 const tablesOfMigration = [
   'project',
@@ -28,6 +34,9 @@ const tablesOfMigration = [
   'rate_limit',
   // 0004_roles
   'role',
+  // 0006_audit
+  'audit_log',
+  'system_audit_log',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -266,6 +275,7 @@ describe('схема и изоляция проектов', () => {
         order by c.relname
       `.execute(owner)
       expect(rows).toEqual([
+        { table: 'audit_log', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },

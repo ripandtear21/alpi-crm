@@ -28,6 +28,12 @@ export interface Target {
 
 export interface SignedInUser {
   id: string
+  email: string
+  password: string
+  /** Секрет TOTP: код для нового входа — totp(totpSecret). */
+  totpSecret: string
+  /** Адрес клиента (X-Forwarded-For) этого пользователя. */
+  ip: string
   /** Запрос к API (createApp). */
   api(method: Method, path: string, options?: RequestOptions): Promise<Response>
   /** Запрос с теми же cookie к другому приложению — проверочному набору маршрутов. */
@@ -35,6 +41,8 @@ export interface SignedInUser {
 }
 
 export interface ApiHarness {
+  /** Само приложение: для запросов со своими заголовками. */
+  app: Target
   /** Служебное подключение (владелец таблиц): политики проекта на него не действуют. */
   owner: Kysely<Database>
   /** Подключение ролью приложения: тем же ходит API. */
@@ -125,7 +133,7 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
       body: { code: totp(secret) },
     })
     expect(verified.status).toBe(200)
-    return { id, api, call }
+    return { id, email, password, totpSecret: secret, ip, api, call }
   }
 
   async function createProject(creator: SignedInUser, name = 'Проєкт') {
@@ -160,6 +168,7 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
   }
 
   return {
+    app,
     owner,
     appDb,
     auth,
