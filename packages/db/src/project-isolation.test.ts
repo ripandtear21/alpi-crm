@@ -18,7 +18,7 @@ const migrationNames = [
   '0002_auth',
   '0003_projects',
   '0004_roles',
-  '0006_audit',
+  '0005_audit',
 ]
 
 const tablesOfMigration = [
@@ -34,7 +34,7 @@ const tablesOfMigration = [
   'rate_limit',
   // 0004_roles
   'role',
-  // 0006_audit
+  // 0005_audit
   'audit_log',
   'system_audit_log',
 ]

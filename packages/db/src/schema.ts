@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts и 0006_audit.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts и 0005_audit.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -149,7 +149,7 @@ export interface RateLimitTable {
 }
 
 /**
- * Запись журнала (migrations/0006_audit.ts). Только добавление: роль приложения не может ни
+ * Запись журнала (migrations/0005_audit.ts). Только добавление: роль приложения не может ни
  * изменить, ни удалить строку.
  */
 interface AuditColumns {

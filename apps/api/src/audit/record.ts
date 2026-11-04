@@ -4,7 +4,7 @@ import type { ProjectAuditAction, SystemAuditAction } from '@alpi/shared'
 import type { Kysely } from 'kysely'
 import type { ProjectEnv } from '../middleware/project-context.ts'
 
-// Запись в журнал (тикет crm-foundation/07; таблицы — packages/db/migrations/0006_audit.ts).
+// Запись в журнал (тикет crm-foundation/07; таблицы — packages/db/migrations/0005_audit.ts).
 //
 // - audit.record — событие проекта. Пишется той же транзакцией проекта, что и само действие:
 //   откатилось действие — откатилась и запись, и наоборот, ошибка записи в журнал отменяет
