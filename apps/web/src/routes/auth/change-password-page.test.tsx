@@ -102,6 +102,13 @@ describe('смена временного пароля', () => {
     fill('Повторите новый пароль', 'my-new-password-2')
     fireEvent.click(screen.getByRole('button', { name: 'Сменить пароль' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Пароли не совпадают.')
+    fill('Новый пароль', 'Tmp-Pass-1234567')
+    fill('Повторите новый пароль', 'Tmp-Pass-1234567')
+    fireEvent.click(screen.getByRole('button', { name: 'Сменить пароль' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Новый пароль должен отличаться от временного.',
+    )
+    fill('Новый пароль', 'my-new-password-1')
     expect(changePassword).not.toHaveBeenCalled()
 
     fill('Повторите новый пароль', 'my-new-password-1')

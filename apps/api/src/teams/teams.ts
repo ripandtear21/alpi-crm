@@ -4,7 +4,6 @@ import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import {
-  actorTeam,
   checkTeamLeads,
   dbRefusal,
   ledTeam,
@@ -17,15 +16,16 @@ import {
   refuse,
 } from '../members/service.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
-import { checkMemberChange } from '../roles/guard.ts'
+import { checkTeamChange } from '../roles/guard.ts'
 import { inSavepoint } from '../roles/roles.ts'
 
 // Команды проекта (тикет crm-foundation/06; GLOSSARY.md — «Команда»): маршруты `/teams` под
 // правом «пользователи и роли». Тимлид один и сам состоит в команде, участник — не больше чем в
 // одной команде: это держит база (packages/db/migrations/0005_teams.ts). Состав команды меняет
-// PUT /members/:userId/team; здесь — создание, название, тимлид, удаление. Тимлид и состав
-// команды — участие, поэтому каждое изменение тимлида проходит checkMemberChange (guard.ts),
-// а запись участия — функции members/service.ts.
+// PUT /members/:userId/team; здесь — создание, название, тимлид, удаление. Всё это меняет
+// только администратор проекта (guard.ts, правило (д)): команда задаёт охват «команда».
+// Держатели права «пользователи и роли» без роли администратора команды только смотрят.
+// Запись участия (перевод тимлида в команду) — функции members/service.ts.
 
 const MAX_NAME_LENGTH = 60
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -97,13 +97,6 @@ async function checkNewLead(
   if (lead.disabled) return refuse(409, 'TEAM_LEAD_DISABLED')
   const led = await ledTeam(ctx.db, userId)
   if (led !== null && led !== teamId) return refuse(409, 'LEADS_OTHER_TEAM')
-  const failure = checkMemberChange(ctx.actor, lead, {
-    from: lead.teamId,
-    // Новая команда — ещё не команда того, кто меняет: важно, откуда тимлида уводят.
-    to: teamId,
-    actorTeam: await actorTeam(ctx),
-  })
-  if (failure) return refuse(403, failure)
   return ok(null)
 }
 
@@ -129,6 +122,8 @@ async function createTeam(
   name: string,
   leadUserId: string,
 ): Promise<Outcome<TeamSummary>> {
+  const failure = checkTeamChange(ctx.actor)
+  if (failure) return refuse(403, failure)
   const checked = await checkNewLead(ctx, leadUserId, null)
   if (!checked.ok) return checked
   try {
@@ -158,6 +153,8 @@ async function updateTeam(
   teamId: string,
   change: { name?: string; leadUserId?: string },
 ): Promise<Outcome<TeamSummary>> {
+  const failure = checkTeamChange(ctx.actor)
+  if (failure) return refuse(403, failure)
   // Строка команды блокируется: смены тимлида одной команды идут по очереди.
   const team = await ctx.db
     .selectFrom('team')
@@ -171,12 +168,7 @@ async function updateTeam(
       ? change.leadUserId
       : undefined
   if (newLead !== undefined) {
-    // Прежний тимлид остаётся в команде, но перестаёт её вести — это изменение его участия.
-    const previous = await lockMember(ctx.db, ctx.projectId, team.lead_user_id)
-    if (previous) {
-      const failure = checkMemberChange(ctx.actor, previous)
-      if (failure) return refuse(403, failure)
-    }
+    // Прежний тимлид остаётся в команде участником.
     const checked = await checkNewLead(ctx, newLead, teamId)
     if (!checked.ok) return checked
   }
@@ -203,6 +195,8 @@ async function updateTeam(
 }
 
 async function deleteTeam(ctx: MemberContext, teamId: string): Promise<Outcome<null>> {
+  const failure = checkTeamChange(ctx.actor)
+  if (failure) return refuse(403, failure)
   const team = await ctx.db
     .selectFrom('team')
     .select('id')
@@ -210,23 +204,7 @@ async function deleteTeam(ctx: MemberContext, teamId: string): Promise<Outcome<n
     .forUpdate()
     .executeTakeFirst()
   if (!team) return refuse(404, 'TEAM_NOT_FOUND')
-  // Удаление выводит из команды всех её участников: каждый — изменение участия.
-  const members = await ctx.db
-    .selectFrom('project_member')
-    .select('user_id')
-    .where('team_id', '=', teamId)
-    .execute()
-  const mine = await actorTeam(ctx)
-  for (const { user_id } of members) {
-    const member = await lockMember(ctx.db, ctx.projectId, user_id)
-    if (!member) continue
-    const failure = checkMemberChange(ctx.actor, member, {
-      from: teamId,
-      to: null,
-      actorTeam: mine,
-    })
-    if (failure) return refuse(403, failure)
-  }
+  // Удаление выводит из команды всех её участников (ON DELETE SET NULL в базе).
   try {
     await inSavepoint(ctx.db, () => ctx.db.deleteFrom('team').where('id', '=', teamId).execute())
   } catch (error) {

@@ -184,9 +184,13 @@ describe('участники проекта', () => {
       expect(user).toEqual({ role: 'user', must_change_password: true })
 
       const browser = h.browser()
-      expect(
-        (await browser.api('POST', '/auth/sign-in/email', { body: { email, password } })).status,
-      ).toBe(200)
+      // Второй вход тем же временным паролем — как тот, кто создал учётную запись.
+      const creatorCopy = h.browser()
+      for (const b of [browser, creatorCopy]) {
+        expect(
+          (await b.api('POST', '/auth/sign-in/email', { body: { email, password } })).status,
+        ).toBe(200)
+      }
       // До смены пароля — ни API, ни проекта, ни настройки 2FA.
       for (const [method, path, options] of [
         ['GET', '/me', {}],
@@ -206,12 +210,23 @@ describe('участники проекта', () => {
       })
       expect(wrong.status).toBe(400)
       expect((await browser.api('GET', '/me')).status).toBe(403)
+      // «Смена» на тот же пароль — отказ, флаг остаётся.
+      expect(
+        await body(
+          await browser.api('POST', '/auth/change-password', {
+            body: { currentPassword: password, newPassword: password },
+          }),
+        ),
+      ).toMatchObject({ status: 400, body: { code: 'PASSWORD_UNCHANGED' } })
+      expect((await browser.api('GET', '/me')).status).toBe(403)
 
+      // Клиент не просит закрыть другие сессии — сервер закрывает их сам.
       const newPassword = 'new-password-123'
       const changed = await browser.api('POST', '/auth/change-password', {
-        body: { currentPassword: password, newPassword, revokeOtherSessions: true },
+        body: { currentPassword: password, newPassword, revokeOtherSessions: false },
       })
       expect(changed.status).toBe(200)
+      expect(await (await creatorCopy.api('GET', '/auth/get-session')).json()).toBeNull()
       expect(
         (
           await h.owner
@@ -441,10 +456,6 @@ describe('участники проекта', () => {
         await asX('PUT', `/members/${y.id}/accepts-new-deals`, { acceptsNewDeals: false }),
         'TARGET_EXCEEDS_OWN_PERMISSIONS',
       )
-      await expectDenied(
-        await asX('PUT', `/members/${x.id}/team`, { teamId: team.id }),
-        'OWN_MEMBERSHIP',
-      )
       expect((await member(systemOwner.id))?.disabled_at).toBeNull()
       expect((await member(y.id))?.disabled_at).toBeNull()
       expect((await member(x.id))?.team_id).toBeNull()
@@ -453,17 +464,67 @@ describe('участники проекта', () => {
       expect((await asX('POST', `/members/${n.id}/enable`)).status).toBe(200)
     })
 
-    it('состав своей команды не-администратор не меняет', async () => {
-      // X в команде: привести в неё участника — расширить себе охват «команда».
-      expect((await asAdmin('PUT', `/members/${x.id}/team`, { teamId: team.id })).status).toBe(200)
+    it('команды и их состав меняет только администратор — и через новую учётную запись тоже', async () => {
+      // Атака: завести учётную запись (её временный пароль X видит) сразу в чужую команду.
+      const email = `team-${Date.now()}@example.test`
       await expectDenied(
-        await asX('PUT', `/members/${n.id}/team`, { teamId: team.id }),
-        'OWN_MEMBERSHIP',
+        await asX('POST', '/members/new', {
+          email,
+          name: 'Агент',
+          roleId: narrow.id,
+          teamId: team.id,
+        }),
+        'TEAMS_ADMIN_ONLY',
       )
-      expect((await member(n.id))?.team_id).toBeNull()
-      expect((await asAdmin('PUT', `/members/${x.id}/team`, { teamId: null })).status).toBe(200)
-      // Вне своей команды — можно.
-      expect((await asX('PUT', `/members/${n.id}/team`, { teamId: team.id })).status).toBe(200)
+      expect(
+        await h.owner.selectFrom('user').select('id').where('email', '=', email).execute(),
+      ).toEqual([])
+      // Существующего — тоже не сразу в команду.
+      const outsider = await h.signIn()
+      await expectDenied(
+        await asX('POST', '/members', {
+          email: outsider.email,
+          roleId: narrow.id,
+          teamId: team.id,
+        }),
+        'TEAMS_ADMIN_ONLY',
+      )
+      expect(await member(outsider.id)).toBeUndefined()
+
+      // Без команды завести можно, но ни тимлидом, ни в команду её не поставить.
+      const created = await asX('POST', '/members/new', {
+        email,
+        name: 'Агент',
+        roleId: narrow.id,
+      })
+      expect(created.status).toBe(201)
+      const agent = ((await created.json()) as CreatedMemberResponse).member.userId
+      await expectDenied(
+        await asX('POST', '/teams', { name: 'Агентурна', leadUserId: agent }),
+        'TEAMS_ADMIN_ONLY',
+      )
+      await expectDenied(
+        await asX('PUT', `/teams/${team.id}`, { leadUserId: agent }),
+        'TEAMS_ADMIN_ONLY',
+      )
+      for (const userId of [agent, n.id, x.id]) {
+        await expectDenied(
+          await asX('PUT', `/members/${userId}/team`, { teamId: team.id }),
+          'TEAMS_ADMIN_ONLY',
+        )
+      }
+      await expectDenied(
+        await asX('PUT', `/teams/${team.id}`, { name: 'Інша' }),
+        'TEAMS_ADMIN_ONLY',
+      )
+      expect((await x.api('DELETE', `/teams/${team.id}`, { project: projectId })).status).toBe(403)
+      const stored = await h.owner
+        .selectFrom('team')
+        .select(['name', 'lead_user_id'])
+        .where('id', '=', team.id)
+        .executeTakeFirstOrThrow()
+      expect(stored).toEqual({ name: 'Захоплення', lead_user_id: y.id })
+      for (const userId of [agent, n.id, x.id]) expect((await member(userId))?.team_id).toBeNull()
     })
   })
 

@@ -15,6 +15,7 @@ import { effectivePermissions } from '../roles/access.ts'
 import {
   checkAssignment,
   checkMemberChange,
+  checkTeamChange,
   type GuardFailure,
   type GuardTarget,
 } from '../roles/guard.ts'
@@ -176,16 +177,6 @@ export async function lockMember(
   }
 }
 
-/** Команда того, кто меняет: состав своей команды не-администратор не меняет (guard.ts). */
-export async function actorTeam(ctx: MemberContext): Promise<string | null> {
-  const row = await ctx.db
-    .selectFrom('project_member')
-    .select('team_id')
-    .where('user_id', '=', ctx.actor.userId)
-    .executeTakeFirst()
-  return row?.team_id ?? null
-}
-
 /** Команда, которую ведёт `userId`; null — не тимлид. */
 export async function ledTeam(db: Kysely<Database>, userId: string): Promise<string | null> {
   const row = await db
@@ -272,15 +263,11 @@ async function checkNewMember(
     return refuse(404, 'TEAM_NOT_FOUND')
   }
   const target = { userId, roleIsAdmin: false, permissions: noPermissions() }
+  // Команду новому участнику выбирает только администратор (guard.ts, правило (д)): иначе
+  // не-администратор завёл бы учётную запись, пароль которой знает, сразу в чужую команду.
   const failure =
     checkAssignment(ctx.actor, target, role) ??
-    (input.teamId === null
-      ? null
-      : checkMemberChange(ctx.actor, target, {
-          from: null,
-          to: input.teamId,
-          actorTeam: await actorTeam(ctx),
-        }))
+    (input.teamId === null ? null : checkTeamChange(ctx.actor))
   if (failure) return refuse(403, failure)
   return ok(null)
 }
@@ -374,14 +361,23 @@ export async function createMember(
   account: { email: string; name: string },
   input: NewMemberInput,
 ): Promise<Outcome<{ member: MemberSummary; temporaryPassword: string }>> {
-  if (await userIdByEmail(ctx.db, account.email)) return refuse(409, 'EMAIL_TAKEN')
+  // Сначала права: отказ не зависит от того, занят ли email.
   const checked = await checkNewMember(ctx, '', input)
   if (!checked.ok) return checked
+  if (await userIdByEmail(ctx.db, account.email)) return refuse(409, 'EMAIL_TAKEN')
   const password = temporaryPassword()
   let userId: string
   try {
+    // Флаг смены пароля — в той же вставке строки "user": серверный вызов передаёт data в
+    // адаптер как есть (поле с input: false режет только разбор тела HTTP-запроса). Учётной
+    // записи без флага с временным паролем не бывает ни на миг. Тест проверяет флаг в базе.
     const { user } = await auth.api.createUser({
-      body: { email: account.email, name: account.name, password },
+      body: {
+        email: account.email,
+        name: account.name,
+        password,
+        data: { mustChangePassword: true },
+      },
     })
     userId = user.id
   } catch (error) {
@@ -391,8 +387,6 @@ export async function createMember(
     }
     throw error
   }
-  const context = await auth.$context
-  await context.internalAdapter.updateUser(userId, { mustChangePassword: true })
   const added = await insertMember(ctx, userId, input)
   if (!added.ok) return added
   return ok({ member: added.value, temporaryPassword: password })
@@ -407,11 +401,7 @@ export async function setMemberTeam(
   const target = await lockMember(ctx.db, ctx.projectId, userId)
   if (!target) return refuse(404, 'MEMBER_NOT_FOUND')
   if (teamId !== null && !(await teamExists(ctx.db, teamId))) return refuse(404, 'TEAM_NOT_FOUND')
-  const failure = checkMemberChange(ctx.actor, target, {
-    from: target.teamId,
-    to: teamId,
-    actorTeam: await actorTeam(ctx),
-  })
+  const failure = checkTeamChange(ctx.actor)
   if (failure) return refuse(403, failure)
   if (target.teamId === teamId) return ok(await memberSummary(ctx.db, userId))
   try {

@@ -91,6 +91,7 @@ function TeamsEditor({ api, projectId }: { api: MembersApi; projectId: string })
           team={team}
           members={active}
           nameOf={nameOf}
+          isDisabled={(userId) => members.data.some((m) => m.userId === userId && m.disabled)}
           pending={change.isPending}
           onRename={(name) => run(() => api.updateTeam(projectId, team.id, { name }))}
           onLead={(leadUserId) => run(() => api.updateTeam(projectId, team.id, { leadUserId }))}
@@ -114,6 +115,7 @@ function TeamCard({
   team,
   members,
   nameOf,
+  isDisabled,
   pending,
   onRename,
   onLead,
@@ -124,6 +126,7 @@ function TeamCard({
   team: TeamSummary
   members: MemberSummary[]
   nameOf: (userId: string) => string
+  isDisabled: (userId: string) => boolean
   pending: boolean
   onRename: (name: string) => void
   onLead: (userId: string) => void
@@ -180,6 +183,10 @@ function TeamCard({
         {team.memberUserIds.map((userId) => (
           <li key={userId}>
             {nameOf(userId)}
+            {/* Отключённый остаётся в команде: его закрытые сделки — история команды. */}
+            {isDisabled(userId) && (
+              <span className="members__hint"> — {t('members.disabledMark')}</span>
+            )}
             {userId === team.leadUserId ? (
               <span className="members__hint"> — {t('teams.leadMark')}</span>
             ) : (

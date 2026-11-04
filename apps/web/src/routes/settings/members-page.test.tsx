@@ -144,6 +144,23 @@ describe('экран команд', () => {
     expect(screen.queryByRole('button', { name: 'Прибрати Олена' })).toBeNull()
   })
 
+  it('отключённый участник в составе команды помечен', async () => {
+    const api = fakeMembersApi()
+    api.teams = [
+      { id: 'team-9', name: 'Бета', leadUserId: 'user-1', memberUserIds: ['user-1', 'user-2'] },
+    ]
+    for (const m of api.members) m.teamId = 'team-9'
+    const olena = api.members.find((m) => m.userId === 'user-2')
+    if (olena) olena.disabled = true
+    await renderAt('/settings/teams', 'uk', api)
+    const list = await screen.findByRole('list', { name: 'Учасники команди Бета' })
+    const items = within(list)
+      .getAllByRole('listitem')
+      .map((li) => li.textContent ?? '')
+    expect(items[0]).not.toContain('вимкнений')
+    expect(items[1]).toContain('Олена — вимкнений')
+  })
+
   it('заголовок по-русски', async () => {
     await renderAt('/settings/teams', 'ru')
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Команды')

@@ -14,6 +14,10 @@
   border-collapse: collapse;
 }
 
+.members__table caption {
+  text-align: left;
+}
+
 .members__table th,
 .members__table td {
   padding: 4px 8px;

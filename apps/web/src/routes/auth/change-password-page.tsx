@@ -24,6 +24,10 @@ export function ChangePasswordPage() {
       setError(t('changePassword.tooShort', { min: MIN_PASSWORD_LENGTH }))
       return
     }
+    if (next === current) {
+      setError(t('changePassword.unchanged'))
+      return
+    }
     if (next !== String(form.get('confirm'))) {
       setError(t('changePassword.mismatch'))
       return

@@ -1,6 +1,6 @@
 import type { Database } from '@alpi/db'
 import { betterAuth } from 'better-auth'
-import { APIError, createAuthMiddleware } from 'better-auth/api'
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api'
 import { admin, twoFactor } from 'better-auth/plugins'
 import type { Kysely } from 'kysely'
 import { authAuditHooks } from '../audit/auth-events.ts'
@@ -163,6 +163,27 @@ export function createAuth(config: AuthConfig) {
         await auditHooks.before(ctx)
         if (SECOND_FACTOR_PATHS.has(ctx.path) && ctx.body?.trustDevice !== undefined) {
           return { context: { body: { ...ctx.body, trustDevice: false } } }
+        }
+        if (ctx.path === '/change-password') {
+          // Новый пароль, совпадающий с текущим, — не смена: иначе флаг временного пароля
+          // снимался бы без смены.
+          if (
+            typeof ctx.body?.newPassword === 'string' &&
+            ctx.body.newPassword === ctx.body.currentPassword
+          ) {
+            throw new APIError('BAD_REQUEST', {
+              code: 'PASSWORD_UNCHANGED',
+              message: 'новый пароль совпадает с текущим',
+            })
+          }
+          // Временный пароль видел тот, кто создал учётную запись: при его смене все другие
+          // сессии закрываются, что бы ни прислал клиент.
+          const session = (await getSessionFromCtx(ctx)) as
+            | (SessionOfRequest & { user: { mustChangePassword?: boolean | null } })
+            | null
+          if (session?.user.mustChangePassword === true) {
+            return { context: { body: { ...ctx.body, revokeOtherSessions: true } } }
+          }
         }
       }),
       // Журнал (audit/auth-events.ts), затем снятие флага временного пароля: пароль сменён —
