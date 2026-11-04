@@ -37,7 +37,9 @@ export async function startTestDatabase(
     user,
     password,
     authMethod: 'scram-sha-256',
-    persistent: false,
+    // Папку удаляет наш removeDir с повторами: при persistent: false её удаляет сама
+    // библиотека внутри pg.stop() без повторов, и на Windows тесты падали на EBUSY.
+    persistent: true,
     // Вывод initdb и сервера копим и показываем только при ошибке запуска.
     onLog: (message) => log.push(String(message)),
     onError: (message) => log.push(String(message)),
