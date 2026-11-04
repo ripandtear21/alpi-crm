@@ -61,12 +61,19 @@ function snakeFields<const K extends string>(...names: K[]): Record<K, string> {
  * системы:
  * - вход под чужой учётной записью: владелец получает в проекте только права своей роли;
  * - удаление пользователя: пользователей не удаляют, а банят, и автор записи в журнале всегда
- *   остаётся ссылкой на учётную запись.
+ *   остаётся ссылкой на учётную запись;
+ * - изменение учётной записи и задание пароля другому пользователю (тикет crm-foundation/06):
+ *   журнал их не пишет, а нужны они не были — пользователей заводят и меняют через API
+ *   участников проекта (apps/api/src/members), пароль владельцу задаёт только create-owner.
+ *   Сброс забытого пароля — отдельной задачей, с временным паролем (must_change_password) и
+ *   записью в журнал.
  */
 export const DISABLED_AUTH_PATHS = [
   '/admin/impersonate-user',
   '/admin/stop-impersonating',
   '/admin/remove-user',
+  '/admin/update-user',
+  '/admin/set-user-password',
 ]
 
 export function createAuth(config: AuthConfig) {
@@ -190,14 +197,15 @@ export function createAuth(config: AuthConfig) {
       // временного пароля больше нет. Отказ смены (неверный текущий пароль, короткий новый)
       // приходит сюда ошибкой и флаг не снимает.
       after: createAuthMiddleware(async (ctx) => {
-        const result = await auditHooks.after(ctx)
+        // Хук журнала ничего не возвращает (только пишет или бросает ошибку); его ответ не
+        // передаём дальше — он подменил бы ответ эндпоинта.
+        await auditHooks.after(ctx)
         if (ctx.path === '/change-password' && !(ctx.context.returned instanceof APIError)) {
           const userId = (ctx.context.session as SessionOfRequest | null | undefined)?.user.id
           if (userId) {
             await ctx.context.internalAdapter.updateUser(userId, { mustChangePassword: false })
           }
         }
-        return result
       }),
     },
     account: {

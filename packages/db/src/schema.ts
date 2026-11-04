@@ -43,7 +43,7 @@ export interface ProjectMemberTable {
 
 /**
  * Команда проекта. Видна только в контексте своего проекта. Тимлид один (`lead_user_id`) и сам
- * состоит в команде — защищает база (migrations/0005_teams.ts).
+ * состоит в команде — защищает база (migrations/0006_teams.ts).
  */
 export interface TeamTable {
   id: Generated<string>

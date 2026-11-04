@@ -42,11 +42,13 @@ function respond<T>(c: Ctx, outcome: Outcome<T>, status: 200 | 201 = 200) {
   return outcome.ok ? c.json(outcome.value, status) : fail(c, outcome.status, outcome.code)
 }
 
-function context(c: Ctx): MemberContext {
+/** Транзакция проекта, проект, тот, кто меняет, и его адрес (для журнала) — из запроса. */
+export function memberContext(c: Ctx): MemberContext {
   return {
     db: c.get('db'),
     projectId: c.get('projectId'),
     actor: { ...c.get('access'), userId: c.get('session').user.id },
+    ip: c.get('clientIp'),
   }
 }
 
@@ -90,7 +92,7 @@ export function membersRoutes({ auth, openDeals }: MembersDeps) {
         if (!email) return invalid(c, 'email')
         const input = readNewMember(body)
         if (typeof input === 'string') return invalid(c, input)
-        return respond(c, await addExistingMember(context(c), email, input), 201)
+        return respond(c, await addExistingMember(memberContext(c), email, input), 201)
       })
       // Завести учётную запись с временным паролем и добавить её в проект.
       .post('/new', requirePermission('users_roles', 'create'), async (c) => {
@@ -102,7 +104,7 @@ export function membersRoutes({ auth, openDeals }: MembersDeps) {
         if (!name) return invalid(c, 'name')
         const input = readNewMember(body)
         if (typeof input === 'string') return invalid(c, input)
-        const outcome = await createMember(context(c), auth, { email, name }, input)
+        const outcome = await createMember(memberContext(c), auth, { email, name }, input)
         if (!outcome.ok) return fail(c, outcome.status, outcome.code)
         // Пароль — только в этом ответе; не кэшировать.
         c.header('cache-control', 'no-store')
@@ -114,7 +116,7 @@ export function membersRoutes({ auth, openDeals }: MembersDeps) {
         if (typeof roleId !== 'string' || !UUID.test(roleId)) {
           return fail(c, 400, 'INVALID_ROLE', { path: 'roleId', message: 'ожидается id роли' })
         }
-        const outcome = await assignRole(context(c), c.req.param('userId'), roleId)
+        const outcome = await assignRole(memberContext(c), c.req.param('userId'), roleId)
         // Ответ прежнего маршрута (тикет 05): { userId, roleId }, плюс остальные поля участника.
         return respond(c, outcome)
       })
@@ -123,21 +125,21 @@ export function membersRoutes({ auth, openDeals }: MembersDeps) {
         if (!body || !('teamId' in body)) return invalid(c, 'teamId')
         const teamId = readTeamId(body.teamId)
         if (teamId === undefined) return invalid(c, 'teamId')
-        return respond(c, await setMemberTeam(context(c), c.req.param('userId'), teamId))
+        return respond(c, await setMemberTeam(memberContext(c), c.req.param('userId'), teamId))
       })
       .put('/:userId/accepts-new-deals', requirePermission('users_roles', 'edit'), async (c) => {
         const body = await readBody(c)
         if (typeof body?.acceptsNewDeals !== 'boolean') return invalid(c, 'acceptsNewDeals')
         return respond(
           c,
-          await setAcceptsNewDeals(context(c), c.req.param('userId'), body.acceptsNewDeals),
+          await setAcceptsNewDeals(memberContext(c), c.req.param('userId'), body.acceptsNewDeals),
         )
       })
       .post('/:userId/disable', requirePermission('users_roles', 'edit'), async (c) =>
-        respond(c, await disableMember(context(c), openDeals, c.req.param('userId'))),
+        respond(c, await disableMember(memberContext(c), openDeals, c.req.param('userId'))),
       )
       .post('/:userId/enable', requirePermission('users_roles', 'edit'), async (c) =>
-        respond(c, await enableMember(context(c), c.req.param('userId'))),
+        respond(c, await enableMember(memberContext(c), c.req.param('userId'))),
       )
   )
 }

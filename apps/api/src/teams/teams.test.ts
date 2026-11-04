@@ -226,6 +226,69 @@ describe('команды проекта', () => {
     })
   })
 
+  describe('журнал действий', () => {
+    it('создание, переименование, тимлид, состав и удаление команды пишутся', async () => {
+      const first = await newMember('teamlead')
+      const second = await newMember()
+      const manager = await newMember()
+      const team = await createTeam('Журнал', first)
+      expect((await asAdmin('PUT', `/teams/${team.id}`, { name: 'Журнал-2' })).status).toBe(200)
+      expect((await asAdmin('PUT', `/teams/${team.id}`, { leadUserId: second })).status).toBe(200)
+      expect((await asAdmin('PUT', `/members/${manager}/team`, { teamId: team.id })).status).toBe(
+        200,
+      )
+      expect((await asAdmin('DELETE', `/teams/${team.id}`)).status).toBe(204)
+
+      const rows = await h.owner
+        .selectFrom('audit_log')
+        .select(['action', 'entity_id', 'details', 'occurred_at'])
+        .where('project_id', '=', projectId)
+        .where('entity_id', 'in', [team.id, first, second, manager])
+        .orderBy('occurred_at')
+        .orderBy('id')
+        .execute()
+      // Записи одного запроса делят время транзакции (now()), а id — uuid: порядок внутри
+      // запроса не задан. Сравниваем по запросам, внутри запроса — отсортированными.
+      const requests = new Map<string, string[]>()
+      for (const r of rows) {
+        const key = new Date(r.occurred_at).toISOString()
+        requests.set(key, [...(requests.get(key) ?? []), `${r.action} ${r.entity_id}`])
+      }
+      expect([...requests.values()].map((group) => group.sort())).toEqual([
+        [`member.team_changed ${first}`, `team.created ${team.id}`],
+        [`team.updated ${team.id}`],
+        [`member.team_changed ${second}`, `team.lead_assigned ${team.id}`],
+        [`member.team_changed ${manager}`],
+        [`team.deleted ${team.id}`],
+      ])
+      const details = (action: string, entityId: string) =>
+        rows.find((r) => r.action === action && r.entity_id === entityId)?.details
+      expect(details('team.created', team.id)).toMatchObject({
+        after: { name: 'Журнал', leadUserId: first },
+      })
+      expect(details('member.team_changed', first)).toEqual({
+        before: { teamId: null, teamName: null },
+        after: { teamId: team.id, teamName: 'Журнал' },
+      })
+      expect(details('team.updated', team.id)).toEqual({
+        before: { name: 'Журнал' },
+        after: { name: 'Журнал-2' },
+      })
+      expect(details('team.lead_assigned', team.id)).toMatchObject({
+        team: 'Журнал-2',
+        before: { leadUserId: first },
+        after: { leadUserId: second },
+      })
+      expect(details('member.team_changed', manager)).toEqual({
+        before: { teamId: null, teamName: null },
+        after: { teamId: team.id, teamName: 'Журнал-2' },
+      })
+      expect(details('team.deleted', team.id)).toMatchObject({
+        before: { name: 'Журнал-2', leadUserId: second },
+      })
+    })
+  })
+
   describe('охват «команда» по командам проекта', () => {
     // Тестовая таблица с ответственным — как будущие сделки.
     interface ProbeDb {

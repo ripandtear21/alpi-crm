@@ -31,12 +31,25 @@
     "member": {
       "role_changed": "Змінено роль учасника",
       "added": "Додано учасника",
-      "disabled": "Вимкнено учасника"
+      "disabled": "Вимкнено учасника",
+      "created": "Створено користувача",
+      "enabled": "Увімкнено учасника",
+      "team_changed": "Змінено команду учасника"
+    },
+    "team": {
+      "created": "Створено команду",
+      "updated": "Перейменовано команду",
+      "deleted": "Видалено команду",
+      "lead_assigned": "Призначено тімліда"
     }
   },
   "summary": {
     "roleChanged": "{{user}}: {{before}} → {{after}}",
     "renamed": "{{before}} → {{after}}",
-    "permissionsChanged": "змінено права"
+    "permissionsChanged": "змінено права",
+    "teamChanged": "{{user}}: {{before}} → {{after}}",
+    "noTeam": "без команди",
+    "teamCreated": "{{team}}, тімлід {{lead}}",
+    "leadAssigned": "{{team}}: {{before}} → {{after}}"
   }
 }

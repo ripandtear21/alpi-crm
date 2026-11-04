@@ -8,6 +8,7 @@ import {
   type TeamSummary,
 } from '@alpi/shared'
 import { Hono } from 'hono'
+import { sql } from 'kysely'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { type AccessEnv, accessGuard } from '../auth/access-guard.ts'
 import { projectContext } from '../middleware/project-context.ts'
@@ -264,6 +265,137 @@ describe('участники проекта', () => {
         roleId: roleId('manager'),
       })
       expect(await body(res)).toEqual({ status: 409, body: { code: 'EMAIL_TAKEN' } })
+    })
+  })
+
+  describe('журнал действий', () => {
+    async function journal(entityId: string) {
+      return h.owner
+        .selectFrom('audit_log')
+        .select(['action', 'actor_id', 'entity_type', 'details'])
+        .where('project_id', '=', projectId)
+        .where('entity_id', '=', entityId)
+        .orderBy('occurred_at')
+        .orderBy('id')
+        .execute()
+    }
+
+    /** Пока выполняется `fn`, любая вставка в журнал проекта падает с ошибкой. */
+    async function withBrokenJournal(fn: () => Promise<void>) {
+      await sql`
+        create function public.test_broken_members_journal() returns trigger language plpgsql
+        as $$ begin raise exception 'журнал недоступен'; end $$
+      `.execute(h.owner)
+      await sql`
+        create trigger test_broken_members_journal before insert on audit_log
+          for each row execute function public.test_broken_members_journal()
+      `.execute(h.owner)
+      try {
+        await fn()
+      } finally {
+        await sql`drop trigger test_broken_members_journal on audit_log`.execute(h.owner)
+        await sql`drop function public.test_broken_members_journal()`.execute(h.owner)
+      }
+    }
+
+    it('добавление, смена роли, отключение и включение пишутся той же транзакцией', async () => {
+      const user = await h.signIn()
+      expect(
+        (await asAdmin('POST', '/members', { email: user.email, roleId: roleId('manager') }))
+          .status,
+      ).toBe(201)
+      expect(
+        (await asAdmin('PUT', `/members/${user.id}/role`, { roleId: roleId('head') })).status,
+      ).toBe(200)
+      expect((await asAdmin('POST', `/members/${user.id}/disable`)).status).toBe(200)
+      expect((await asAdmin('POST', `/members/${user.id}/enable`)).status).toBe(200)
+      expect(await journal(user.id)).toEqual([
+        {
+          action: 'member.added',
+          actor_id: systemOwner.id,
+          entity_type: 'user',
+          details: {
+            after: {
+              roleId: roleId('manager'),
+              roleName: 'Менеджер',
+              teamId: null,
+              teamName: null,
+            },
+          },
+        },
+        {
+          action: 'member.role_changed',
+          actor_id: systemOwner.id,
+          entity_type: 'user',
+          details: {
+            before: { roleId: roleId('manager'), roleName: 'Менеджер' },
+            after: { roleId: roleId('head'), roleName: 'Керівник' },
+          },
+        },
+        { action: 'member.disabled', actor_id: systemOwner.id, entity_type: 'user', details: {} },
+        { action: 'member.enabled', actor_id: systemOwner.id, entity_type: 'user', details: {} },
+      ])
+    })
+
+    it('новая учётная запись — member.created без временного пароля', async () => {
+      const res = await asAdmin('POST', '/members/new', {
+        email: `journal-${Date.now()}@example.test`,
+        name: 'Журнальний',
+        roleId: roleId('manager'),
+      })
+      expect(res.status).toBe(201)
+      const { member, temporaryPassword } = (await res.json()) as CreatedMemberResponse
+      const rows = await journal(member.userId)
+      expect(rows.map((r) => r.action)).toEqual(['member.created'])
+      expect(JSON.stringify(rows)).not.toContain(temporaryPassword)
+    })
+
+    it('журнал не пишется — действие откатывается (500)', async () => {
+      const outsider = await h.signIn()
+      const enabled = await newMember()
+      await withBrokenJournal(async () => {
+        const added = await asAdmin('POST', '/members', {
+          email: outsider.email,
+          roleId: roleId('manager'),
+        })
+        expect(added.status).toBe(500)
+        expect((await asAdmin('POST', `/members/${enabled.id}/disable`)).status).toBe(500)
+        expect(
+          (await asAdmin('PUT', `/members/${enabled.id}/role`, { roleId: roleId('head') })).status,
+        ).toBe(500)
+      })
+      expect(await member(outsider.id)).toBeUndefined()
+      expect(await member(enabled.id)).toMatchObject({
+        disabled_at: null,
+        role_id: roleId('manager'),
+      })
+      expect(await journal(enabled.id)).toEqual([])
+    })
+
+    it('владельцу системы /admin/update-user и /admin/set-user-password выключены', async () => {
+      const user = await h.signIn()
+      const updated = await systemOwner.api('POST', '/auth/admin/update-user', {
+        body: { userId: user.id, data: { name: 'Підмінений' } },
+      })
+      expect(updated.status).toBe(404)
+      const password = await systemOwner.api('POST', '/auth/admin/set-user-password', {
+        body: { userId: user.id, newPassword: 'owner-knows-it-1' },
+      })
+      expect(password.status).toBe(404)
+      const row = await h.owner
+        .selectFrom('user')
+        .select('name')
+        .where('id', '=', user.id)
+        .executeTakeFirstOrThrow()
+      expect(row.name).toBe('Користувач')
+      const browser = h.browser()
+      expect(
+        (
+          await browser.api('POST', '/auth/sign-in/email', {
+            body: { email: user.email, password: 'owner-knows-it-1' },
+          })
+        ).status,
+      ).toBe(401)
     })
   })
 

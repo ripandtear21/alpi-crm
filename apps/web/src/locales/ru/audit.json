@@ -31,12 +31,25 @@
     "member": {
       "role_changed": "Изменена роль участника",
       "added": "Добавлен участник",
-      "disabled": "Отключён участник"
+      "disabled": "Отключён участник",
+      "created": "Создан пользователь",
+      "enabled": "Включён участник",
+      "team_changed": "Изменена команда участника"
+    },
+    "team": {
+      "created": "Создана команда",
+      "updated": "Переименована команда",
+      "deleted": "Удалена команда",
+      "lead_assigned": "Назначен тимлид"
     }
   },
   "summary": {
     "roleChanged": "{{user}}: {{before}} → {{after}}",
     "renamed": "{{before}} → {{after}}",
-    "permissionsChanged": "изменены права"
+    "permissionsChanged": "изменены права",
+    "teamChanged": "{{user}}: {{before}} → {{after}}",
+    "noTeam": "без команды",
+    "teamCreated": "{{team}}, тимлид {{lead}}",
+    "leadAssigned": "{{team}}: {{before}} → {{after}}"
   }
 }

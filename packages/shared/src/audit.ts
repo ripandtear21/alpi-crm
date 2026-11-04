@@ -11,6 +11,15 @@ export const PROJECT_AUDIT_ACTIONS = [
   'member.role_changed',
   'member.added',
   'member.disabled',
+  // Тикет crm-foundation/06: участники и команды.
+  /** Заведена новая учётная запись с временным паролем и добавлена в проект. */
+  'member.created',
+  'member.enabled',
+  'member.team_changed',
+  'team.created',
+  'team.updated',
+  'team.deleted',
+  'team.lead_assigned',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 

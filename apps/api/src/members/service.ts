@@ -3,12 +3,14 @@ import type { Database } from '@alpi/db'
 import {
   type MemberSummary,
   type MembersErrorCode,
+  type ProjectAuditAction,
   parseRolePermissions,
   type RolePermissions,
   type RolesErrorCode,
 } from '@alpi/shared'
 import { APIError } from 'better-auth/api'
 import { type Kysely, sql } from 'kysely'
+import { type AuditEvent, audit } from '../audit/record.ts'
 import type { Auth } from '../auth/auth.ts'
 import type { MemberAccess } from '../roles/access.ts'
 import { effectivePermissions } from '../roles/access.ts'
@@ -25,12 +27,14 @@ import type { OpenDealsChecker } from './open-deals.ts'
 // Все изменения участников проекта — здесь (тикет crm-foundation/06): добавить существующего
 // пользователя, завести нового с временным паролем, назначить роль и команду, флаг «принимает
 // новые сделки», отключить и включить участие. Маршруты (members.ts, teams/teams.ts) только
-// разбирают запрос и зовут функции отсюда; журнал действий (тикет 07) подключается сюда же.
+// разбирают запрос и зовут функции отсюда. Каждое изменение пишется в журнал проекта
+// (audit/record.ts, тикет 07) той же транзакцией проекта: не записалось в журнал — откатилось и
+// действие (ответ 500).
 //
 // Каждая функция: блокирует строку участия цели, проверяет правила guard.ts (кто кого может
 // менять), пишет в точке сохранения. Правила, не зависящие от того, кто меняет (тимлид в своей
 // команде, тимлид не отключён, последний администратор), держит база
-// (packages/db/migrations/0004_roles.ts, 0005_teams.ts); её отказы становятся 409.
+// (packages/db/migrations/0004_roles.ts, 0006_teams.ts); её отказы становятся 409.
 
 /** Тот, кто меняет: роль в текущем проекте и id учётной записи. */
 export interface MemberActor extends MemberAccess {
@@ -42,6 +46,44 @@ export interface MemberContext {
   db: Kysely<Database>
   projectId: string
   actor: MemberActor
+  /** Адрес клиента для журнала; null — не определён. */
+  ip: string | null
+}
+
+/** Запись в журнал проекта от имени того, кто меняет, в транзакции проекта. */
+export function record(
+  ctx: MemberContext,
+  event: Omit<AuditEvent<ProjectAuditAction>, 'actorId' | 'ip'>,
+): Promise<void> {
+  return audit.record(ctx.db, ctx.projectId, { ...event, actorId: ctx.actor.userId, ip: ctx.ip })
+}
+
+/** Название команды для журнала; null — без команды. */
+export async function teamName(
+  db: Kysely<Database>,
+  teamId: string | null,
+): Promise<string | null> {
+  if (teamId === null) return null
+  const row = await db.selectFrom('team').select('name').where('id', '=', teamId).executeTakeFirst()
+  return row?.name ?? null
+}
+
+/** Смена команды участника в журнал: было → стало (id и название). */
+export async function recordTeamChange(
+  ctx: MemberContext,
+  userId: string,
+  from: string | null,
+  to: string | null,
+): Promise<void> {
+  if (from === to) return
+  await record(ctx, {
+    action: 'member.team_changed',
+    entity: { type: 'user', id: userId },
+    details: {
+      before: { teamId: from, teamName: await teamName(ctx.db, from) },
+      after: { teamId: to, teamName: await teamName(ctx.db, to) },
+    },
+  })
 }
 
 export type MemberErrorCode = RolesErrorCode | MembersErrorCode | GuardFailure
@@ -59,7 +101,7 @@ const MAX_EMAIL_LENGTH = 254
 const MAX_NAME_LENGTH = 100
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** SQLSTATE: стандартные PostgreSQL и свои — из триггеров 0004_roles и 0005_teams. */
+/** SQLSTATE: стандартные PostgreSQL и свои — из триггеров 0004_roles и 0006_teams. */
 const UNIQUE_VIOLATION = '23505'
 const FOREIGN_KEY_VIOLATION = '23503'
 const LAST_ADMIN = 'AR002'
@@ -75,7 +117,7 @@ function noPermissions(): RolePermissions {
 
 /**
  * Ответ на отказ базы; другие ошибки пробрасываются (500). Имена ограничений — из
- * migrations/0001_project_isolation.ts и 0005_teams.ts.
+ * migrations/0001_project_isolation.ts и 0006_teams.ts.
  */
 export function dbRefusal(error: unknown): Outcome<never> {
   const constraint = (error as { constraint?: unknown }).constraint
@@ -147,6 +189,8 @@ async function memberSummary(db: Kysely<Database>, userId: string): Promise<Memb
 
 /** Участник, которого меняют: роль, команда, отключён ли. */
 export interface LockedMember extends GuardTarget {
+  roleId: string
+  roleName: string
   teamId: string | null
   disabled: boolean
 }
@@ -162,7 +206,15 @@ export async function lockMember(
     .innerJoin('role as r', (join) =>
       join.onRef('r.id', '=', 'm.role_id').onRef('r.project_id', '=', 'm.project_id'),
     )
-    .select(['m.user_id', 'm.team_id', 'm.disabled_at', 'r.is_admin', 'r.permissions'])
+    .select([
+      'm.user_id',
+      'm.team_id',
+      'm.disabled_at',
+      'r.id',
+      'r.name',
+      'r.is_admin',
+      'r.permissions',
+    ])
     .where('m.project_id', '=', projectId)
     .where('m.user_id', '=', userId)
     .forUpdate('m')
@@ -170,6 +222,8 @@ export async function lockMember(
   if (!row) return null
   return {
     userId: row.user_id,
+    roleId: row.id,
+    roleName: row.name,
     roleIsAdmin: row.is_admin,
     permissions: effectivePermissions(row),
     teamId: row.team_id,
@@ -195,10 +249,12 @@ async function teamExists(db: Kysely<Database>, teamId: string): Promise<boolean
 async function loadRole(db: Kysely<Database>, roleId: string) {
   const role = await db
     .selectFrom('role')
-    .select(['id', 'is_admin', 'permissions'])
+    .select(['id', 'name', 'is_admin', 'permissions'])
     .where('id', '=', roleId)
     .executeTakeFirst()
-  return role ? { isAdmin: role.is_admin, permissions: effectivePermissions(role) } : null
+  return role
+    ? { name: role.name, isAdmin: role.is_admin, permissions: effectivePermissions(role) }
+    : null
 }
 
 /** Перевод участника в команду (null — из команды) без проверок: их делает вызывающий. */
@@ -239,6 +295,16 @@ export async function assignRole(
   } catch (error) {
     return dbRefusal(error)
   }
+  if (target.roleId !== roleId) {
+    await record(ctx, {
+      action: 'member.role_changed',
+      entity: { type: 'user', id: userId },
+      details: {
+        before: { roleId: target.roleId, roleName: target.roleName },
+        after: { roleId, roleName: role.name },
+      },
+    })
+  }
   return ok(await memberSummary(ctx.db, userId))
 }
 
@@ -276,6 +342,7 @@ async function insertMember(
   ctx: MemberContext,
   userId: string,
   input: NewMemberInput,
+  action: 'member.added' | 'member.created',
 ): Promise<Outcome<MemberSummary>> {
   try {
     await inSavepoint(ctx.db, () =>
@@ -293,6 +360,20 @@ async function insertMember(
   } catch (error) {
     return dbRefusal(error)
   }
+  const role = await loadRole(ctx.db, input.roleId)
+  // Временный пароль в журнал не попадает: только роль и команда.
+  await record(ctx, {
+    action,
+    entity: { type: 'user', id: userId },
+    details: {
+      after: {
+        roleId: input.roleId,
+        roleName: role?.name ?? null,
+        teamId: input.teamId,
+        teamName: await teamName(ctx.db, input.teamId),
+      },
+    },
+  })
   return ok(await memberSummary(ctx.db, userId))
 }
 
@@ -335,7 +416,7 @@ export async function addExistingMember(
   if (existing) return refuse(409, 'MEMBER_EXISTS')
   const checked = await checkNewMember(ctx, userId, input)
   if (!checked.ok) return checked
-  return insertMember(ctx, userId, input)
+  return insertMember(ctx, userId, input, 'member.added')
 }
 
 /** Временный пароль: 16 символов base64url (96 бит), длиннее минимума MIN_PASSWORD_LENGTH. */
@@ -387,7 +468,7 @@ export async function createMember(
     }
     throw error
   }
-  const added = await insertMember(ctx, userId, input)
+  const added = await insertMember(ctx, userId, input, 'member.created')
   if (!added.ok) return added
   return ok({ member: added.value, temporaryPassword: password })
 }
@@ -413,6 +494,7 @@ export async function setMemberTeam(
   } catch (error) {
     return dbRefusal(error)
   }
+  await recordTeamChange(ctx, userId, target.teamId, teamId)
   return ok(await memberSummary(ctx.db, userId))
 }
 
@@ -468,6 +550,7 @@ export async function disableMember(
     // Тимлид (TM002) и последний администратор (AR002) — отказ базы.
     return dbRefusal(error)
   }
+  await record(ctx, { action: 'member.disabled', entity: { type: 'user', id: userId } })
   return ok(await memberSummary(ctx.db, userId))
 }
 
@@ -480,11 +563,13 @@ export async function enableMember(
   if (!target) return refuse(404, 'MEMBER_NOT_FOUND')
   const failure = checkMemberChange(ctx.actor, target)
   if (failure) return refuse(403, failure)
+  if (!target.disabled) return ok(await memberSummary(ctx.db, userId))
   await ctx.db
     .updateTable('project_member')
     .set({ disabled_at: null, disabled_by: null, updated_at: sql`now()` })
     .where('project_id', '=', ctx.projectId)
     .where('user_id', '=', userId)
     .execute()
+  await record(ctx, { action: 'member.enabled', entity: { type: 'user', id: userId } })
   return ok(await memberSummary(ctx.db, userId))
 }

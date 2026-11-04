@@ -19,7 +19,7 @@ const migrationNames = [
   '0003_projects',
   '0004_roles',
   '0005_audit',
-  '0005_teams',
+  '0006_teams',
 ]
 
 const tablesOfMigration = [
@@ -38,7 +38,7 @@ const tablesOfMigration = [
   // 0005_audit
   'audit_log',
   'system_audit_log',
-  // 0005_teams
+  // 0006_teams
   'team',
 ]
 

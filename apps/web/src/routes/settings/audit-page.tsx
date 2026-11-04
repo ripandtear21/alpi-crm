@@ -68,8 +68,28 @@ function useSummary() {
         return changes.join('; ')
       }
       case 'member.added':
+      case 'member.created':
       case 'member.disabled':
+      case 'member.enabled':
         return entry.entityName ?? entry.entityId ?? ''
+      case 'member.team_changed':
+        return t('summary.teamChanged', {
+          user: entry.entityName ?? entry.entityId ?? '',
+          before: text(before.teamName) || t('summary.noTeam'),
+          after: text(after.teamName) || t('summary.noTeam'),
+        })
+      case 'team.created':
+        return t('summary.teamCreated', { team: text(after.name), lead: text(after.leadName) })
+      case 'team.updated':
+        return t('summary.renamed', { before: text(before.name), after: text(after.name) })
+      case 'team.deleted':
+        return text(before.name)
+      case 'team.lead_assigned':
+        return t('summary.leadAssigned', {
+          team: text(entry.details.team),
+          before: text(before.leadName),
+          after: text(after.leadName),
+        })
     }
   }
 }

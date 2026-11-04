@@ -3,6 +3,7 @@ import type { TeamSummary } from '@alpi/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
+import { memberContext } from '../members/members.ts'
 import {
   checkTeamLeads,
   dbRefusal,
@@ -13,6 +14,8 @@ import {
   type Outcome,
   ok,
   putIntoTeam,
+  record,
+  recordTeamChange,
   refuse,
 } from '../members/service.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
@@ -21,24 +24,17 @@ import { inSavepoint } from '../roles/roles.ts'
 
 // Команды проекта (тикет crm-foundation/06; GLOSSARY.md — «Команда»): маршруты `/teams` под
 // правом «пользователи и роли». Тимлид один и сам состоит в команде, участник — не больше чем в
-// одной команде: это держит база (packages/db/migrations/0005_teams.ts). Состав команды меняет
+// одной команде: это держит база (packages/db/migrations/0006_teams.ts). Состав команды меняет
 // PUT /members/:userId/team; здесь — создание, название, тимлид, удаление. Всё это меняет
 // только администратор проекта (guard.ts, правило (д)): команда задаёт охват «команда».
 // Держатели права «пользователи и роли» без роли администратора команды только смотрят.
-// Запись участия (перевод тимлида в команду) — функции members/service.ts.
+// Запись участия (перевод тимлида в команду) — функции members/service.ts. Каждое изменение
+// пишется в журнал проекта той же транзакцией (members/service.ts, record).
 
 const MAX_NAME_LENGTH = 60
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type Ctx = Context<PermissionsEnv>
-
-function context(c: Ctx): MemberContext {
-  return {
-    db: c.get('db'),
-    projectId: c.get('projectId'),
-    actor: { ...c.get('access'), userId: c.get('session').user.id },
-  }
-}
 
 function fail(c: Ctx, status: 400 | 403 | 404 | 409, code: MemberErrorCode, details?: unknown) {
   return c.json(details === undefined ? { code } : { code, details }, status)
@@ -91,13 +87,23 @@ async function checkNewLead(
   ctx: MemberContext,
   userId: string,
   teamId: string | null,
-): Promise<Outcome<null>> {
+): Promise<Outcome<{ previousTeam: string | null; name: string }>> {
   const lead = await lockMember(ctx.db, ctx.projectId, userId)
   if (!lead) return refuse(404, 'MEMBER_NOT_FOUND')
   if (lead.disabled) return refuse(409, 'TEAM_LEAD_DISABLED')
   const led = await ledTeam(ctx.db, userId)
   if (led !== null && led !== teamId) return refuse(409, 'LEADS_OTHER_TEAM')
-  return ok(null)
+  return ok({ previousTeam: lead.teamId, name: await userName(ctx.db, userId) })
+}
+
+/** Имя пользователя для журнала (подпись тимлида): имя, иначе email. */
+async function userName(db: Kysely<Database>, userId: string): Promise<string> {
+  const row = await db
+    .selectFrom('user')
+    .select(['name', 'email'])
+    .where('id', '=', userId)
+    .executeTakeFirst()
+  return row ? row.name || row.email : userId
 }
 
 function readName(value: unknown): string | null {
@@ -126,8 +132,9 @@ async function createTeam(
   if (failure) return refuse(403, failure)
   const checked = await checkNewLead(ctx, leadUserId, null)
   if (!checked.ok) return checked
+  let id: string
   try {
-    const id = await inSavepoint(ctx.db, async () => {
+    id = await inSavepoint(ctx.db, async () => {
       const { id } = await ctx.db
         .insertInto('team')
         .values({
@@ -142,10 +149,16 @@ async function createTeam(
       await checkTeamLeads(ctx.db)
       return id
     })
-    return ok(await teamSummary(ctx.db, id))
   } catch (error) {
     return dbRefusal(error)
   }
+  await record(ctx, {
+    action: 'team.created',
+    entity: { type: 'team', id },
+    details: { after: { name, leadUserId, leadName: checked.value.name } },
+  })
+  await recordTeamChange(ctx, leadUserId, checked.value.previousTeam, id)
+  return ok(await teamSummary(ctx.db, id))
 }
 
 async function updateTeam(
@@ -158,7 +171,7 @@ async function updateTeam(
   // Строка команды блокируется: смены тимлида одной команды идут по очереди.
   const team = await ctx.db
     .selectFrom('team')
-    .select(['id', 'lead_user_id'])
+    .select(['id', 'name', 'lead_user_id'])
     .where('id', '=', teamId)
     .forUpdate()
     .executeTakeFirst()
@@ -167,10 +180,12 @@ async function updateTeam(
     change.leadUserId !== undefined && change.leadUserId !== team.lead_user_id
       ? change.leadUserId
       : undefined
+  let lead: { previousTeam: string | null; name: string } | undefined
   if (newLead !== undefined) {
     // Прежний тимлид остаётся в команде участником.
     const checked = await checkNewLead(ctx, newLead, teamId)
     if (!checked.ok) return checked
+    lead = checked.value
   }
   try {
     await inSavepoint(ctx.db, async () => {
@@ -191,6 +206,28 @@ async function updateTeam(
   } catch (error) {
     return dbRefusal(error)
   }
+  if (change.name !== undefined && change.name !== team.name) {
+    await record(ctx, {
+      action: 'team.updated',
+      entity: { type: 'team', id: teamId },
+      details: { before: { name: team.name }, after: { name: change.name } },
+    })
+  }
+  if (newLead !== undefined && lead) {
+    await record(ctx, {
+      action: 'team.lead_assigned',
+      entity: { type: 'team', id: teamId },
+      details: {
+        team: change.name ?? team.name,
+        before: {
+          leadUserId: team.lead_user_id,
+          leadName: await userName(ctx.db, team.lead_user_id),
+        },
+        after: { leadUserId: newLead, leadName: lead.name },
+      },
+    })
+    await recordTeamChange(ctx, newLead, lead.previousTeam, teamId)
+  }
   return ok(await teamSummary(ctx.db, teamId))
 }
 
@@ -199,17 +236,35 @@ async function deleteTeam(ctx: MemberContext, teamId: string): Promise<Outcome<n
   if (failure) return refuse(403, failure)
   const team = await ctx.db
     .selectFrom('team')
-    .select('id')
+    .select(['id', 'name', 'lead_user_id'])
     .where('id', '=', teamId)
     .forUpdate()
     .executeTakeFirst()
   if (!team) return refuse(404, 'TEAM_NOT_FOUND')
+  const members = await ctx.db
+    .selectFrom('project_member')
+    .select('user_id')
+    .where('team_id', '=', teamId)
+    .orderBy('user_id')
+    .execute()
   // Удаление выводит из команды всех её участников (ON DELETE SET NULL в базе).
   try {
     await inSavepoint(ctx.db, () => ctx.db.deleteFrom('team').where('id', '=', teamId).execute())
   } catch (error) {
     return dbRefusal(error)
   }
+  // Одна запись на удаление: состав команды на момент удаления — в подробностях.
+  await record(ctx, {
+    action: 'team.deleted',
+    entity: { type: 'team', id: teamId },
+    details: {
+      before: {
+        name: team.name,
+        leadUserId: team.lead_user_id,
+        memberUserIds: members.map((m) => m.user_id),
+      },
+    },
+  })
   return ok(null)
 }
 
@@ -225,7 +280,7 @@ export function teamsRoutes() {
       if (!name) return invalid(c, 'name')
       const leadUserId = body?.leadUserId
       if (typeof leadUserId !== 'string' || leadUserId === '') return invalid(c, 'leadUserId')
-      return respond(c, await createTeam(context(c), name, leadUserId), 201)
+      return respond(c, await createTeam(memberContext(c), name, leadUserId), 201)
     })
     .put('/:id', requirePermission('users_roles', 'edit'), async (c) => {
       const id = c.req.param('id')
@@ -245,12 +300,12 @@ export function teamsRoutes() {
         change.leadUserId = body.leadUserId
       }
       if (change.name === undefined && change.leadUserId === undefined) return invalid(c, '')
-      return respond(c, await updateTeam(context(c), id, change))
+      return respond(c, await updateTeam(memberContext(c), id, change))
     })
     .delete('/:id', requirePermission('users_roles', 'delete'), async (c) => {
       const id = c.req.param('id')
       if (!UUID.test(id)) return fail(c, 404, 'TEAM_NOT_FOUND')
-      const outcome = await deleteTeam(context(c), id)
+      const outcome = await deleteTeam(memberContext(c), id)
       return outcome.ok ? c.body(null, 204) : fail(c, outcome.status, outcome.code)
     })
 }
