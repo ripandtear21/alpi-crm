@@ -1,7 +1,8 @@
 # Фоновые задачи, массовые операции, корзина и очистка журнала
 
 Type: task
-Status: claimed 2026-11-04T13:31Z
+Status: done 2026-11-04T14:14Z
+PR: #4
 Blocked by: —
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 1); .scratch/crm-mvp/spec.md, разделы 3.1, 3.2 (`bulk_job`, удаление и архив), 5.3, 13.0 (журнал — 90 дней)
 
@@ -29,26 +30,27 @@ packages/db/migrations/**, packages/db/src/schema.ts, apps/api/src/jobs/** (по
 
 ## Done when
 
-- [ ] Миграция применяется на чистую базу и откатывается; pg-boss создаёт свою схему при старте.
-  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts apps/api/src/jobs/jobs.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
-- [ ] Тест изоляции: задача проекта A, которая читает тестовую таблицу без фильтра, видит только строки A; `bulk_job` проекта A не виден в проекте B.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/bulk/bulk.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
-- [ ] Тест прав: без права «массовые операции» запуск — 403; запись вне охвата инициатора не меняется и попадает в журнал ошибок; пользователь без роли администратора не видит чужую операцию.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/bulk/bulk.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
-- [ ] Тест массовой операции на 1 000 записях тестовой таблицы: прогресс растёт порциями, итог «обработано 1 000, ошибок 0»; ошибка одной записи не останавливает остальные.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/bulk/bulk.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
-- [ ] Тест корзины: запись, удалённая 31 день назад, удаляется окончательно; удалённая 29 дней назад — остаётся; запись другого проекта не трогается.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/jobs/jobs.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
-- [ ] Тест очистки: неудачный вход старше 90 дней удалён, младше — на месте, другие виды записей журнала не тронуты; роль приложения сама удалить запись журнала не может.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/jobs/jobs.test.ts apps/api/src/audit/audit.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
-- [ ] `pnpm verify` зелёный.
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: gate pass · `gate fast` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
-  - evidence: gate pass · `gate fast` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
+- [x] Миграция применяется на чистую базу и откатывается; pg-boss создаёт свою схему при старте.
+  - evidence: test-run pass · gate full: test зелёный (pnpm vitest) · windows - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+- [x] Тест изоляции: задача проекта A, которая читает тестовую таблицу без фильтра, видит только строки A; `bulk_job` проекта A не виден в проекте B.
+  - evidence: test-run pass · gate full: test зелёный (pnpm vitest) · windows - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+- [x] Тест прав: без права «массовые операции» запуск — 403; запись вне охвата инициатора не меняется и попадает в журнал ошибок; пользователь без роли администратора не видит чужую операцию.
+  - evidence: test-run pass · gate full: test зелёный (pnpm vitest) · windows - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+  - evidence: review pass · раунд 2 VERIFIED: безопасность и надёжность · - - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+- [x] Тест массовой операции на 1 000 записях тестовой таблицы: прогресс растёт порциями, итог «обработано 1 000, ошибок 0»; ошибка одной записи не останавливает остальные.
+  - evidence: test-run pass · gate full: test зелёный (pnpm vitest) · windows - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+- [x] Тест корзины: запись, удалённая 31 день назад, удаляется окончательно; удалённая 29 дней назад — остаётся; запись другого проекта не трогается.
+  - evidence: test-run pass · gate full: test зелёный (pnpm vitest) · windows - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+- [x] Тест очистки: неудачный вход старше 90 дней удалён, младше — на месте, другие виды записей журнала не тронуты; роль приложения сама удалить запись журнала не может.
+  - evidence: test-run pass · gate full: test зелёный (pnpm vitest) · windows - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+- [x] `pnpm verify` зелёный.
+  - evidence: gate pass · gate full green: lint typecheck test build · windows - · f41f26635fbf569ca2fe17358f2c9396554d87e3
+
+## Результат
+
+- Миграция `packages/db/migrations/0007_jobs_bulk.ts` (номер 0007: тикет слит первым в волне). Схему `pgboss` создаёт миграция под служебной ролью из замороженного SQL pg-boss 12.38.0, схема v46 (`0007_jobs_bulk.pgboss-v46.sql`); API запускает pg-boss с `migrate:false` и падает при расхождении версии схемы. Отступление от тикета («pg-boss создаёт схему при старте»): иначе владельцем стала бы роль приложения, и `assertRestrictedRole` не дал бы API запуститься.
+- Фоновые задачи: каждая транзакция задачи ставит `app.project_id`; полезная нагрузка — только `{projectId, bulkJobId}`, всё перечитывается под RLS. Таблицы pgboss без RLS — допущение записано в миграции. Остановка по SIGTERM/SIGINT ждёт задачи до 30 с.
+- Массовые операции `/api/v1/bulk-jobs`: порции по 100, права и охват по текущей роли перед каждой порцией, заблокированный инициатор останавливает операцию (`INITIATOR_BANNED`; `loadMemberAccess` не даёт прав заблокированному пользователю ни на одном маршруте); ошибка записи откатывает только её; провал после всех повторов и истечение срока — через очередь `bulk-job-dead` (`PROCESSING_FAILED`).
+- Корзина: ежедневная очистка по Киеву удаляет записи старше 30 дней (обработчики типов записей добавит тикет 12). Долг фундамента закрыт: неудачные входы старше 90 дней удаляет расписание через функцию `purge_expired_failed_sign_ins()`.
+- Проверка: отчёт исполнителя и безопасность — VERIFIED; раунд 2 (безопасность и надёжность) — VERIFIED. Gate full зелёный (lint, typecheck, test, build), CI `ci-ok` на PR #4.
+- Долги (low): путь «процесс убит → истёк час → очередь мёртвых задач» тестом не покрыт (вывод по коду pg-boss); `createQueue` не обновляет настройки существующей очереди — смена `deadLetter`/`retryLimit`/`expireInSeconds` потребует `updateQueue`; `isBanned` не учитывает `ban_expires`; комментарий `shortcut:` о сроке 1 час в `jobs.ts` стоит не над той очередью; комментарий `0005_audit.ts:22` про очистку «под служебной ролью» устарел; поиск свободного порта в `packages/db/src/testing/index.ts` даёт редкие падения при параллельных прогонах.
