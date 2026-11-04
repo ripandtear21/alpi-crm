@@ -1,7 +1,8 @@
 # Сделки: статусы, архив, перенос, общая очередь, история
 
 Type: task
-Status: claimed 2026-11-04T15:37Z
+Status: done 2026-11-04T16:55Z
+PR: #5
 Blocked by: 02, 03
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 2); .scratch/crm-mvp/spec.md, разделы 3.2, 4, 12 («Эпик 2»), 13.0–13.0.4; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md
 
