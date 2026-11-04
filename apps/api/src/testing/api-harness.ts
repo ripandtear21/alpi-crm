@@ -52,6 +52,8 @@ export interface ApiHarness {
   request(method: Method, path: string, body?: unknown): Promise<Response>
   /** Новый пользователь, вошедший с 2FA. `as: 'owner'` — владелец системы. */
   signIn(as?: 'owner' | 'user'): Promise<SignedInUser>
+  /** Новый клиент без входа: свои cookie и адрес, как отдельный браузер. */
+  browser(): Omit<SignedInUser, 'id' | 'email'>
   /** Проект, созданный владельцем системы через API; создатель — его администратор. */
   createProject(creator: SignedInUser, name?: string): Promise<ProjectSummary>
   /** Участие в проекте с ролью-шаблоном `templateKey` — служебной ролью. */
@@ -79,15 +81,8 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
   })
   const app = createApp({ auth, db: appDb })
 
-  async function signIn(as: 'owner' | 'user' = 'user'): Promise<SignedInUser> {
-    const email = `${randomUUID()}@example.test`
-    const password = randomBytes(18).toString('base64url')
-    const { id } =
-      as === 'owner'
-        ? await createOwner(auth, { email, name: 'Власник', password })
-        : await auth.api
-            .createUser({ body: { email, password, name: 'Користувач' } })
-            .then((r) => r.user)
+  /** Клиент со своими cookie и своим адресом — как отдельный браузер. */
+  function browser(): Omit<SignedInUser, 'id' | 'email'> {
     const jar = new Map<string, string>()
     const [a = 0, b = 0, c = 0] = randomBytes(3)
     const ip = `10.${a}.${b}.${c}`
@@ -121,6 +116,19 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
     }
     const api = (method: Method, path: string, options?: RequestOptions) =>
       call(app, method, path, options)
+    return { api, call }
+  }
+
+  async function signIn(as: 'owner' | 'user' = 'user'): Promise<SignedInUser> {
+    const email = `${randomUUID()}@example.test`
+    const password = randomBytes(18).toString('base64url')
+    const { id } =
+      as === 'owner'
+        ? await createOwner(auth, { email, name: 'Власник', password })
+        : await auth.api
+            .createUser({ body: { email, password, name: 'Користувач' } })
+            .then((r) => r.user)
+    const { api, call } = browser()
 
     expect((await api('POST', '/auth/sign-in/email', { body: { email, password } })).status).toBe(
       200,
@@ -174,6 +182,7 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
     auth,
     request,
     signIn,
+    browser,
     createProject,
     addMember,
     async stop() {

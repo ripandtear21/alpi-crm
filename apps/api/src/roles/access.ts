@@ -30,7 +30,7 @@ export function effectivePermissions(role: { is_admin: boolean; permissions: unk
 /**
  * Роль пользователя в проекте, где выполняется запрос. `db` — транзакция проекта
  * (row-level security показывает только его участников и роли); null — пользователь не
- * участник.
+ * участник или его участие отключено.
  */
 export async function loadMemberAccess(
   db: Kysely<Database>,
@@ -43,6 +43,7 @@ export async function loadMemberAccess(
     )
     .select(['r.id', 'r.is_admin', 'r.permissions'])
     .where('m.user_id', '=', userId)
+    .where('m.disabled_at', 'is', null)
     .executeTakeFirst()
   if (!row) return null
   return { roleId: row.id, isAdmin: row.is_admin, permissions: effectivePermissions(row) }

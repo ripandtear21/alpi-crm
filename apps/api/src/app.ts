@@ -6,9 +6,12 @@ import type { Kysely } from 'kysely'
 import { auditRoutes, systemAuditRoutes } from './audit/routes.ts'
 import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
+import { membersRoutes } from './members/members.ts'
+import { NO_OPEN_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
 import { projectContext } from './middleware/project-context.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
-import { membersRoutes, rolesRoutes } from './roles/roles.ts'
+import { rolesRoutes } from './roles/roles.ts'
+import { teamsRoutes } from './teams/teams.ts'
 
 /**
  * Наибольшее тело запроса. JSON API (роли, вход) — единицы килобайт; большие тела не должны
@@ -30,6 +33,8 @@ export interface AppDeps {
   auth: Auth
   /** Подключение ролью приложения (член alpi_app): под ней действует изоляция проектов. */
   db: Kysely<Database>
+  /** Открытые сделки участника — для отключения участия; до эпика сделок — заглушка «нет». */
+  openDeals?: OpenDealsChecker
 }
 
 /**
@@ -39,7 +44,7 @@ export interface AppDeps {
  * заголовка X-Project-Id, и только для его участника; новые разделы (сделки, контакты…)
  * регистрируются там же — путь вне проекта нужно добавить выше осознанно.
  */
-export function createApp({ auth, db }: AppDeps) {
+export function createApp({ auth, db, openDeals = NO_OPEN_DEALS }: AppDeps) {
   return (
     new Hono<AccessEnv>()
       .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
@@ -68,7 +73,8 @@ export function createApp({ auth, db }: AppDeps) {
       .use('*', projectContext(db))
       .route('/project', currentProjectRoutes())
       .route('/roles', rolesRoutes())
-      .route('/members', membersRoutes())
+      .route('/members', membersRoutes({ auth, openDeals }))
+      .route('/teams', teamsRoutes())
       .route('/audit', auditRoutes())
   )
 }

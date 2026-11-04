@@ -30,7 +30,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * - нет сессии с пройденной 2FA — 401 (accessGuard пропускает дальше без сессии открытые пути
  *   входа, и если такой путь не совпал с маршрутом Better Auth, он доходит сюда);
  * - нет заголовка — 400 PROJECT_REQUIRED;
- * - проекта нет или пользователь в нём не состоит — одинаковый 403 PROJECT_FORBIDDEN, чтобы
+ * - проекта нет, пользователь в нём не состоит или его участие отключено — одинаковый 403 PROJECT_FORBIDDEN, чтобы
  *   ответ не выдавал, существует ли проект.
  * Ошибка обработчика откатывает транзакцию проекта.
  */
@@ -58,6 +58,8 @@ export function projectContext(db: Kysely<Database>) {
           .select('id')
           .where('project_id', '=', projectId)
           .where('user_id', '=', session.user.id)
+          // Отключённое участие (тикет crm-foundation/06) — как его отсутствие.
+          .where('disabled_at', 'is', null)
           .executeTakeFirst()
         if (!row) return
         member = true

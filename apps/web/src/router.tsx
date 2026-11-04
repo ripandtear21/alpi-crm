@@ -13,20 +13,25 @@ import { HomePage } from './home-page.tsx'
 import { AppLayout } from './layout/app-layout.tsx'
 import { SectionPlaceholder } from './layout/section-placeholder.tsx'
 import { type AuthApi, createAuthApi } from './routes/auth/auth-api.ts'
+import { ChangePasswordPage } from './routes/auth/change-password-page.tsx'
 import { SignInPage } from './routes/auth/sign-in-page.tsx'
 import { TwoFactorPage } from './routes/auth/two-factor-page.tsx'
 import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
 import { AuditPage } from './routes/settings/audit-page.tsx'
+import { createMembersApi, type MembersApi } from './routes/settings/members-api.ts'
+import { MembersPage } from './routes/settings/members-page.tsx'
 import { createRolesApi, type RolesApi } from './routes/settings/roles-api.ts'
 import { RolesPage } from './routes/settings/roles-page.tsx'
 import { SettingsPage } from './routes/settings/settings-page.tsx'
+import { TeamsPage } from './routes/settings/teams-page.tsx'
 
 export interface RouterContext {
   auth: AuthApi
   projects: ProjectsApi
   roles: RolesApi
   audit: AuditApi
+  members: MembersApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -48,12 +53,25 @@ const twoFactorRoute = createRoute({
   component: TwoFactorPage,
 })
 
+// Первый вход с временным паролем: сначала смена пароля, потом настройка 2FA.
+const changePasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/change-password',
+  beforeLoad: async ({ context }) => {
+    const session = await context.auth.getSession()
+    if (!session) throw redirect({ to: '/sign-in' })
+    if (!session.user.mustChangePassword) throw redirect({ to: '/' })
+  },
+  component: ChangePasswordPage,
+})
+
 const twoFactorSetupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/two-factor-setup',
   beforeLoad: async ({ context }) => {
     const session = await context.auth.getSession()
     if (!session) throw redirect({ to: '/sign-in' })
+    if (session.user.mustChangePassword) throw redirect({ to: '/change-password' })
     // Уже включена — на главную; сессию без второго фактора оттуда отправят на вход.
     if (session.user.twoFactorEnabled) throw redirect({ to: '/' })
   },
@@ -69,6 +87,7 @@ const appRoute = createRoute({
   beforeLoad: async ({ context }) => {
     const session = await context.auth.getSession()
     if (!session) throw redirect({ to: '/sign-in' })
+    if (session.user.mustChangePassword) throw redirect({ to: '/change-password' })
     if (!session.user.twoFactorEnabled) throw redirect({ to: '/two-factor-setup' })
     if (!session.session.twoFactorVerified) throw redirect({ to: '/sign-in' })
     // Проекты пользователя — для переключателя в шапке. В ключе id пользователя: после
@@ -148,10 +167,29 @@ const auditRoute = createRoute({
   },
 })
 
+const membersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/users',
+  component: function MembersRoute() {
+    const { members, roles } = membersRoute.useRouteContext()
+    return <MembersPage api={members} roles={roles} />
+  },
+})
+
+const teamsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/teams',
+  component: function TeamsRoute() {
+    const { members } = teamsRoute.useRouteContext()
+    return <TeamsPage api={members} />
+  },
+})
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   twoFactorRoute,
   twoFactorSetupRoute,
+  changePasswordRoute,
   appRoute.addChildren([
     indexRoute,
     dealsRoute,
@@ -161,6 +199,8 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     rolesRoute,
     auditRoute,
+    membersRoute,
+    teamsRoute,
   ]),
 ])
 
@@ -175,6 +215,8 @@ export interface AppRouterOptions {
   roles?: RolesApi
   /** Только в тестах: подставной клиент журнала. В браузере — запросы к API. */
   audit?: AuditApi
+  /** Только в тестах: подставной клиент участников и команд. В браузере — запросы к API. */
+  members?: MembersApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -185,9 +227,10 @@ export function createAppRouter({
   projects = createProjectsApi(),
   roles = createRolesApi(),
   audit = createAuditApi(),
+  members = createMembersApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
-  const context: RouterContext = { auth, projects, roles, audit, queryClient }
+  const context: RouterContext = { auth, projects, roles, audit, members, queryClient }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })
 }
 

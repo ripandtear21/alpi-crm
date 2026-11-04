@@ -15,7 +15,10 @@ import type { MemberAccess } from './access.ts'
 //       только администратор проекта;
 //   (б) не-администратор, создавая, меняя или назначая роль, не выдаёт прав, которых нет у него
 //       самого: действий, более широкого охвата, отдельных прав;
-//   (в) не-администратор не меняет свою роль участника и не правит роль, назначенную ему.
+//   (в) не-администратор не меняет свою роль участника и не правит роль, назначенную ему;
+//   (г) роль участника, у которого прав больше, чем у действующего пользователя, меняет или
+//       снимает только администратор; то же для участия такого участника — команды, приёма
+//       сделок, отключения (решение владельца 2026-11-04, тикет crm-foundation/06).
 //
 // Проверка — здесь, в коде API, а не в триггере: правила зависят от того, кто делает
 // изменение, а база этого не знает (подключение одно на всё приложение, пользователь —
@@ -31,6 +34,10 @@ export type GuardFailure =
   | 'EXCEEDS_OWN_PERMISSIONS'
   /** Не-администратор трогает свою роль. */
   | 'OWN_ROLE'
+  /** У участника прав больше, чем у того, кто меняет его роль или участие (г). */
+  | 'TARGET_EXCEEDS_OWN_PERMISSIONS'
+  /** Не-администратор меняет своё участие или состав своей команды. */
+  | 'OWN_MEMBERSHIP'
 
 const scopeRank = (scope: Scope) => SCOPES.indexOf(scope)
 
@@ -86,17 +93,57 @@ export function checkRoleEdit(
   return null
 }
 
-/** Назначение участнику `target` роли `next`. */
+/** Участник, чью роль или участие меняют: его нынешняя роль. */
+export interface GuardTarget {
+  userId: string
+  roleIsAdmin: boolean
+  permissions: RolePermissions
+}
+
+/**
+ * Назначение участнику `target` роли `next`. Новый участник (добавление в проект) — `target`
+ * с пустыми правами: у него ещё нет роли.
+ */
 export function checkAssignment(
   actor: MemberAccess & { userId: string },
-  target: { userId: string; roleIsAdmin: boolean },
+  target: GuardTarget,
   next: { isAdmin: boolean; permissions: RolePermissions },
 ): GuardFailure | null {
   if (actor.isAdmin) return null
   if (next.isAdmin || target.roleIsAdmin) return 'ADMIN_ONLY'
   if (target.userId === actor.userId) return 'OWN_ROLE'
+  if (grantsBeyondOwn(actor.permissions, null, target.permissions)) {
+    return 'TARGET_EXCEEDS_OWN_PERMISSIONS'
+  }
   // Назначить роль шире своей — то же, что выдать эти права (б).
   return grantsBeyondOwn(actor.permissions, null, next.permissions)
     ? 'EXCEEDS_OWN_PERMISSIONS'
     : null
+}
+
+/**
+ * Изменение участия `target` — команда, приём новых сделок, отключение и включение (тикет
+ * crm-foundation/06). Правила (а), (в) и (г) распространяются на участие: участие
+ * администратора и участника с правами шире своих меняет только администратор, своё участие
+ * не-администратор не меняет. Команда меняет охват
+ * «команда» (apps/api/src/roles/scope.ts): привести участника в свою команду или увести из неё —
+ * то же, что расширить или сузить себе видимость записей, поэтому состав своей команды
+ * не-администратор не меняет. `team` — смена команды: прежняя и новая команда цели и команда
+ * того, кто меняет (null — ни в одной).
+ */
+export function checkMemberChange(
+  actor: MemberAccess & { userId: string },
+  target: GuardTarget,
+  team?: { from: string | null; to: string | null; actorTeam: string | null },
+): GuardFailure | null {
+  if (actor.isAdmin) return null
+  if (target.roleIsAdmin) return 'ADMIN_ONLY'
+  if (target.userId === actor.userId) return 'OWN_MEMBERSHIP'
+  if (grantsBeyondOwn(actor.permissions, null, target.permissions)) {
+    return 'TARGET_EXCEEDS_OWN_PERMISSIONS'
+  }
+  if (team?.actorTeam && (team.from === team.actorTeam || team.to === team.actorTeam)) {
+    return 'OWN_MEMBERSHIP'
+  }
+  return null
 }

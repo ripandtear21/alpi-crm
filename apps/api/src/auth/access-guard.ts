@@ -36,11 +36,15 @@ const OPEN_AUTH_PATHS = new Set([
  */
 const TWO_FACTOR_SETUP_PATHS = new Set(['/two-factor/enable', '/two-factor/get-totp-uri'])
 
+/** Путь, открытый пользователю с временным паролем: смена пароля (выход открыт и так). */
+const PASSWORD_CHANGE_PATH = '/change-password'
+
 /**
  * Доступ к API:
  * - без сессии — 401;
  * - 2FA включена, но сессия не прошла второй фактор (открыта по одному паролю до включения
  *   2FA) — 401, нужен новый вход с кодом;
+ * - временный пароль не сменён — 403 на всё, кроме смены пароля: сначала пароль, потом 2FA;
  * - 2FA не включена — 403 на всё, кроме настройки 2FA.
  * Действует на все маршруты, зарегистрированные после него, включая сам Better Auth.
  * Неизвестный путь Better Auth закрыт так же, как любой другой: список открытого — явный.
@@ -59,11 +63,17 @@ export function accessGuard(auth: Auth) {
     if (!session) {
       return c.json({ code: 'UNAUTHORIZED' }, 401)
     }
-    if (session.user.twoFactorEnabled) {
-      if (session.session.twoFactorVerified !== true) {
-        return c.json({ code: 'SECOND_FACTOR_REQUIRED' }, 401)
+    if (session.user.twoFactorEnabled && session.session.twoFactorVerified !== true) {
+      return c.json({ code: 'SECOND_FACTOR_REQUIRED' }, 401)
+    }
+    if (session.user.mustChangePassword === true) {
+      if (authPath !== PASSWORD_CHANGE_PATH) {
+        return c.json({ code: 'PASSWORD_CHANGE_REQUIRED' }, 403)
       }
-    } else if (!(authPath && TWO_FACTOR_SETUP_PATHS.has(authPath))) {
+    } else if (
+      !session.user.twoFactorEnabled &&
+      !(authPath && TWO_FACTOR_SETUP_PATHS.has(authPath))
+    ) {
       return c.json({ code: 'TWO_FACTOR_SETUP_REQUIRED' }, 403)
     }
     c.set('session', session)

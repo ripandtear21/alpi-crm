@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts и 0005_audit.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts и 0006_teams.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -29,6 +29,28 @@ export interface ProjectMemberTable {
   user_id: string
   /** Роль проекта (`role.id` того же проекта); у участника ровно одна роль. */
   role_id: string
+  /** Команда (`team.id` того же проекта); у участника не больше одной команды. */
+  team_id: string | null
+  /** «Принимает новые сделки»: по умолчанию да. */
+  accepts_new_deals: Generated<boolean>
+  /** Участие отключено: пользователь не входит в проект. null — действует. */
+  disabled_at: Date | string | null
+  disabled_by: string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/**
+ * Команда проекта. Видна только в контексте своего проекта. Тимлид один (`lead_user_id`) и сам
+ * состоит в команде — защищает база (migrations/0005_teams.ts).
+ */
+export interface TeamTable {
+  id: Generated<string>
+  project_id: string
+  name: string
+  /** id учётной записи тимлида: участник проекта с `team_id` этой команды. */
+  lead_user_id: string
   created_at: Timestamp
   updated_at: Timestamp
   created_by: string | null
@@ -86,6 +108,8 @@ export interface UserTable {
   banned: Generated<boolean>
   ban_reason: string | null
   ban_expires: Date | null
+  /** Временный пароль: до его смены API пускает только к смене пароля и выходу. */
+  must_change_password: Generated<boolean>
 }
 
 export interface SessionTable {
@@ -186,6 +210,7 @@ export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
   role: RoleTable
+  team: TeamTable
   external_link: ExternalLinkTable
   user: UserTable
   session: SessionTable

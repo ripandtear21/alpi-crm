@@ -13,9 +13,10 @@ import { type Kysely, sql } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { effectivePermissions } from './access.ts'
-import { checkAssignment, checkRoleCreate, checkRoleEdit, type GuardFailure } from './guard.ts'
+import { checkRoleCreate, checkRoleEdit, type GuardFailure } from './guard.ts'
 
-// Роли проекта и роли участников (тикет crm-foundation/05). Все маршруты — в контексте проекта
+// Роли проекта (тикет crm-foundation/05); назначение роли участнику — в
+// apps/api/src/members/ (все изменения участников — в одном модуле, тикет crm-foundation/06). Все маршруты — в контексте проекта
 // (после projectContext) и под правом «пользователи и роли» на соответствующее действие.
 // Защиты роли администратора и последнего администратора держит база
 // (packages/db/migrations/0004_roles.ts); здесь их ошибки становятся ответами 409.
@@ -38,7 +39,7 @@ function fail(c: Ctx, status: 400 | 403 | 404 | 409, code: RolesErrorCode, detai
   return c.json(details === undefined ? { code } : { code, details }, status)
 }
 
-function sqlState(error: unknown): unknown {
+export function sqlState(error: unknown): unknown {
   return (error as { code?: unknown }).code
 }
 
@@ -46,7 +47,7 @@ function sqlState(error: unknown): unknown {
  * Изменение в точке сохранения: ошибка базы (отказ защиты, повтор названия) откатывает только
  * его, а транзакция проекта остаётся рабочей — обработчик отвечает 409, а не 500.
  */
-async function inSavepoint<T>(db: Kysely<Database>, fn: () => Promise<T>): Promise<T> {
+export async function inSavepoint<T>(db: Kysely<Database>, fn: () => Promise<T>): Promise<T> {
   await sql`savepoint role_change`.execute(db)
   try {
     const result = await fn()
@@ -267,70 +268,4 @@ export function rolesRoutes() {
       })
       return c.body(null, 204)
     })
-}
-
-/** Маршруты участников: `/members/:userId/role` — назначить роль. */
-export function membersRoutes() {
-  return new Hono<PermissionsEnv>().put(
-    '/:userId/role',
-    requirePermission('users_roles', 'edit'),
-    async (c) => {
-      const userId = c.req.param('userId')
-      const body = (await c.req.json().catch(() => null)) as { roleId?: unknown } | null
-      const roleId = body?.roleId
-      if (typeof roleId !== 'string' || !UUID.test(roleId)) {
-        return fail(c, 400, 'INVALID_ROLE', { path: 'roleId', message: 'ожидается id роли' })
-      }
-      const db = c.get('db')
-      const role = await db
-        .selectFrom('role')
-        .select(['id', 'name', 'is_admin', 'permissions'])
-        .where('id', '=', roleId)
-        .executeTakeFirst()
-      if (!role) return fail(c, 404, 'ROLE_NOT_FOUND')
-      // Текущая роль участника; строка участия блокируется до записи.
-      const target = await db
-        .selectFrom('project_member as m')
-        .innerJoin('role as r', (join) =>
-          join.onRef('r.id', '=', 'm.role_id').onRef('r.project_id', '=', 'm.project_id'),
-        )
-        .select(['r.id', 'r.name', 'r.is_admin'])
-        .where('m.project_id', '=', c.get('projectId'))
-        .where('m.user_id', '=', userId)
-        .forUpdate('m')
-        .executeTakeFirst()
-      if (!target) return fail(c, 404, 'MEMBER_NOT_FOUND')
-      const failure = checkAssignment(
-        { ...c.get('access'), userId: c.get('session').user.id },
-        { userId, roleIsAdmin: target.is_admin },
-        { isAdmin: role.is_admin, permissions: effectivePermissions(role) },
-      )
-      if (failure) return denied(c, failure)
-      try {
-        const updated = await inSavepoint(db, () =>
-          db
-            .updateTable('project_member')
-            .set({ role_id: roleId, updated_at: sql`now()` })
-            .where('project_id', '=', c.get('projectId'))
-            .where('user_id', '=', userId)
-            .returning('id')
-            .executeTakeFirst(),
-        )
-        if (!updated) return fail(c, 404, 'MEMBER_NOT_FOUND')
-      } catch (error) {
-        return protectionFailure(c, error)
-      }
-      if (target.id !== role.id) {
-        await recordInRequest(c, {
-          action: 'member.role_changed',
-          entity: { type: 'user', id: userId },
-          details: {
-            before: { roleId: target.id, roleName: target.name },
-            after: { roleId: role.id, roleName: role.name },
-          },
-        })
-      }
-      return c.json({ userId, roleId })
-    },
-  )
 }

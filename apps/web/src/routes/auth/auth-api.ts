@@ -9,6 +9,11 @@ export interface SessionUser {
   email: string
   name: string
   twoFactorEnabled: boolean
+  /**
+   * Временный пароль (учётную запись создал администратор проекта): до смены пароля API
+   * пускает только к смене пароля и выходу. Сначала пароль, потом 2FA.
+   */
+  mustChangePassword?: boolean
 }
 
 export interface Session {
@@ -37,6 +42,8 @@ export interface AuthApi {
   verifyTotp(code: string): Promise<AuthResult>
   verifyBackupCode(code: string): Promise<AuthResult>
   enableTwoFactor(password: string): Promise<AuthResult<TwoFactorSetup>>
+  /** Смена пароля; остальные сессии пользователя закрываются. */
+  changePassword(currentPassword: string, newPassword: string): Promise<AuthResult>
   signOut(): Promise<void>
 }
 
@@ -84,6 +91,16 @@ export function createAuthApi(fetchImpl: typeof fetch = (...args) => fetch(...ar
       }
       const secret = new URL(totpURI).searchParams.get('secret') ?? ''
       return { ok: true, totpURI, secret, backupCodes }
+    },
+
+    async changePassword(currentPassword, newPassword) {
+      // Временный пароль видел тот, кто создал учётную запись: его сессии закрываются.
+      const res = await post('/change-password', {
+        currentPassword,
+        newPassword,
+        revokeOtherSessions: true,
+      })
+      return res.ok ? { ok: true } : { ok: false, error: await toError(res) }
     },
 
     async signOut() {

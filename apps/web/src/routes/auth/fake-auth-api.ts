@@ -19,6 +19,7 @@ export function fakeAuthApi(overrides: Partial<AuthApi> = {}): AuthApi {
       secret: 'JBSWY3DPEHPK3PXP',
       backupCodes: ['aaaaa-11111', 'bbbbb-22222'],
     }),
+    changePassword: async () => ({ ok: true }),
     signOut: async () => {},
     ...overrides,
   }

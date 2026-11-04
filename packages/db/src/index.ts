@@ -17,6 +17,7 @@ export type {
   RoleTable,
   SessionTable,
   SystemAuditLogTable,
+  TeamTable,
   TwoFactorTable,
   UserTable,
   VerificationTable,

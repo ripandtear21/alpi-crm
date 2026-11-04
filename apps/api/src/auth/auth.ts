@@ -1,6 +1,6 @@
 import type { Database } from '@alpi/db'
 import { betterAuth } from 'better-auth'
-import { createAuthMiddleware } from 'better-auth/api'
+import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { admin, twoFactor } from 'better-auth/plugins'
 import type { Kysely } from 'kysely'
 import { authAuditHooks } from '../audit/auth-events.ts'
@@ -86,7 +86,21 @@ export function createAuth(config: AuthConfig) {
       disableSignUp: true,
       minPasswordLength: MIN_PASSWORD_LENGTH,
     },
-    user: { fields: snakeFields('emailVerified', 'createdAt', 'updatedAt') },
+    user: {
+      fields: snakeFields('emailVerified', 'createdAt', 'updatedAt'),
+      additionalFields: {
+        // Временный пароль (учётную запись создал администратор проекта): до смены пароля API
+        // пускает только к смене пароля и выходу (access-guard.ts). Ставит флаг API
+        // (apps/api/src/members/service.ts), снимает хук после смены пароля ниже.
+        mustChangePassword: {
+          type: 'boolean',
+          required: false,
+          defaultValue: false,
+          input: false,
+          fieldName: 'must_change_password',
+        },
+      },
+    },
     session: {
       fields: snakeFields(
         'expiresAt',
@@ -151,7 +165,19 @@ export function createAuth(config: AuthConfig) {
           return { context: { body: { ...ctx.body, trustDevice: false } } }
         }
       }),
-      after: auditHooks.after,
+      // Журнал (audit/auth-events.ts), затем снятие флага временного пароля: пароль сменён —
+      // временного пароля больше нет. Отказ смены (неверный текущий пароль, короткий новый)
+      // приходит сюда ошибкой и флаг не снимает.
+      after: createAuthMiddleware(async (ctx) => {
+        const result = await auditHooks.after(ctx)
+        if (ctx.path === '/change-password' && !(ctx.context.returned instanceof APIError)) {
+          const userId = (ctx.context.session as SessionOfRequest | null | undefined)?.user.id
+          if (userId) {
+            await ctx.context.internalAdapter.updateUser(userId, { mustChangePassword: false })
+          }
+        }
+        return result
+      }),
     },
     account: {
       fields: snakeFields(

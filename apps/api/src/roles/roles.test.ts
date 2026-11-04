@@ -13,7 +13,7 @@ import { type AccessEnv, accessGuard } from '../auth/access-guard.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { projectContext } from '../middleware/project-context.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
-import { NO_TEAMS, resolveViewer, scopePredicate, type Viewer } from './scope.ts'
+import { PROJECT_TEAMS, resolveViewer, scopePredicate, type Viewer } from './scope.ts'
 
 // Роли проекта, защиты администратора, проверка прав и охват — на настоящем PostgreSQL,
 // API ходит ролью приложения (row-level security действует).
@@ -581,7 +581,30 @@ describe('роли и права проекта', () => {
       expect((await asX('PUT', `/roles/${head.id}`, { permissions: reduced })).status).toBe(200)
     })
 
+    const assignAsAdmin = async (userId: string, roleId: string) =>
+      expect(
+        (
+          await systemOwner.api('PUT', `/members/${userId}/role`, {
+            project: projectId,
+            body: { roleId },
+          })
+        ).status,
+      ).toBe(200)
+
+    it('(г) роль участника с правами шире своих меняет и снимает только администратор', async () => {
+      // Y — менеджер: у менеджера прав больше, чем у кадровика (создаёт и меняет сделки).
+      const manager = roleByKey(roles, 'manager').id
+      await assignAsAdmin(y.id, manager)
+      await expectDenied(
+        await asX('PUT', `/members/${y.id}/role`, { roleId: narrow.id }),
+        'TARGET_EXCEEDS_OWN_PERMISSIONS',
+      )
+      expect(await roleOfMember(y.id)).toBe(manager)
+    })
+
     it('(б) назначить другому роль шире своей нельзя, не шире — можно', async () => {
+      // Y с узкой ролью: правило (г) не мешает, проверяется только новая роль.
+      await assignAsAdmin(y.id, narrow.id)
       await expectDenied(
         await asX('PUT', `/members/${y.id}/role`, { roleId: roleByKey(roles, 'teamlead').id }),
         'EXCEEDS_OWN_PERMISSIONS',
@@ -703,8 +726,8 @@ describe('роли и права проекта', () => {
       ])
     })
 
-    it('пока команд нет (NO_TEAMS), «команда» равна «свои»', async () => {
-      const alone = await resolveViewer(h.owner, 'u-me', NO_TEAMS)
+    it('пользователь не в команде — «команда» равна «свои»', async () => {
+      const alone = await resolveViewer(h.owner, 'u-me', PROJECT_TEAMS)
       expect(alone).toEqual({ userId: 'u-me', teamUserIds: [] })
       expect(await visible('team', alone)).toEqual(['mine'])
     })

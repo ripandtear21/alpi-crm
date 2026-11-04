@@ -19,6 +19,7 @@ const migrationNames = [
   '0003_projects',
   '0004_roles',
   '0005_audit',
+  '0005_teams',
 ]
 
 const tablesOfMigration = [
@@ -37,6 +38,8 @@ const tablesOfMigration = [
   // 0005_audit
   'audit_log',
   'system_audit_log',
+  // 0005_teams
+  'team',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -279,6 +282,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'external_link', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },
+        { table: 'team', rls: true, policies: 1 },
       ])
     })
 
