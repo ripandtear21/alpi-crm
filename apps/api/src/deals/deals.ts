@@ -19,6 +19,7 @@ import { contactScopePredicate } from '../contacts/scope.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
+import { addLine, productsTotalChange, removeLine, updateLine } from './lines.ts'
 import { ownerAllowed } from './scope.ts'
 import {
   DEAL_CURRENCIES,
@@ -977,5 +978,29 @@ export function dealsRoutes() {
         c.req.param('contactId'),
       )
       return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+    })
+    .post('/:id/products', edit, async (c) =>
+      respond(c, await addLine(c, await dealContext(c), c.req.param('id')), 201),
+    )
+    .put('/:id/products/:lineId', edit, async (c) =>
+      respond(
+        c,
+        await updateLine(c, await dealContext(c), c.req.param('id'), c.req.param('lineId')),
+      ),
+    )
+    .delete('/:id/products/:lineId', edit, async (c) => {
+      const outcome = await removeLine(
+        await dealContext(c),
+        c.req.param('id'),
+        c.req.param('lineId'),
+      )
+      return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+    })
+    .post('/:id/apply-products-total', edit, async (c) => {
+      const ctx = await dealContext(c)
+      return respond(
+        c,
+        await changeDeal(ctx, c.req.param('id'), (row) => productsTotalChange(ctx, row)),
+      )
     })
 }

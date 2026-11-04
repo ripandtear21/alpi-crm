@@ -19,6 +19,7 @@ import { projectContext } from './middleware/project-context.ts'
 import { organizationsRoutes } from './organizations/organizations.ts'
 import { pipelinesRoutes } from './pipelines/pipelines.ts'
 import { OPEN_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deals.ts'
+import { productsRoutes } from './products/products.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
 import { rolesRoutes } from './roles/roles.ts'
 import { teamsRoutes } from './teams/teams.ts'
@@ -71,6 +72,7 @@ function v1Routes({
     .route('/lost-reasons', lostReasonsRoutes())
     .route('/contacts', contactsRoutes({ dependents: contactDependents }))
     .route('/organizations', organizationsRoutes())
+    .route('/products', productsRoutes())
 }
 
 /**

@@ -24,6 +24,8 @@ import { createMembersApi, type MembersApi } from './routes/settings/members-api
 import { MembersPage } from './routes/settings/members-page.tsx'
 import { createPipelinesApi, type PipelinesApi } from './routes/settings/pipelines-api.ts'
 import { PipelinesPage } from './routes/settings/pipelines-page.tsx'
+import { createProductsApi, type ProductsApi } from './routes/settings/products-api.ts'
+import { ProductsPage } from './routes/settings/products-page.tsx'
 import { createRolesApi, type RolesApi } from './routes/settings/roles-api.ts'
 import { RolesPage } from './routes/settings/roles-page.tsx'
 import { SettingsPage } from './routes/settings/settings-page.tsx'
@@ -36,6 +38,7 @@ export interface RouterContext {
   audit: AuditApi
   members: MembersApi
   pipelines: PipelinesApi
+  products: ProductsApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -207,6 +210,15 @@ const lostReasonsRoute = createRoute({
   },
 })
 
+const productsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/products',
+  component: function ProductsRoute() {
+    const { products } = productsRoute.useRouteContext()
+    return <ProductsPage api={products} />
+  },
+})
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   twoFactorRoute,
@@ -225,6 +237,7 @@ const routeTree = rootRoute.addChildren([
     teamsRoute,
     pipelinesRoute,
     lostReasonsRoute,
+    productsRoute,
   ]),
 ])
 
@@ -243,6 +256,8 @@ export interface AppRouterOptions {
   members?: MembersApi
   /** Только в тестах: подставной клиент воронок и причин проигрыша. В браузере — запросы к API. */
   pipelines?: PipelinesApi
+  /** Только в тестах: подставной клиент каталога товаров. В браузере — запросы к API. */
+  products?: ProductsApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -255,6 +270,7 @@ export function createAppRouter({
   audit = createAuditApi(),
   members = createMembersApi(),
   pipelines = createPipelinesApi(),
+  products = createProductsApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -264,6 +280,7 @@ export function createAppRouter({
     audit,
     members,
     pipelines,
+    products,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })
