@@ -1,0 +1,83 @@
+/* Экраны «Воронки» и «Причины проигрыша»: карточки на всю ширину, строки переносятся —
+   на телефоне (375 px) поля и кнопки встают друг под друга, страница не прокручивается вбок. */
+.directory {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 960px;
+}
+
+.directory__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.directory__card h2 {
+  margin: 0;
+  font-size: 1.15em;
+  overflow-wrap: anywhere;
+}
+
+.directory__card--archived {
+  color: var(--color-muted);
+}
+
+.directory__mark {
+  color: var(--color-muted);
+  font-weight: normal;
+  font-size: 0.9em;
+}
+
+.directory__row,
+.directory__rename,
+.directory__settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.directory__rename input,
+.directory__settings input:not([type="checkbox"]) {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.directory__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.5em;
+}
+
+.directory__list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.directory__list li .directory__rename {
+  flex: 1 1 16rem;
+}
+
+.directory__order {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.directory__order button {
+  min-width: 2.25em;
+}
+
+.directory__hint {
+  color: var(--color-muted);
+  margin: 0;
+}

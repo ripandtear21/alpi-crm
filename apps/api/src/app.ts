@@ -7,9 +7,13 @@ import { auditRoutes, systemAuditRoutes } from './audit/routes.ts'
 import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { type BulkDeps, bulkRoutes, NO_BULK } from './bulk/routes.ts'
+import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
 import { NO_OPEN_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
+import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
+import { pipelinesRoutes } from './pipelines/pipelines.ts'
+import { NO_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deals.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
 import { rolesRoutes } from './roles/roles.ts'
 import { teamsRoutes } from './teams/teams.ts'
@@ -38,6 +42,19 @@ export interface AppDeps {
   openDeals?: OpenDealsChecker
   /** Массовые действия и очередь pg-boss (apps/api/src/jobs/jobs.ts); без них действий нет. */
   bulk?: BulkDeps
+  /** Открытые сделки на этапе — для удаления этапа; до сделок (тикет crm-deals/05) — заглушка «нет». */
+  stageDeals?: StageDealsChecker
+}
+
+/**
+ * Запросы `/api/v1/...` (снаружи префикс /api снимает обратный прокси, сюда доходит /v1/...):
+ * разделы сделок, контактов и их справочников. Только по сессии пользователя и только в
+ * контексте проекта — группа регистрируется после projectContext.
+ */
+function v1Routes({ stageDeals }: { stageDeals: StageDealsChecker }) {
+  return new Hono<PermissionsEnv>()
+    .route('/pipelines', pipelinesRoutes({ stageDeals }))
+    .route('/lost-reasons', lostReasonsRoutes())
 }
 
 /**
@@ -47,7 +64,13 @@ export interface AppDeps {
  * заголовка X-Project-Id, и только для его участника; новые разделы (сделки, контакты…)
  * регистрируются там же — путь вне проекта нужно добавить выше осознанно.
  */
-export function createApp({ auth, db, openDeals = NO_OPEN_DEALS, bulk = NO_BULK }: AppDeps) {
+export function createApp({
+  auth,
+  db,
+  openDeals = NO_OPEN_DEALS,
+  bulk = NO_BULK,
+  stageDeals = NO_STAGE_DEALS,
+}: AppDeps) {
   return (
     new Hono<AccessEnv>()
       .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
@@ -81,6 +104,7 @@ export function createApp({ auth, db, openDeals = NO_OPEN_DEALS, bulk = NO_BULK 
       .route('/audit', auditRoutes())
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
+      .route('/v1', v1Routes({ stageDeals }))
   )
 }
 

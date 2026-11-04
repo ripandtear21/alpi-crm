@@ -13,7 +13,8 @@
     "test": "vitest run",
     "build": "pnpm -r build",
     "verify": "pnpm lint && pnpm typecheck && pnpm test",
-    "create-owner": "pnpm --filter @alpi/api create-owner"
+    "create-owner": "pnpm --filter @alpi/api create-owner",
+    "project-preset": "pnpm --filter @alpi/api project-preset"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

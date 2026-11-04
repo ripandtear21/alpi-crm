@@ -92,6 +92,52 @@ function useSummary() {
         })
       case 'bulk.started':
         return text(entry.details.action)
+      // Тикет crm-deals/02: воронки, этапы и причины проигрыша.
+      case 'pipeline.created':
+      case 'lost_reason_group.created':
+        return text(after.name)
+      case 'stage.created':
+        return t('summary.inside', { parent: text(entry.details.pipeline), name: text(after.name) })
+      case 'lost_reason.created':
+        return t('summary.inside', { parent: text(entry.details.group), name: text(after.name) })
+      case 'stage.deleted':
+        return t('summary.inside', {
+          parent: text(entry.details.pipeline),
+          name: text(before.name),
+        })
+      case 'pipeline.updated':
+      case 'stage.updated':
+      case 'lost_reason_group.updated':
+      case 'lost_reason.updated': {
+        const changes: string[] = []
+        if ('name' in after) {
+          changes.push(t('summary.renamed', { before: text(before.name), after: text(after.name) }))
+        }
+        if ('code' in after) {
+          changes.push(
+            t('summary.codeChanged', { before: text(before.code), after: text(after.code) }),
+          )
+        }
+        if ('isUpsell' in after) {
+          changes.push(after.isUpsell === true ? t('summary.upsellOn') : t('summary.upsellOff'))
+        }
+        if ('archived' in after) {
+          changes.push(after.archived === true ? t('summary.archived') : t('summary.restored'))
+        }
+        const name = text(entry.details.name)
+        return name !== '' && !('name' in after)
+          ? `${name}: ${changes.join('; ')}`
+          : changes.join('; ')
+      }
+      case 'pipeline.reordered':
+      case 'lost_reason_group.reordered':
+        return t('summary.reordered')
+      case 'stage.reordered':
+        return `${text(entry.details.pipeline)}: ${t('summary.reordered')}`
+      case 'lost_reason.reordered':
+        return `${text(entry.details.group)}: ${t('summary.reordered')}`
+      case 'project.preset_applied':
+        return t('summary.presetApplied', { preset: text(entry.details.preset) })
     }
   }
 }

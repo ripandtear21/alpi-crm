@@ -23,6 +23,23 @@ export const PROJECT_AUDIT_ACTIONS = [
   // Тикет crm-deals/04: массовые операции.
   /** Запущена массовая операция (entity — bulk_job; details — действие и выбор). */
   'bulk.started',
+  // Тикет crm-deals/02: воронки, этапы и причины проигрыша.
+  'pipeline.created',
+  /** Название, код, отметка «воронка допродаж», архив или возврат из архива. */
+  'pipeline.updated',
+  'pipeline.reordered',
+  'stage.created',
+  'stage.updated',
+  'stage.deleted',
+  'stage.reordered',
+  'lost_reason_group.created',
+  'lost_reason_group.updated',
+  'lost_reason_group.reordered',
+  'lost_reason.created',
+  'lost_reason.updated',
+  'lost_reason.reordered',
+  /** Стартовая настройка проекта (`pnpm project-preset`): от имени системы. */
+  'project.preset_applied',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 

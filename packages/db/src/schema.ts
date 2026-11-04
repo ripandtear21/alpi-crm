@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts, 0006_teams.ts и 0007_jobs_bulk.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts, 0006_teams.ts, 0007_jobs_bulk.ts и 0008_pipelines.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -72,6 +72,61 @@ export interface RoleTable {
    * форму проверяет parseRolePermissions до записи.
    */
   permissions: ColumnType<unknown, string, string>
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/**
+ * Воронка проекта (migrations/0008_pipelines.ts). `code` уникален в проекте, «воронка
+ * допродаж» (`is_upsell`) — не больше одной в проекте.
+ */
+export interface PipelineTable {
+  id: Generated<string>
+  project_id: string
+  code: string
+  name: string
+  position: Generated<number>
+  is_upsell: Generated<boolean>
+  archived_at: Date | string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/** Этап воронки. Удаляется отметкой `deleted_at`: закрытые сделки на нём остаются. */
+export interface StageTable {
+  id: Generated<string>
+  project_id: string
+  pipeline_id: string
+  name: string
+  position: Generated<number>
+  deleted_at: Date | string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/** Группа причин проигрыша; название уникально в проекте. */
+export interface LostReasonGroupTable {
+  id: Generated<string>
+  project_id: string
+  name: string
+  position: Generated<number>
+  archived_at: Date | string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/** Причина проигрыша; название уникально в группе. */
+export interface LostReasonTable {
+  id: Generated<string>
+  project_id: string
+  group_id: string
+  name: string
+  position: Generated<number>
+  archived_at: Date | string | null
   created_at: Timestamp
   updated_at: Timestamp
   created_by: string | null
@@ -254,6 +309,10 @@ export interface Database {
   project_member: ProjectMemberTable
   role: RoleTable
   team: TeamTable
+  pipeline: PipelineTable
+  stage: StageTable
+  lost_reason_group: LostReasonGroupTable
+  lost_reason: LostReasonTable
   external_link: ExternalLinkTable
   user: UserTable
   session: SessionTable
