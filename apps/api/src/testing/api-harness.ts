@@ -40,6 +40,8 @@ export interface ApiHarness {
   /** Подключение ролью приложения: тем же ходит API. */
   appDb: Kysely<Database>
   auth: Auth
+  /** Запрос к API без входа (без cookie). */
+  request(method: Method, path: string, body?: unknown): Promise<Response>
   /** Новый пользователь, вошедший с 2FA. `as: 'owner'` — владелец системы. */
   signIn(as?: 'owner' | 'user'): Promise<SignedInUser>
   /** Проект, созданный владельцем системы через API; создатель — его администратор. */
@@ -149,10 +151,19 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
       .execute()
   }
 
+  async function request(method: Method, path: string, body?: unknown) {
+    return app.request(`${ORIGIN}${path}`, {
+      method,
+      headers: { origin: ORIGIN, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+  }
+
   return {
     owner,
     appDb,
     auth,
+    request,
     signIn,
     createProject,
     addMember,

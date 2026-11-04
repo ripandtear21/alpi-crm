@@ -2,6 +2,7 @@ import type { Database } from '@alpi/db'
 import {
   parseRolePermissions,
   ROLE_TEMPLATE_KEYS,
+  type RolePermissions,
   type RoleSummary,
   type RolesErrorCode,
   type RoleTemplateKey,
@@ -11,11 +12,14 @@ import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { effectivePermissions } from './access.ts'
+import { checkAssignment, checkRoleCreate, checkRoleEdit, type GuardFailure } from './guard.ts'
 
 // Роли проекта и роли участников (тикет crm-foundation/05). Все маршруты — в контексте проекта
 // (после projectContext) и под правом «пользователи и роли» на соответствующее действие.
 // Защиты роли администратора и последнего администратора держит база
 // (packages/db/migrations/0004_roles.ts); здесь их ошибки становятся ответами 409.
+// Кто какие роли может выдавать — guard.ts: каждый маршрут записи зовёт его проверку до записи,
+// отказ — 403 с кодом правила.
 
 const MAX_NAME_LENGTH = 60
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -28,7 +32,7 @@ const LAST_ADMIN = 'AR002'
 
 type Ctx = Context<PermissionsEnv>
 
-function fail(c: Ctx, status: 400 | 404 | 409, code: RolesErrorCode, details?: unknown) {
+function fail(c: Ctx, status: 400 | 403 | 404 | 409, code: RolesErrorCode, details?: unknown) {
   return c.json(details === undefined ? { code } : { code, details }, status)
 }
 
@@ -64,6 +68,10 @@ function protectionFailure(c: Ctx, error: unknown) {
     default:
       throw error
   }
+}
+
+function denied(c: Ctx, failure: GuardFailure) {
+  return fail(c, 403, failure)
 }
 
 function isTemplateKey(value: unknown): value is RoleTemplateKey {
@@ -105,8 +113,16 @@ export async function listRoles(db: Kysely<Database>, roleId?: string): Promise<
 
 interface RoleInput {
   name?: string
-  /** Права в каноническом виде, строкой JSON для записи в JSONB. */
-  permissions?: string
+  /** Права в каноническом виде (прошли parseRolePermissions). */
+  permissions?: RolePermissions
+}
+
+/** Значения для записи в role: права — строкой JSON для JSONB. */
+function roleValues({ name, permissions }: RoleInput) {
+  return {
+    ...(name === undefined ? {} : { name }),
+    ...(permissions === undefined ? {} : { permissions: JSON.stringify(permissions) }),
+  }
 }
 
 /** Тело запроса роли; `partial` — для изменения, где поля необязательны. */
@@ -127,7 +143,7 @@ async function readRoleInput(
   if (body.permissions !== undefined || !partial) {
     const parsed = parseRolePermissions(body.permissions)
     if (!parsed.ok) return { ok: false, details: parsed.error }
-    value.permissions = JSON.stringify(parsed.permissions)
+    value.permissions = parsed.permissions
   }
   if (value.name === undefined && value.permissions === undefined) {
     return { ok: false, details: 'нечего менять' }
@@ -144,7 +160,10 @@ export function rolesRoutes() {
     .post('/', requirePermission('users_roles', 'create'), async (c) => {
       const input = await readRoleInput(c, false)
       if (!input.ok) return fail(c, 400, 'INVALID_ROLE', input.details)
-      const { name = '', permissions = '{}' } = input.value
+      const { name = '', permissions } = input.value
+      if (!permissions) return fail(c, 400, 'INVALID_ROLE')
+      const failure = checkRoleCreate(c.get('access'), permissions)
+      if (failure) return denied(c, failure)
       const db = c.get('db')
       try {
         const { id } = await inSavepoint(db, () =>
@@ -153,7 +172,7 @@ export function rolesRoutes() {
             .values({
               project_id: c.get('projectId'),
               name,
-              permissions,
+              permissions: JSON.stringify(permissions),
               created_by: c.get('session').user.id,
             })
             .returning('id')
@@ -171,11 +190,25 @@ export function rolesRoutes() {
       const input = await readRoleInput(c, true)
       if (!input.ok) return fail(c, 400, 'INVALID_ROLE', input.details)
       const db = c.get('db')
+      // Строка роли блокируется до конца транзакции: проверка и запись видят одни и те же права.
+      const current = await db
+        .selectFrom('role')
+        .select(['id', 'is_admin', 'permissions'])
+        .where('id', '=', id)
+        .forUpdate()
+        .executeTakeFirst()
+      if (!current) return fail(c, 404, 'ROLE_NOT_FOUND')
+      const failure = checkRoleEdit(
+        c.get('access'),
+        { id: current.id, permissions: effectivePermissions(current) },
+        input.value.permissions,
+      )
+      if (failure) return denied(c, failure)
       try {
         const updated = await inSavepoint(db, () =>
           db
             .updateTable('role')
-            .set({ ...input.value, updated_at: sql`now()` })
+            .set({ ...roleValues(input.value), updated_at: sql`now()` })
             .where('id', '=', id)
             .returning('id')
             .executeTakeFirst(),
@@ -220,10 +253,28 @@ export function membersRoutes() {
       const db = c.get('db')
       const role = await db
         .selectFrom('role')
-        .select('id')
+        .select(['id', 'is_admin', 'permissions'])
         .where('id', '=', roleId)
         .executeTakeFirst()
       if (!role) return fail(c, 404, 'ROLE_NOT_FOUND')
+      // Текущая роль участника; строка участия блокируется до записи.
+      const target = await db
+        .selectFrom('project_member as m')
+        .innerJoin('role as r', (join) =>
+          join.onRef('r.id', '=', 'm.role_id').onRef('r.project_id', '=', 'm.project_id'),
+        )
+        .select('r.is_admin')
+        .where('m.project_id', '=', c.get('projectId'))
+        .where('m.user_id', '=', userId)
+        .forUpdate('m')
+        .executeTakeFirst()
+      if (!target) return fail(c, 404, 'MEMBER_NOT_FOUND')
+      const failure = checkAssignment(
+        { ...c.get('access'), userId: c.get('session').user.id },
+        { userId, roleIsAdmin: target.is_admin },
+        { isAdmin: role.is_admin, permissions: effectivePermissions(role) },
+      )
+      if (failure) return denied(c, failure)
       try {
         const updated = await inSavepoint(db, () =>
           db

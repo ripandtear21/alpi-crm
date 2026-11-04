@@ -8,6 +8,7 @@ import {
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { MAX_BODY_BYTES } from '../app.ts'
 import { type AccessEnv, accessGuard } from '../auth/access-guard.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { projectContext } from '../middleware/project-context.ts'
@@ -423,6 +424,8 @@ describe('роли и права проекта', () => {
         { name: 'X', permissions: { scopes: { deals: { read: 'galaxy' } } } },
         { name: 'X', permissions: { standalone: ['launch'] } },
         { name: 'X', permissions: { fieldGroups: { g1: 'secret' } } },
+        // Групп полей пока нет: и допустимый доступ к несуществующей группе — ошибка.
+        { name: 'X', permissions: { fieldGroups: { g1: 'edit' } } },
         { name: '   ', permissions: {} },
         { name: 'X', permissions: 'all' },
       ]
@@ -449,6 +452,199 @@ describe('роли и права проекта', () => {
       expect(assign.status).toBe(404)
       expect(await assign.json()).toEqual({ code: 'ROLE_NOT_FOUND' })
       expect((await storedRole(foreignRole.id)).name).toBe('Керівник')
+    })
+  })
+
+  describe('право «пользователи и роли» не даёт захватить проект', () => {
+    // Кадровик: роль с «пользователи и роли» (смотреть, создавать, изменять), сделки — только
+    // смотреть свои. X — кадровик, Y — менеджер, владелец системы — администратор.
+    let projectId: string
+    let roles: RoleSummary[]
+    let hr: RoleSummary
+    let narrow: RoleSummary
+    let x: SignedInUser
+    let y: SignedInUser
+    const HR = {
+      ...MANAGER,
+      actions: {
+        ...Object.fromEntries(Object.keys(MANAGER.actions).map((k) => [k, []])),
+        deals: ['view'],
+        users_roles: ['view', 'create', 'edit'],
+      },
+      standalone: [],
+    } as unknown as RolePermissions
+    const NARROW = { ...HR, actions: { ...HR.actions, users_roles: [] } } as RolePermissions
+
+    async function createRole(name: string, permissions: RolePermissions) {
+      const res = await systemOwner.api('POST', '/roles', {
+        project: projectId,
+        body: { name, permissions },
+      })
+      expect(res.status).toBe(201)
+      return (await res.json()) as RoleSummary
+    }
+
+    async function expectDenied(res: Response, code: string) {
+      expect({ status: res.status, body: await res.json() }).toEqual({
+        status: 403,
+        body: { code },
+      })
+    }
+
+    const roleOfMember = async (userId: string) =>
+      (
+        await h.owner
+          .selectFrom('project_member')
+          .select('role_id')
+          .where('project_id', '=', projectId)
+          .where('user_id', '=', userId)
+          .executeTakeFirstOrThrow()
+      ).role_id
+
+    beforeAll(async () => {
+      projectId = (await h.createProject(systemOwner, 'Захоплення')).id
+      roles = await rolesOf(systemOwner, projectId)
+      hr = await createRole('Кадровик', HR)
+      narrow = await createRole('Вузька', NARROW)
+      x = await h.signIn()
+      y = await h.signIn()
+      await h.addMember(projectId, x.id, 'manager')
+      await h.addMember(projectId, y.id, 'manager')
+      const assigned = await systemOwner.api('PUT', `/members/${x.id}/role`, {
+        project: projectId,
+        body: { roleId: hr.id },
+      })
+      expect(assigned.status).toBe(200)
+    })
+
+    const asX = (method: 'POST' | 'PUT', path: string, body: unknown) =>
+      x.api(method, path, { project: projectId, body })
+
+    it('(а) роль администратора назначает только администратор — себе и другому', async () => {
+      const admin = roleByKey(roles, 'admin').id
+      await expectDenied(await asX('PUT', `/members/${x.id}/role`, { roleId: admin }), 'ADMIN_ONLY')
+      await expectDenied(await asX('PUT', `/members/${y.id}/role`, { roleId: admin }), 'ADMIN_ONLY')
+      expect(await roleOfMember(x.id)).toBe(hr.id)
+      expect(await roleOfMember(y.id)).toBe(roleByKey(roles, 'manager').id)
+    })
+
+    it('(а) роль участника-администратора меняет только администратор', async () => {
+      await expectDenied(
+        await asX('PUT', `/members/${systemOwner.id}/role`, { roleId: narrow.id }),
+        'ADMIN_ONLY',
+      )
+      expect(await roleOfMember(systemOwner.id)).toBe(roleByKey(roles, 'admin').id)
+    })
+
+    it('(б) новая роль — не шире своей: действия, охват, отдельные права', async () => {
+      const wider: [string, RolePermissions][] = [
+        ['действие', { ...HR, actions: { ...HR.actions, deals: ['view', 'delete'] } }],
+        ['охват чтения', { ...HR, scopes: { ...HR.scopes, deals: { read: 'all', write: 'own' } } }],
+        [
+          'охват записи',
+          { ...HR, scopes: { ...HR.scopes, deals: { read: 'own', write: 'team' } } },
+        ],
+        ['отдельное право', { ...HR, standalone: ['export'] }],
+        ['удаление ролей', { ...HR, actions: { ...HR.actions, users_roles: ['view', 'delete'] } }],
+      ]
+      for (const [what, permissions] of wider) {
+        const res = await asX('POST', '/roles', { name: `Ширша: ${what}`, permissions })
+        expect({ what, status: res.status }).toEqual({ what, status: 403 })
+        expect(await res.json()).toEqual({ code: 'EXCEEDS_OWN_PERMISSIONS' })
+      }
+      // Свои права и меньше — можно.
+      const same = await asX('POST', '/roles', { name: 'Як у мене', permissions: HR })
+      expect(same.status).toBe(201)
+    })
+
+    it('(б) изменение чужой роли не добавляет прав сверх своих; оставить и убрать — можно', async () => {
+      const added = await asX('PUT', `/roles/${narrow.id}`, {
+        permissions: { ...NARROW, actions: { ...NARROW.actions, deals: ['view', 'edit'] } },
+      })
+      await expectDenied(added, 'EXCEEDS_OWN_PERMISSIONS')
+      const widened = await asX('PUT', `/roles/${narrow.id}`, {
+        permissions: {
+          ...NARROW,
+          scopes: { ...NARROW.scopes, deals: { read: 'all', write: 'own' } },
+        },
+      })
+      await expectDenied(widened, 'EXCEEDS_OWN_PERMISSIONS')
+      expect((await storedRole(narrow.id)).permissions).toEqual(NARROW)
+
+      // У «керівника» прав больше, чем у кадровика: переименовать и сохранить с теми же
+      // правами можно, урезать — тоже.
+      const head = roleByKey(roles, 'head')
+      expect((await asX('PUT', `/roles/${head.id}`, { name: 'Старший' })).status).toBe(200)
+      const unchanged = await asX('PUT', `/roles/${head.id}`, { permissions: head.permissions })
+      expect(unchanged.status).toBe(200)
+      const reduced = { ...head.permissions, standalone: [] }
+      expect((await asX('PUT', `/roles/${head.id}`, { permissions: reduced })).status).toBe(200)
+    })
+
+    it('(б) назначить другому роль шире своей нельзя, не шире — можно', async () => {
+      await expectDenied(
+        await asX('PUT', `/members/${y.id}/role`, { roleId: roleByKey(roles, 'teamlead').id }),
+        'EXCEEDS_OWN_PERMISSIONS',
+      )
+      expect((await asX('PUT', `/members/${y.id}/role`, { roleId: narrow.id })).status).toBe(200)
+      expect(await roleOfMember(y.id)).toBe(narrow.id)
+    })
+
+    it('(в) свою роль участника и назначенную себе роль не-администратор не меняет', async () => {
+      await expectDenied(
+        await asX('PUT', `/members/${x.id}/role`, { roleId: narrow.id }),
+        'OWN_ROLE',
+      )
+      // Даже урезание своей роли — нет: правку роли, назначенной себе, делает другой.
+      await expectDenied(await asX('PUT', `/roles/${hr.id}`, { permissions: NARROW }), 'OWN_ROLE')
+      await expectDenied(await asX('PUT', `/roles/${hr.id}`, { name: 'Головний' }), 'OWN_ROLE')
+      expect(await roleOfMember(x.id)).toBe(hr.id)
+      expect((await storedRole(hr.id)).name).toBe('Кадровик')
+    })
+
+    it('администратор проекта делает всё это сам', async () => {
+      const admin = roleByKey(roles, 'admin').id
+      const toAdmin = await systemOwner.api('PUT', `/members/${y.id}/role`, {
+        project: projectId,
+        body: { roleId: admin },
+      })
+      expect(toAdmin.status).toBe(200)
+      const back = await systemOwner.api('PUT', `/members/${y.id}/role`, {
+        project: projectId,
+        body: { roleId: narrow.id },
+      })
+      expect(back.status).toBe(200)
+      const widened = await systemOwner.api('PUT', `/roles/${hr.id}`, {
+        project: projectId,
+        body: { permissions: { ...HR, standalone: ['export'] } },
+      })
+      expect(widened.status).toBe(200)
+    })
+  })
+
+  describe('ограничения запроса и транзакции', () => {
+    it('тело больше предела — 413 и до входа, и в контексте проекта', async () => {
+      const project = await h.createProject(systemOwner, 'Великі тіла')
+      const big = { name: 'X', permissions: {}, padding: 'x'.repeat(MAX_BODY_BYTES + 1) }
+      const res = await systemOwner.api('POST', '/roles', { project: project.id, body: big })
+      expect(res.status).toBe(413)
+      expect(await res.json()).toEqual({ code: 'PAYLOAD_TOO_LARGE' })
+      const anonymous = await h.request('POST', '/auth/sign-in/email', big)
+      expect(anonymous.status).toBe(413)
+      // Тело в пределах нормы проходит дальше, до проверки формы.
+      const small = await systemOwner.api('POST', '/roles', {
+        project: project.id,
+        body: { name: 'X', permissions: 'не объект' },
+      })
+      expect(small.status).toBe(400)
+    })
+
+    it('транзакция проекта — READ COMMITTED: на нём держится защита последнего администратора', async () => {
+      const project = await h.createProject(systemOwner, 'Ізоляція')
+      const level = await withProject(h.appDb, project.id, (trx) =>
+        sql<{ transaction_isolation: string }>`show transaction_isolation`.execute(trx),
+      )
+      expect(level.rows[0]?.transaction_isolation).toBe('read committed')
     })
   })
 

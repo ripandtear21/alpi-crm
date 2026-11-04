@@ -173,15 +173,14 @@ export function parseRolePermissions(input: unknown): ParseResult {
 
   const rawFieldGroups = input.fieldGroups ?? {}
   if (!isPlainObject(rawFieldGroups)) return fail('fieldGroups', 'ожидается объект')
-  const fieldGroups: Record<string, FieldGroupAccess> = {}
-  for (const [group, access] of Object.entries(rawFieldGroups)) {
-    if (!includes(FIELD_GROUP_ACCESS, access)) {
-      return fail(`fieldGroups.${group}`, 'неизвестный доступ')
-    }
-    fieldGroups[group] = access
+  // Групп полей ещё нет: любой ключ ссылался бы на несуществующую группу. Когда группы
+  // появятся, здесь будет проверка id группы и доступа по FIELD_GROUP_ACCESS.
+  const [firstGroup] = Object.keys(rawFieldGroups)
+  if (firstGroup !== undefined) {
+    return fail(`fieldGroups.${firstGroup}`, 'групп полей пока нет — ожидается пустой объект')
   }
 
-  return { ok: true, permissions: { actions, scopes, standalone, fieldGroups } }
+  return { ok: true, permissions: { actions, scopes, standalone, fieldGroups: {} } }
 }
 
 /** Все права: так действует роль «администратор», что бы ни лежало в её строке. */
@@ -326,3 +325,9 @@ export type RolesErrorCode =
   | 'ROLE_IN_USE'
   | 'LAST_ADMIN'
   | 'MEMBER_NOT_FOUND'
+  /** Только администратор проекта: назначить роль администратора, сменить её у участника. */
+  | 'ADMIN_ONLY'
+  /** Роль даёт права, которых нет у того, кто её выдаёт. */
+  | 'EXCEEDS_OWN_PERMISSIONS'
+  /** Не-администратор меняет свою роль или роль, назначенную ему. */
+  | 'OWN_ROLE'

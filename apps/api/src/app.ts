@@ -1,12 +1,20 @@
 import type { Database } from '@alpi/db'
 import type { HealthResponse } from '@alpi/shared'
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import type { Kysely } from 'kysely'
 import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { projectContext } from './middleware/project-context.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
 import { membersRoutes, rolesRoutes } from './roles/roles.ts'
+
+/**
+ * Наибольшее тело запроса. JSON API (роли, вход) — единицы килобайт; большие тела не должны
+ * доходить до разбора JSON и до транзакции проекта. Загрузка файлов, когда появится, получит
+ * свой предел на своём маршруте.
+ */
+export const MAX_BODY_BYTES = 100 * 1024
 
 /** Ответ `GET /me`: кто вошёл. */
 export interface MeResponse {
@@ -31,24 +39,35 @@ export interface AppDeps {
  * регистрируются там же — путь вне проекта нужно добавить выше осознанно.
  */
 export function createApp({ auth, db }: AppDeps) {
-  return new Hono<AccessEnv>()
-    .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
-    .use('*', accessGuard(auth))
-    .on(['GET', 'POST'], `${AUTH_BASE_PATH}/*`, (c) => auth.handler(c.req.raw))
-    .get('/me', (c) => {
-      const { user } = c.get('session')
-      return c.json<MeResponse>({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role ?? null,
+  return (
+    new Hono<AccessEnv>()
+      .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
+      // До входа и до контекста проекта: большое тело отклоняется, не дойдя ни до Better Auth,
+      // ни до базы.
+      .use(
+        '*',
+        bodyLimit({
+          maxSize: MAX_BODY_BYTES,
+          onError: (c) => c.json({ code: 'PAYLOAD_TOO_LARGE' }, 413),
+        }),
+      )
+      .use('*', accessGuard(auth))
+      .on(['GET', 'POST'], `${AUTH_BASE_PATH}/*`, (c) => auth.handler(c.req.raw))
+      .get('/me', (c) => {
+        const { user } = c.get('session')
+        return c.json<MeResponse>({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role ?? null,
+        })
       })
-    })
-    .route('/projects', projectsRoutes(db))
-    .use('*', projectContext(db))
-    .route('/project', currentProjectRoutes())
-    .route('/roles', rolesRoutes())
-    .route('/members', membersRoutes())
+      .route('/projects', projectsRoutes(db))
+      .use('*', projectContext(db))
+      .route('/project', currentProjectRoutes())
+      .route('/roles', rolesRoutes())
+      .route('/members', membersRoutes())
+  )
 }
 
 /** Тип приложения для Hono RPC: клиент (apps/web) получает из него типы маршрутов. */
