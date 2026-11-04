@@ -1,21 +1,22 @@
-# Staging-сервер и выкладка
+# Staging на Railway и выкладка
 
 Type: task
-Status: blocked 2026-11-03T23:28Z
-Blocked reason: Нужен аккаунт Hetzner Cloud, сервер staging и секреты для GitHub Actions
+Status: blocked 2026-11-04T12:20Z
+Blocked reason: Нужен проект Railway (окружение staging, регион ЕС) и токен проекта в секретах GitHub — хостинг сменён на Railway, ADR 0002
 Waits: owner
 Blocked by: 09
 Source: .scratch/crm-mvp/spec.md, раздел 12, эпик 1
 
 ## Что сделать
 
-Владелец: аккаунт и проект Hetzner Cloud, сервер staging (самый дешёвый тариф, ЕС), SSH-доступ и секреты для GitHub Actions. Агент: скрипт подготовки сервера (Docker, пользователь, firewall), `docker-compose.prod.yml`, workflow выкладки на staging при слиянии в main, миграции шагом выкладки, TLS через Caddy.
+Хостинг — Railway (решение владельца 2026-11-04, docs/adr/0002-hosting-railway.md). Владелец: аккаунт Railway, проект с окружением staging (регион ЕС), токен проекта в секретах репозитория GitHub (сам токен в чат не передаётся). Агент: службы PostgreSQL 18 (с томом), API и web из существующих Dockerfile; миграции отдельным шагом служебной ролью до запуска API, API — ролью входа без обхода RLS (packages/db/src/app-role.ts); секреты — переменными Railway; выкладка на staging после слияния в main и зелёной проверки GitHub; `idle_in_transaction_session_timeout` для роли приложения (долг тикета 04); пароль роли приложения не попадает в журнал PostgreSQL (долг тикета 03). Проверить и записать: версия PostgreSQL, резервные копии и восстановление на момент времени, цена.
 
 ## Where in code
 
-deploy/**, .github/workflows/deploy-staging.yml, docker-compose.prod.yml.
+deploy/** (или railway.json / railway.toml), .github/workflows/deploy-staging.yml, Dockerfile служб.
 
 ## Done when
 
 - [ ] После слияния в main staging обновляется автоматически, `/health` отвечает 200 по HTTPS (вставить ответ curl).
-- [ ] Секреты только в секретах GitHub и на сервере.
+- [ ] Секреты только в секретах GitHub и в переменных Railway.
+- [ ] Записано, как делаются и восстанавливаются резервные копии базы.
