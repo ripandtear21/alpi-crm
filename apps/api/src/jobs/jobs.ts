@@ -24,6 +24,12 @@ export const PGBOSS_SCHEMA = 'pgboss'
 
 export const QUEUES = {
   bulk: 'bulk-job',
+  /**
+   * Очередь мёртвых задач bulk-job: сюда pg-boss кладёт копию задачи, которая провалила все
+   * попытки — и упав с ошибкой, и когда процесс убит, а срок задачи истёк (тот же путь в
+   * pg-boss). Её обработчик помечает операцию failed, чтобы она не осталась «идёт» навсегда.
+   */
+  bulkDead: 'bulk-job-dead',
   trashPurge: 'trash-purge',
   signInPurge: 'failed-sign-in-purge',
 } as const
@@ -35,6 +41,8 @@ const SIGN_IN_PURGE_CRON = '30 3 * * *'
 
 /** Повторов массовой операции после сбоя: каждая продолжает с первой необработанной записи. */
 const BULK_RETRY_LIMIT = 5
+/** Пауза перед первым повтором, с; дальше растёт (retryBackoff). */
+const BULK_RETRY_DELAY = 30
 
 export interface JobsOptions {
   /** Строка подключения ролью приложения (та же DATABASE_URL, что у API). */
@@ -44,6 +52,8 @@ export interface JobsOptions {
   bulkActions: BulkActionRegistry
   trashPurgers: TrashRegistry
   bulkBatchSize?: number
+  /** Повторов массовой операции; по умолчанию BULK_RETRY_LIMIT. Тесты ставят 0. */
+  bulkRetryLimit?: number
   /** Как часто опрашивать очередь, с; по умолчанию — как у pg-boss. Тесты ставят 0.5. */
   pollingIntervalSeconds?: number
   /** Ставить расписание и выполнять задачи по нему; по умолчанию да. */
@@ -83,33 +93,30 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
 
   // shortcut: одна операция ждёт не дольше часа — потом pg-boss считает задачу зависшей и
   // повторяет её с той же записи; поднять срок, если операции на сотни тысяч записей станут нормой.
+  await boss.createQueue(QUEUES.bulkDead, { retryLimit: 5, retryDelay: 60 })
   await boss.createQueue(QUEUES.bulk, {
-    retryLimit: BULK_RETRY_LIMIT,
-    retryDelay: 30,
+    retryLimit: options.bulkRetryLimit ?? BULK_RETRY_LIMIT,
+    retryDelay: BULK_RETRY_DELAY,
     retryBackoff: true,
     expireInSeconds: 60 * 60,
+    deadLetter: QUEUES.bulkDead,
   })
   await boss.createQueue(QUEUES.trashPurge, { retryLimit: 3, retryDelay: 15 * 60 })
   await boss.createQueue(QUEUES.signInPurge, { retryLimit: 3, retryDelay: 15 * 60 })
 
   await boss.work<BulkJobMessage>(QUEUES.bulk, polling, async (batch) => {
     for (const job of batch) {
-      try {
-        await runBulkJob(options.db, options.bulkActions, job.data, {
-          batchSize: options.bulkBatchSize ?? BULK_BATCH_SIZE,
-          signal: job.signal,
-        })
-      } catch (error) {
-        // Последняя попытка: операция не должна навсегда остаться «идёт».
-        if (job.retryCount >= BULK_RETRY_LIMIT) {
-          await withProject(options.db, job.data.projectId, (trx) =>
-            failBulkJob(trx, job.data.bulkJobId, 'сбой обработки после всех повторов'),
-          ).catch((failError: unknown) => {
-            console.error(`массовая операция ${job.data.bulkJobId} не помечена`, failError)
-          })
-        }
-        throw error
-      }
+      await runBulkJob(options.db, options.bulkActions, job.data, {
+        batchSize: options.bulkBatchSize ?? BULK_BATCH_SIZE,
+        signal: job.signal,
+      })
+    }
+  })
+  await boss.work<BulkJobMessage>(QUEUES.bulkDead, polling, async (batch) => {
+    for (const job of batch) {
+      await withProject(options.db, job.data.projectId, (trx) =>
+        failBulkJob(trx, job.data.bulkJobId, 'PROCESSING_FAILED'),
+      )
     }
   })
   await boss.work(QUEUES.trashPurge, polling, async () => {

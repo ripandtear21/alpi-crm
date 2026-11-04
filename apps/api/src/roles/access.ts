@@ -30,7 +30,7 @@ export function effectivePermissions(role: { is_admin: boolean; permissions: unk
 /**
  * Роль пользователя в проекте, где выполняется запрос. `db` — транзакция проекта
  * (row-level security показывает только его участников и роли); null — пользователь не
- * участник или его участие отключено.
+ * участник, его участие отключено или учётная запись заблокирована.
  */
 export async function loadMemberAccess(
   db: Kysely<Database>,
@@ -41,9 +41,13 @@ export async function loadMemberAccess(
     .innerJoin('role as r', (join) =>
       join.onRef('r.id', '=', 'm.role_id').onRef('r.project_id', '=', 'm.project_id'),
     )
+    // Заблокированный владельцем системы пользователь прав не имеет нигде: сессии у него
+    // отозваны, а фоновая задача (массовая операция) проверяет права через эту же функцию.
+    .innerJoin('user as u', 'u.id', 'm.user_id')
     .select(['r.id', 'r.is_admin', 'r.permissions'])
     .where('m.user_id', '=', userId)
     .where('m.disabled_at', 'is', null)
+    .where('u.banned', '=', false)
     .executeTakeFirst()
   if (!row) return null
   return { roleId: row.id, isAdmin: row.is_admin, permissions: effectivePermissions(row) }

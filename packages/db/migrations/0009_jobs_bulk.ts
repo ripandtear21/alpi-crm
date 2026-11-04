@@ -1,5 +1,5 @@
+import { readFileSync } from 'node:fs'
 import { type Kysely, sql } from 'kysely'
-import { getConstructionPlans } from 'pg-boss'
 
 // Фоновые задачи, массовые операции и очистка журнала (тикет crm-deals/04).
 //
@@ -10,8 +10,16 @@ import { getConstructionPlans } from 'pg-boss'
 //    проверяет, что версия схемы совпадает со своей (apps/api/src/jobs/jobs.ts).
 //    Роль приложения получает то, что нужно очереди: читать и писать строки таблиц pgboss и звать
 //    её функции. Менять схему (создавать, удалять таблицы) она не может.
-//    Обновление pg-boss до версии с другой схемой — новая миграция с getMigrationPlans и теми же
-//    правами для alpi_app; эта миграция ставит ту схему, что у версии pg-boss из package.json.
+//    SQL установки заморожен текстом в 0009_jobs_bulk.pgboss-v46.sql (pg-boss 12.38.0, схема
+//    версии 46), а не берётся из установленного пакета: иначе результат уже написанной миграции
+//    менялся бы вместе с версией пакета. Обновление pg-boss до версии с другой схемой — новая
+//    миграция с getMigrationPlans и теми же правами для alpi_app; тест
+//    apps/api/src/jobs/jobs.test.ts падает, если установленный pg-boss ждёт другую версию схемы.
+//    Row-level security на таблицах pgboss нет, и это допустимо: в задаче лежат только
+//    { projectId, bulkJobId } (без данных проекта), обработчик перечитывает операцию в
+//    withProject под политикой проекта и заново проверяет права инициатора. Подставленный id
+//    чужого проекта не даст ничего: роль приложения видит строки проекта только в его контексте,
+//    а операция чужого проекта выполняется с правами её инициатора.
 // 2. bulk_job и bulk_job_error — массовая операция и журнал её ошибок по записям. Данные
 //    проекта: project_id и row-level security, как в 0001_project_isolation.
 // 3. purge_expired_failed_sign_ins — служебная функция: удаляет из системного журнала записи о
@@ -26,21 +34,14 @@ const PGBOSS_SCHEMA = 'pgboss'
 const FAILED_SIGN_IN_RETENTION_DAYS = 90
 
 /**
- * SQL установки pg-boss без своей обёртки BEGIN … COMMIT: миграция Kysely уже идёт в
- * транзакции, и COMMIT из середины зафиксировал бы её раньше времени.
+ * SQL установки pg-boss — getConstructionPlans('pgboss') версии 12.38.0 без обёртки BEGIN …
+ * COMMIT: миграция Kysely уже идёт в транзакции, и COMMIT из середины зафиксировал бы её раньше
+ * времени.
  */
-function pgBossInstallSql(): string {
-  const plan = getConstructionPlans(PGBOSS_SCHEMA).trim()
-  const begin = /^BEGIN;/
-  const commit = /COMMIT;$/
-  if (!begin.test(plan) || !commit.test(plan)) {
-    throw new Error('pg-boss: установка не обёрнута в BEGIN … COMMIT — проверить миграцию 0009')
-  }
-  return plan.replace(begin, '').replace(commit, '')
-}
+const PGBOSS_INSTALL = new URL('./0009_jobs_bulk.pgboss-v46.sql', import.meta.url)
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-  await sql.raw(pgBossInstallSql()).execute(db)
+  await sql.raw(readFileSync(PGBOSS_INSTALL, 'utf8')).execute(db)
   const schema = sql.id(PGBOSS_SCHEMA)
   await sql`grant usage on schema ${schema} to alpi_app`.execute(db)
   await sql`grant select, insert, update, delete on all tables in schema ${schema} to alpi_app`.execute(

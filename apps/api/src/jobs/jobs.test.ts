@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { type Generated, type Kysely, sql } from 'kysely'
+import { getConstructionPlans } from 'pg-boss'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { NO_BULK_ACTIONS } from '../bulk/registry.ts'
 import { type ApiHarness, startApiHarness } from '../testing/api-harness.ts'
@@ -82,6 +84,18 @@ describe('фоновые задачи по расписанию', () => {
       .execute()
     return rows.map((r) => r.label)
   }
+
+  it('установленный pg-boss ждёт ту же версию схемы, что заморожена в миграции 0009', async () => {
+    const version = (plan: string) =>
+      /pgboss\.version\(version\) VALUES \('(\d+)'\)/.exec(plan)?.[1]
+    const frozen = readFileSync(
+      new URL('../../../../packages/db/migrations/0009_jobs_bulk.pgboss-v46.sql', import.meta.url),
+      'utf8',
+    )
+    // Упал — pg-boss обновили со сменой схемы: нужна новая миграция с getMigrationPlans.
+    expect(version(getConstructionPlans('pgboss'))).toBe(version(frozen))
+    expect(String(await jobs.boss.schemaVersion())).toBe(version(frozen))
+  })
 
   it('pg-boss стартует ролью приложения на схеме из миграции; расписание — ежедневно', async () => {
     expect(await jobs.boss.schemaVersion()).toBeGreaterThan(0)
