@@ -29,6 +29,7 @@ import { OPEN_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deal
 import { productsRoutes } from './products/products.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
 import { rolesRoutes } from './roles/roles.ts'
+import { searchRoutes } from './search/search.ts'
 import { type FileStorage, NO_FILE_STORAGE } from './storage/storage.ts'
 import { teamsRoutes } from './teams/teams.ts'
 import { entityRecordsRoutes } from './timeline/timeline.ts'
@@ -108,6 +109,7 @@ function v1Routes({
       .route('/deals', entityRecordsRoutes('deal', storage))
       .route('/contacts', entityRecordsRoutes('contact', storage))
       .route('/organizations', entityRecordsRoutes('organization', storage))
+      .route('/search', searchRoutes())
   )
 }
 

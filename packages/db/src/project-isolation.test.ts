@@ -26,6 +26,7 @@ const migrationNames = [
   '0010_deals',
   '0011_products',
   '0012_notes_files',
+  '0013_search',
   '0014_saved_filters',
 ]
 
