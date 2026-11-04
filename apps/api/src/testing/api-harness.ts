@@ -47,6 +47,8 @@ export interface ApiHarness {
   owner: Kysely<Database>
   /** Подключение ролью приложения: тем же ходит API. */
   appDb: Kysely<Database>
+  /** Строка подключения ролью приложения: для pg-boss фоновых задач (apps/api/src/jobs). */
+  appUrl: string
   auth: Auth
   /** Запрос к API без входа (без cookie). */
   request(method: Method, path: string, body?: unknown): Promise<Response>
@@ -179,6 +181,7 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
     app,
     owner,
     appDb,
+    appUrl: url.href,
     auth,
     request,
     signIn,

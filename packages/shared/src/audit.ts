@@ -20,6 +20,9 @@ export const PROJECT_AUDIT_ACTIONS = [
   'team.updated',
   'team.deleted',
   'team.lead_assigned',
+  // Тикет crm-deals/04: массовые операции.
+  /** Запущена массовая операция (entity — bulk_job; details — действие и выбор). */
+  'bulk.started',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 

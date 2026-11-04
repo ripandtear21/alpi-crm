@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "kysely": "0.29.8",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "pg-boss": "12.38.0"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
