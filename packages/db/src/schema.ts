@@ -1,8 +1,8 @@
 import type { ColumnType, Generated } from 'kysely'
 
 // Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts,
-// 0006_teams.ts, 0007_jobs_bulk.ts, 0008_pipelines.ts, 0009_contacts.ts и 0010_deals.ts; меняются вместе с
-// миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
+// 0006_teams.ts, 0007_jobs_bulk.ts, 0008_pipelines.ts, 0009_contacts.ts, 0010_deals.ts и 0011_products.ts; меняются
+// вместе с миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
 /** Метка времени: читается как Date, при вставке необязательна (default now()). */
@@ -423,6 +423,37 @@ export interface DealParticipantTable {
   created_by: string | null
 }
 
+/**
+ * Товар каталога (migrations/0011_products.ts). Виден только в контексте своего проекта. Цены
+ * numeric(14, 2) — читаются строкой, null — цены в этой валюте нет. Не удаляется: archived_at.
+ */
+export interface ProductTable {
+  id: Generated<string>
+  project_id: string
+  name: string
+  price_eur: ColumnType<string | null, number | string | null | undefined, number | string | null>
+  price_uah: ColumnType<string | null, number | string | null | undefined, number | string | null>
+  price_usd: ColumnType<string | null, number | string | null | undefined, number | string | null>
+  archived_at: Date | string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/** Строка товара в сделке: количество больше нуля, цена за единицу в валюте сделки. */
+export interface DealProductTable {
+  id: Generated<string>
+  project_id: string
+  deal_id: string
+  product_id: string
+  quantity: number
+  /** numeric(14, 2): читается строкой, пишется числом или строкой. */
+  unit_price: ColumnType<string, number | string, number | string>
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -451,4 +482,6 @@ export interface Database {
   change_log: ChangeLogTable
   deal: DealTable
   deal_participant: DealParticipantTable
+  product: ProductTable
+  deal_product: DealProductTable
 }

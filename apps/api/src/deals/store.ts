@@ -58,6 +58,17 @@ export type DealsErrorCode =
   /** Основной контакт не может быть ещё и участником той же сделки. */
   | 'CONTACT_IS_PRIMARY'
   | 'CONTACT_IS_PARTICIPANT'
+  /** Товара нет в каталоге проекта. */
+  | 'PRODUCT_NOT_FOUND'
+  /** Архивный товар в новую строку не ставится; старые строки с ним остаются. */
+  | 'PRODUCT_ARCHIVED'
+  /** У товара нет цены в валюте сделки, а цена за единицу не введена. */
+  | 'PRICE_REQUIRED'
+  | 'LINE_NOT_FOUND'
+  /** «Підставити»: строк товаров нет — сумму сделки нечем заменить. */
+  | 'DEAL_HAS_NO_PRODUCTS'
+  /** «Підставити»: сумма строк больше наибольшей суммы сделки. */
+  | 'PRODUCTS_TOTAL_TOO_LARGE'
 
 export type Result<T> = Outcome<T, DealsErrorCode | ContactsErrorCode>
 
@@ -74,6 +85,18 @@ export interface DealContext extends ChangeAuthor {
 export interface DealParticipantView {
   contactId: string
   role: string | null
+}
+
+/** Строка товара в сделке в ответах API; цены — в валюте сделки. */
+export interface DealProductView {
+  id: string
+  productId: string
+  /** Название товара в каталоге сейчас. */
+  name: string
+  quantity: number
+  unitPrice: number
+  /** Количество × цена за единицу. */
+  total: number
 }
 
 /** Сделка в ответах API. */
@@ -105,6 +128,10 @@ export interface DealView {
   updatedAt: string
   /** Участники, кроме основного контакта, в порядке добавления. */
   participants: DealParticipantView[]
+  /** Строки товаров в порядке добавления; сумму сделки не меняют (ответ владельца 13.0.4). */
+  products: DealProductView[]
+  /** «Сума по товарах» — сумма строк в валюте сделки; 0 — строк нет. */
+  productsTotal: number
 }
 
 /** Поля, изменения которых пишутся в историю сделки (change_log). */
@@ -199,17 +226,14 @@ export async function writableDeal(
 const iso = (value: Date | string) => new Date(value).toISOString()
 const isoOrNull = (value: Date | string | null) => (value === null ? null : iso(value))
 
-/** Ответ API для строк сделок: участники — одним запросом на всех. */
+/** Ответ API для строк сделок: участники и строки товаров — одним запросом на всех. */
 export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<DealView[]> {
   if (rows.length === 0) return []
+  const ids = rows.map((row) => row.id)
   const participants = await db
     .selectFrom('deal_participant')
     .select(['deal_id', 'contact_id', 'role'])
-    .where(
-      'deal_id',
-      'in',
-      rows.map((row) => row.id),
-    )
+    .where('deal_id', 'in', ids)
     .orderBy('created_at')
     .orderBy('contact_id')
     .execute()
@@ -219,6 +243,33 @@ export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<
       ...(byDeal.get(p.deal_id) ?? []),
       { contactId: p.contact_id, role: p.role },
     ])
+  }
+  // Суммы — в базе (numeric): без ошибок округления дробей двоичных чисел.
+  const lines = await db
+    .selectFrom('deal_product as l')
+    .innerJoin('product as p', 'p.id', 'l.product_id')
+    .select(['l.id', 'l.deal_id', 'l.product_id', 'p.name', 'l.quantity', 'l.unit_price'])
+    .select(sql<string>`l.quantity * l.unit_price`.as('total'))
+    .select(sql<string>`sum(l.quantity * l.unit_price) over (partition by l.deal_id)`.as('sum'))
+    .where('l.deal_id', 'in', ids)
+    .orderBy('l.created_at')
+    .orderBy('l.id')
+    .execute()
+  const linesByDeal = new Map<string, DealProductView[]>()
+  const totals = new Map<string, number>()
+  for (const line of lines) {
+    linesByDeal.set(line.deal_id, [
+      ...(linesByDeal.get(line.deal_id) ?? []),
+      {
+        id: line.id,
+        productId: line.product_id,
+        name: line.name,
+        quantity: line.quantity,
+        unitPrice: Number(line.unit_price),
+        total: Number(line.total),
+      },
+    ])
+    totals.set(line.deal_id, Number(line.sum))
   }
   return rows.map((row) => ({
     id: row.id,
@@ -242,6 +293,8 @@ export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     participants: byDeal.get(row.id) ?? [],
+    products: linesByDeal.get(row.id) ?? [],
+    productsTotal: totals.get(row.id) ?? 0,
   }))
 }
 
