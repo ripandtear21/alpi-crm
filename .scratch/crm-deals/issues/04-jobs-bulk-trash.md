@@ -31,16 +31,24 @@ packages/db/migrations/**, packages/db/src/schema.ts, apps/api/src/jobs/** (по
 
 - [ ] Миграция применяется на чистую базу и откатывается; pg-boss создаёт свою схему при старте.
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts apps/api/src/jobs/jobs.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
 - [ ] Тест изоляции: задача проекта A, которая читает тестовую таблицу без фильтра, видит только строки A; `bulk_job` проекта A не виден в проекте B.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/bulk/bulk.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
 - [ ] Тест прав: без права «массовые операции» запуск — 403; запись вне охвата инициатора не меняется и попадает в журнал ошибок; пользователь без роли администратора не видит чужую операцию.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/bulk/bulk.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
 - [ ] Тест массовой операции на 1 000 записях тестовой таблицы: прогресс растёт порциями, итог «обработано 1 000, ошибок 0»; ошибка одной записи не останавливает остальные.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/bulk/bulk.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
 - [ ] Тест корзины: запись, удалённая 31 день назад, удаляется окончательно; удалённая 29 дней назад — остаётся; запись другого проекта не трогается.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/jobs/jobs.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
 - [ ] Тест очистки: неудачный вход старше 90 дней удалён, младше — на месте, другие виды записей журнала не тронуты; роль приложения сама удалить запись журнала не может.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/jobs/jobs.test.ts apps/api/src/audit/audit.test.ts` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
   - evidence: gate pass · `gate fast` exit 0 · windows - · 5386afab6ed0b40384b0ddc930b2ef9183e9a685
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
+  - evidence: gate pass · `gate fast` exit 0 · windows - · ee7bd0d78b5382a95f34a1e1506d9df6133e741b
