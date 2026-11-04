@@ -48,6 +48,17 @@ async function participantsOf(actor: DependentsActor, dealId: string) {
 
 export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
   async pending(actor, contactId) {
+    // Сделки блокируются по id — как на всех путях, что блокируют несколько сделок (restore,
+    // purge): в другом порядке одновременное «стереть» контакта-участника этих сделок дало бы
+    // взаимоблокировку. Список для ответа 409 — по времени создания, следующим запросом.
+    await actor.db
+      .selectFrom('deal')
+      .select('id')
+      .where('primary_contact_id', '=', contactId)
+      .where('deleted_at', 'is', null)
+      .orderBy('id')
+      .forUpdate()
+      .execute()
     const rows = await actor.db
       .selectFrom('deal')
       .select(['id', 'title', 'owner_id'])
@@ -55,7 +66,6 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
       .where('deleted_at', 'is', null)
       .orderBy('created_at')
       .orderBy('id')
-      .forUpdate()
       .execute()
     if (rows.length === 0) return { records: [], forbidden: false }
     if (!deletable(actor, rows)) return { records: [], forbidden: true }
@@ -127,6 +137,28 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
   },
 
   async purge(actor, contactId) {
+    // Все сделки контакта — где он основной и где участник — блокируются одним запросом по id,
+    // до первого изменения: двумя заходами (сначала где основной, потом где участник) два
+    // одновременных «стереть» контактов, участников сделок друг друга, взяли бы сделки в
+    // разном порядке — взаимоблокировка.
+    await actor.db
+      .selectFrom('deal')
+      .select('id')
+      .where((eb) =>
+        eb.or([
+          eb('primary_contact_id', '=', contactId),
+          eb.exists(
+            eb
+              .selectFrom('deal_participant as p')
+              .select('p.id')
+              .whereRef('p.deal_id', '=', 'deal.id')
+              .where('p.contact_id', '=', contactId),
+          ),
+        ]),
+      )
+      .orderBy('id')
+      .forUpdate()
+      .execute()
     const deals = await actor.db
       .selectFrom('deal')
       .select(['id', 'owner_id'])
