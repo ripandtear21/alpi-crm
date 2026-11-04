@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { readStoredTheme, storeTheme, THEMES, type Theme } from './theme.ts'
+import { followSystemTheme, readStoredTheme, storeTheme, THEMES, type Theme } from './theme.ts'
 
 /** Переключатель «светлая / тёмная» в шапке: значки, название — в подсказке и для читалки. */
 export function ThemeSwitcher() {
   const { t } = useTranslation('layout')
   const [theme, setTheme] = useState(readStoredTheme)
+
+  useEffect(() => followSystemTheme(setTheme), [])
 
   return (
     <fieldset className="ui-segmented theme-switcher">

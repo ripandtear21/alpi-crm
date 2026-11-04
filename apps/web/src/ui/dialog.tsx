@@ -1,11 +1,12 @@
-import { type ReactNode, useEffect, useId, useRef } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useId, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './button.tsx'
 import { cx } from './cx.ts'
+import { useToastLayer } from './toast.tsx'
 
 type DialogProps = {
   open: boolean
-  /** Esc, кнопка «Закрыть», щелчок по затемнению. Закрывает родитель: open → false. */
+  /** Esc, кнопка «Закрыть», щелчок по затемнению вне рамки. Закрывает родитель: open → false. */
   onClose: () => void
   title: ReactNode
   children: ReactNode
@@ -26,6 +27,18 @@ export function SidePanel(props: DialogProps) {
   return <DialogFrame {...props} side />
 }
 
+/** Событие пришло на сам <dialog> и точка за пределами его рамки — то есть на затемнение. */
+function isOnBackdrop(event: MouseEvent<HTMLDialogElement>): boolean {
+  if (event.target !== event.currentTarget) return false
+  const box = event.currentTarget.getBoundingClientRect()
+  return (
+    event.clientX < box.left ||
+    event.clientX > box.right ||
+    event.clientY < box.top ||
+    event.clientY > box.bottom
+  )
+}
+
 function DialogFrame({
   open,
   onClose,
@@ -38,6 +51,9 @@ function DialogFrame({
   const { t } = useTranslation()
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
+  // Нажатие началось на затемнении: только тогда щелчок закрывает.
+  const pressedOnBackdrop = useRef(false)
+  const addToastLayer = useToastLayer()
 
   useEffect(() => {
     const dialog = ref.current
@@ -51,11 +67,14 @@ function DialogFrame({
       )
       ;(first ?? dialog).focus()
     }
+    // Остальная страница под модальным диалогом недоступна — уведомления переезжают в него.
+    const removeToastLayer = addToastLayer?.(dialog)
     return () => {
+      removeToastLayer?.()
       if (dialog.open) dialog.close()
       opener?.focus()
     }
-  }, [open])
+  }, [open, addToastLayer])
 
   if (!open) return null
 
@@ -65,7 +84,9 @@ function DialogFrame({
       className={cx('ui-dialog', side && 'ui-dialog--side', className)}
       aria-labelledby={titleId}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') {
+        // Esc, который уже обработал вложенный элемент (меню, подсказки поиска), закрывает
+        // только его: они отменяют действие по умолчанию, и диалог остаётся открытым.
+        if (event.key === 'Escape' && !event.defaultPrevented) {
           event.preventDefault()
           event.stopPropagation()
           onClose()
@@ -77,9 +98,16 @@ function DialogFrame({
         event.preventDefault()
         onClose()
       }}
+      // Затемнение — это тоже сам <dialog>, как и пустое место внутри него (у высокой боковой
+      // панели), поэтому смотрим на координаты: щелчок вне рамки диалога. И нажатие, и отпускание
+      // должны прийти на затемнение — выделение текста, отпущенное над ним, не закрывает.
+      onPointerDown={(event) => {
+        pressedOnBackdrop.current = isOnBackdrop(event)
+      }}
       onClick={(event) => {
-        // Щелчок по затемнению приходит на сам <dialog>, а не на его содержимое.
-        if (event.target === event.currentTarget) onClose()
+        const pressed = pressedOnBackdrop.current
+        pressedOnBackdrop.current = false
+        if (pressed && isOnBackdrop(event)) onClose()
       }}
     >
       <div className="ui-dialog__head">

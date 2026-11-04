@@ -541,11 +541,19 @@
 }
 
 /* ---------- уведомления (toast) ---------- */
+/* Область — popover="manual" в верхнем слое (ui/toast.tsx): снимаем его рамку, фон, отступы
+ * и растяжку на весь экран из стилей браузера. */
 .ui-toasts {
   position: fixed;
-  left: var(--gutter);
-  bottom: var(--gutter);
+  inset: auto auto var(--gutter) var(--gutter);
   z-index: var(--z-toast);
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
@@ -615,6 +623,12 @@
   padding: 11px var(--s-3);
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
+}
+/* Список в ячейке не сжимается уже содержимого: на узком экране таблица прокручивается
+ * вбок, а не прячет выбранное значение за отступом под стрелку. */
+.ui-table td .ui-select {
+  width: auto;
+  min-width: max-content;
 }
 .ui-table tr:last-child td,
 .ui-table tr:last-child th {

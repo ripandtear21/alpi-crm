@@ -2,6 +2,7 @@
  * Токены дизайна Actum (docs/design/actum-design-system.md, приложение А; прототип
  * docs/prototypes/actum-crm/tokens.css) — значения перенесены без изменений, включая ужатый
  * трекинг (--tr-body, --tr-num, --tr-mono, --tr-code) и заливки --win-solid / --lose-solid.
+ * Одно отступление: в светлой теме --win и --ask темнее образца ради контраста AA (см. ниже).
  * Шрифты — локальные файлы из public/fonts (лицензии OFL 1.1 лежат рядом с ними),
  * никаких загрузок со сторонних серверов.
  */
@@ -214,13 +215,17 @@
   --accent-wash: rgb(150 120 255 / 0.14);
   --accent-line: #7e62e0;
   --accent-solid: #7e62e0;
-  --ask: #b45309;
+  /* Отступление от образца Actum ради WCAG AA: там --ask #b45309 и --win #17804a, а на своей
+   * подложке (--ask-wash, --win-wash) поверх --bg и --hover это 4,0–4,4 : 1. Здесь цвет текста
+   * темнее, контраст не ниже 4,5 : 1 на всех фонах светлой темы (styles/tokens.test.ts).
+   * Подложки, линии и заливка --win-solid — как в образце. */
+  --ask: #a84d08;
   --ask-wash: rgb(245 158 11 / 0.09);
   --ask-line: rgb(180 83 9 / 0.6);
   --danger: #b42318;
   --danger-wash: rgb(180 35 24 / 0.07);
   --danger-ink: #ffffff;
-  --win: #17804a;
+  --win: #15763f;
   --win-ink: #ffffff;
   --win-wash: rgb(23 128 74 / 0.08);
   --win-line: rgb(23 128 74 / 0.55);
