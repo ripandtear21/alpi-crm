@@ -2,6 +2,7 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
+import { fakeProjectsApi } from '../components/project-switcher/fake-projects-api.ts'
 import { createI18n, LANGUAGE_STORAGE_KEY, type Language } from '../i18n/index.ts'
 import { createAppRouter } from '../router.tsx'
 import { fakeAuthApi } from '../routes/auth/fake-auth-api.ts'
@@ -13,6 +14,7 @@ async function renderApp(language: Language = 'uk') {
   const router = createAppRouter({
     history: createMemoryHistory({ initialEntries: ['/deals'] }),
     auth: fakeAuthApi(),
+    projects: fakeProjectsApi(),
   })
   render(
     <I18nextProvider i18n={createI18n(language)}>

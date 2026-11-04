@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { ProjectSwitcher } from '../components/project-switcher/project-switcher.tsx'
 import { NAV_ID } from './app-nav.tsx'
 import { LanguageSwitcher } from './language-switcher.tsx'
 
@@ -7,8 +8,8 @@ type AppHeaderProps = {
   menuToggle: { open: boolean; onToggle: () => void } | null
 }
 
-// Шапка: переключатель проекта, поиск, уведомления и профиль пока только занимают свои места —
-// их поведение добавят тикеты проектов, поиска, уведомлений и входа.
+// Шапка: переключатель проекта; поиск, уведомления и профиль пока только занимают свои места —
+// их поведение добавят тикеты поиска, уведомлений и входа.
 export function AppHeader({ menuToggle }: AppHeaderProps) {
   const { t } = useTranslation(['layout', 'common'])
 
@@ -27,12 +28,7 @@ export function AppHeader({ menuToggle }: AppHeaderProps) {
         </button>
       )}
       <span className="app-header__brand">{t('common:appName')}</span>
-      <label className="app-header__project">
-        <span className="app-header__project-label">{t('project.label')}</span>
-        <select disabled>
-          <option>{t('project.none')}</option>
-        </select>
-      </label>
+      <ProjectSwitcher />
       <input
         type="search"
         className="app-header__search"

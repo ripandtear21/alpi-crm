@@ -1,10 +1,11 @@
-import { createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { createDb, type Database, migrateToLatest } from '@alpi/db'
 import { startTestDatabase, type TestDatabase } from '@alpi/db/testing'
 import { getMigrations } from 'better-auth/db/migration'
 import { type Kysely, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../app.ts'
+import { totp } from '../testing/totp.ts'
 import { type Auth, createAuth, SIGN_IN_RATE_LIMIT } from './auth.ts'
 import { createOwner, OWNER_ROLE } from './owner.ts'
 
@@ -44,7 +45,7 @@ describe('вход и обязательная 2FA', () => {
       secureCookies: true,
       trustedProxies: [TRUSTED_PROXY],
     })
-    app = createApp({ auth })
+    app = createApp({ auth, db: appDb })
   })
 
   afterAll(async () => {
@@ -440,33 +441,10 @@ function randomIp(): string {
   return `10.${a}.${b}.${c}`
 }
 
-/** Код TOTP (RFC 6238: SHA-1, 6 цифр, 30 с) — так же считает приложение на телефоне. */
-function totp(base32Secret: string, at = Date.now()): string {
-  const counter = Buffer.alloc(8)
-  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)))
-  const hmac = createHmac('sha1', base32Decode(base32Secret)).update(counter).digest()
-  const offset = (hmac.at(-1) ?? 0) & 0x0f
-  const binary = hmac.readUInt32BE(offset) & 0x7fffffff
-  return String(binary % 1_000_000).padStart(6, '0')
-}
-
 /** Код, которого нет ни в текущем, ни в соседних 30-секундных окнах. */
 function wrongCode(secret: string): string {
   const valid = new Set([-30_000, 0, 30_000].map((shift) => totp(secret, Date.now() + shift)))
   let code = 0
   while (valid.has(String(code).padStart(6, '0'))) code++
   return String(code).padStart(6, '0')
-}
-
-function base32Decode(input: string): Buffer {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-  let bits = ''
-  for (const char of input.replace(/=+$/, '').toUpperCase()) {
-    const value = alphabet.indexOf(char)
-    if (value < 0) throw new Error(`Не base32: ${char}`)
-    bits += value.toString(2).padStart(5, '0')
-  }
-  const bytes: number[] = []
-  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(Number.parseInt(bits.slice(i, i + 8), 2))
-  return Buffer.from(bytes)
 }

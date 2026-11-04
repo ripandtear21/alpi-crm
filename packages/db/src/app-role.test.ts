@@ -75,6 +75,28 @@ describe('роль приложения', () => {
     )
   })
 
+  // Через SET ROLE в такую группу row-level security обходится, даже если у самой роли входа
+  // SUPERUSER и BYPASSRLS нет.
+  it('проверка при старте отклоняет члена группы с BYPASSRLS, в том числе через промежуточную группу', async () => {
+    await sql`create role alpi_bypass_group nologin bypassrls`.execute(owner)
+    await sql`create role alpi_middle_group nologin in role alpi_bypass_group`.execute(owner)
+    const password = await createLogin(
+      'alpi_in_bypass_group',
+      'in role alpi_app, alpi_middle_group',
+    )
+    await expect(assertRestrictedRole(connectAs('alpi_in_bypass_group', password))).rejects.toThrow(
+      /член ролей с SUPERUSER или BYPASSRLS: alpi_bypass_group/,
+    )
+  })
+
+  it('проверка при старте отклоняет члена группы-суперпользователя', async () => {
+    await sql`create role alpi_super_group nologin superuser`.execute(owner)
+    const password = await createLogin('alpi_in_super_group', 'in role alpi_app, alpi_super_group')
+    await expect(assertRestrictedRole(connectAs('alpi_in_super_group', password))).rejects.toThrow(
+      /член ролей с SUPERUSER или BYPASSRLS: alpi_super_group/,
+    )
+  })
+
   it('проверка при старте отклоняет владельца таблиц', async () => {
     const password = await createLogin('alpi_table_owner', 'in role alpi_app')
     await sql`create table owned_probe (id int)`.execute(owner)

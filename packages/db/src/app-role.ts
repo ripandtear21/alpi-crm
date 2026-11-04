@@ -13,11 +13,14 @@ interface RoleFacts {
   rolsuper: boolean
   rolbypassrls: boolean
   in_app_group: boolean
+  /** Роли с SUPERUSER или BYPASSRLS, в которых роль состоит прямо или через другие роли. */
+  privileged_groups: string[]
   owned_tables: string[]
 }
 
 /**
- * Проверяет роль подключения: не суперпользователь, без BYPASSRLS, не владеет таблицами (и не
+ * Проверяет роль подключения: не суперпользователь, без BYPASSRLS, не член ролей с SUPERUSER
+ * или BYPASSRLS (через SET ROLE в такую роль политики обходятся), не владеет таблицами (и не
  * член роли владельца), член alpi_app. Иначе бросает исключение со списком нарушений —
  * API с такой ролью запускаться не должен.
  */
@@ -29,6 +32,15 @@ export async function assertRestrictedRole(db: Kysely<Database>): Promise<void> 
       r.rolbypassrls,
       exists (select from pg_roles g where g.rolname = ${APP_GROUP_ROLE})
         and pg_has_role(r.oid, ${APP_GROUP_ROLE}, 'MEMBER') as in_app_group,
+      -- MEMBER — членство прямое или через цепочку ролей, независимо от INHERIT: SET ROLE
+      -- доступен в обоих случаях. ::text — массив типа name драйвер pg в массив не разбирает.
+      array(
+        select g.rolname::text from pg_roles g
+        where g.oid <> r.oid
+          and (g.rolsuper or g.rolbypassrls)
+          and pg_has_role(r.oid, g.oid, 'MEMBER')
+        order by g.rolname
+      ) as privileged_groups,
       coalesce(
         array_agg(t.schemaname || '.' || t.tablename order by t.tablename)
           filter (where t.tablename is not null),
@@ -48,6 +60,9 @@ export async function assertRestrictedRole(db: Kysely<Database>): Promise<void> 
   const problems: string[] = []
   if (role.rolsuper) problems.push('суперпользователь')
   if (role.rolbypassrls) problems.push('BYPASSRLS')
+  if (role.privileged_groups.length > 0) {
+    problems.push(`член ролей с SUPERUSER или BYPASSRLS: ${role.privileged_groups.join(', ')}`)
+  }
   if (role.owned_tables.length > 0) {
     problems.push(`владеет таблицами: ${role.owned_tables.slice(0, 5).join(', ')}`)
   }

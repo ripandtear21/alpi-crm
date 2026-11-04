@@ -8,7 +8,7 @@ import { createAppRouter } from './router.tsx'
 
 const queryClient = new QueryClient()
 const i18n = createI18n()
-const router = createAppRouter()
+const router = createAppRouter({ queryClient })
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {

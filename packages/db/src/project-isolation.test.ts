@@ -13,7 +13,7 @@ import { startTestDatabase, type TestDatabase } from './testing/index.ts'
 const APP_USER = 'alpi_test_app'
 const APP_PASSWORD = 'alpi_test_app'
 
-const migrationNames = ['0001_project_isolation', '0002_auth']
+const migrationNames = ['0001_project_isolation', '0002_auth', '0003_projects']
 
 const tablesOfMigration = [
   'project',

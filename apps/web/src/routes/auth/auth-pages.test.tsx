@@ -3,6 +3,7 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fakeProjectsApi } from '../../components/project-switcher/fake-projects-api.ts'
 import { createI18n, type Language } from '../../i18n/index.ts'
 import { createAppRouter } from '../../router.tsx'
 import { type AuthApi, createAuthApi, type Session } from './auth-api.ts'
@@ -17,7 +18,11 @@ const WITHOUT_2FA: Session = {
 const PASSWORD_ONLY: Session = { ...SIGNED_IN, session: { twoFactorVerified: false } }
 
 function renderAt(path: string, auth: AuthApi, language: Language = 'uk') {
-  const router = createAppRouter({ history: createMemoryHistory({ initialEntries: [path] }), auth })
+  const router = createAppRouter({
+    history: createMemoryHistory({ initialEntries: [path] }),
+    auth,
+    projects: fakeProjectsApi(),
+  })
   render(
     <I18nextProvider i18n={createI18n(language)}>
       <QueryClientProvider client={new QueryClient()}>

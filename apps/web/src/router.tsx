@@ -1,3 +1,4 @@
+import { QueryClient } from '@tanstack/react-query'
 import {
   createRootRouteWithContext,
   createRoute,
@@ -6,6 +7,8 @@ import {
   type RouterHistory,
   redirect,
 } from '@tanstack/react-router'
+import { CurrentProjectProvider } from './components/project-switcher/current-project.tsx'
+import { createProjectsApi, type ProjectsApi } from './components/project-switcher/projects-api.ts'
 import { HomePage } from './home-page.tsx'
 import { AppLayout } from './layout/app-layout.tsx'
 import { SectionPlaceholder } from './layout/section-placeholder.tsx'
@@ -16,6 +19,9 @@ import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
 
 export interface RouterContext {
   auth: AuthApi
+  projects: ProjectsApi
+  /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
+  queryClient: QueryClient
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
@@ -58,14 +64,27 @@ const appRoute = createRoute({
     if (!session) throw redirect({ to: '/sign-in' })
     if (!session.user.twoFactorEnabled) throw redirect({ to: '/two-factor-setup' })
     if (!session.session.twoFactorVerified) throw redirect({ to: '/sign-in' })
-    return { session }
+    // Проекты пользователя — для переключателя в шапке. В ключе id пользователя: после
+    // выхода и входа другим пользователем в той же вкладке чужой список не покажется.
+    const projects = await context.queryClient.ensureQueryData({
+      queryKey: ['projects', session.user.id],
+      queryFn: () => context.projects.list(),
+    })
+    return { session, projects }
   },
-  component: () => (
-    <AppLayout>
-      <Outlet />
-    </AppLayout>
-  ),
+  component: AppShell,
 })
+
+function AppShell() {
+  const { projects, queryClient } = appRoute.useRouteContext()
+  return (
+    <CurrentProjectProvider projects={projects} queryClient={queryClient}>
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </CurrentProjectProvider>
+  )
+}
 
 const indexRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -123,10 +142,19 @@ export interface AppRouterOptions {
   history?: RouterHistory
   /** Только в тестах: подставной клиент входа. В браузере — запросы к API. */
   auth?: AuthApi
+  /** Только в тестах: подставной клиент проектов. В браузере — запросы к API. */
+  projects?: ProjectsApi
+  /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
+  queryClient?: QueryClient
 }
 
-export function createAppRouter({ history, auth = createAuthApi() }: AppRouterOptions = {}) {
-  const context: RouterContext = { auth }
+export function createAppRouter({
+  history,
+  auth = createAuthApi(),
+  projects = createProjectsApi(),
+  queryClient = new QueryClient(),
+}: AppRouterOptions = {}) {
+  const context: RouterContext = { auth, projects, queryClient }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })
 }
 

@@ -87,6 +87,12 @@ select:disabled {
   white-space: nowrap;
 }
 
+.app-header__project select {
+  max-width: 240px;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+}
+
 .app-header__search {
   flex: 1;
   min-width: 0;
@@ -168,7 +174,7 @@ select:disabled {
 
 /* Телефон: та же граница, что MOBILE_MEDIA_QUERY в use-media-query.ts */
 @media (max-width: 767px) {
-  /* Шапка в две строки: элементы управления сверху, поиск во всю ширину снизу. */
+  /* Шапка в три строки: элементы управления, проект, поиск во всю ширину. */
   .app-header {
     flex-wrap: wrap;
     height: auto;
@@ -176,22 +182,31 @@ select:disabled {
     padding: 6px 8px;
   }
 
+  /* Проект — своей строкой во всю ширину: рядом с кнопками на 375 px название обрезалось. */
   .app-header__project {
-    flex: 1;
+    order: 1;
+    flex-basis: 100%;
     min-width: 0;
   }
 
+  /* Подпись скрыта только визуально: она остаётся доступным именем списка. */
   .app-header__project-label {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .app-header__project select {
     width: 100%;
+    max-width: none;
     min-width: 0;
   }
 
   .app-header__search {
-    order: 1;
+    order: 2;
     flex-basis: 100%;
     max-width: none;
   }

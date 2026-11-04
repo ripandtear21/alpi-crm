@@ -18,7 +18,7 @@ const auth = createAuth({
   secureCookies: env.secureCookies,
   trustedProxies: env.trustedProxies,
 })
-const app = createApp({ auth })
+const app = createApp({ auth, db })
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`API слушает порт ${info.port}`)
