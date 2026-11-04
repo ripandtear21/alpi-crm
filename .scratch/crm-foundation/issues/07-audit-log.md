@@ -1,7 +1,7 @@
 # Журнал входов и опасных действий
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T12:13Z
 Blocked by: 03, 04
 Source: .scratch/crm-mvp/spec.md, раздел 12, эпик 1
 
