@@ -22,6 +22,7 @@ const migrationNames = [
   '0006_teams',
   '0007_jobs_bulk',
   '0008_pipelines',
+  '0009_contacts',
 ]
 
 const tablesOfMigration = [
@@ -50,6 +51,12 @@ const tablesOfMigration = [
   'stage',
   'lost_reason_group',
   'lost_reason',
+  // 0009_contacts
+  'organization',
+  'contact',
+  'contact_phone',
+  'contact_email',
+  'change_log',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -294,9 +301,14 @@ describe('схема и изоляция проектов', () => {
         { table: 'audit_log', rls: true, policies: 1 },
         { table: 'bulk_job', rls: true, policies: 1 },
         { table: 'bulk_job_error', rls: true, policies: 1 },
+        { table: 'change_log', rls: true, policies: 1 },
+        { table: 'contact', rls: true, policies: 1 },
+        { table: 'contact_email', rls: true, policies: 1 },
+        { table: 'contact_phone', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
         { table: 'lost_reason', rls: true, policies: 1 },
         { table: 'lost_reason_group', rls: true, policies: 1 },
+        { table: 'organization', rls: true, policies: 1 },
         { table: 'pipeline', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },

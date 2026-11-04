@@ -7,11 +7,14 @@ import { auditRoutes, systemAuditRoutes } from './audit/routes.ts'
 import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { type BulkDeps, bulkRoutes, NO_BULK } from './bulk/routes.ts'
+import { contactsRoutes } from './contacts/contacts.ts'
+import { type ContactDependents, NO_CONTACT_DEPENDENTS } from './contacts/dependents.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
 import { NO_OPEN_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
+import { organizationsRoutes } from './organizations/organizations.ts'
 import { pipelinesRoutes } from './pipelines/pipelines.ts'
 import { NO_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deals.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
@@ -44,6 +47,8 @@ export interface AppDeps {
   bulk?: BulkDeps
   /** Открытые сделки на этапе — для удаления этапа; до сделок (тикет crm-deals/05) — заглушка «нет». */
   stageDeals?: StageDealsChecker
+  /** Что удаляется вместе с контактом; до эпика сделок — ничего. */
+  contactDependents?: ContactDependents
 }
 
 /**
@@ -51,10 +56,18 @@ export interface AppDeps {
  * разделы сделок, контактов и их справочников. Только по сессии пользователя и только в
  * контексте проекта — группа регистрируется после projectContext.
  */
-function v1Routes({ stageDeals }: { stageDeals: StageDealsChecker }) {
+function v1Routes({
+  stageDeals,
+  contactDependents,
+}: {
+  stageDeals: StageDealsChecker
+  contactDependents: ContactDependents
+}) {
   return new Hono<PermissionsEnv>()
     .route('/pipelines', pipelinesRoutes({ stageDeals }))
     .route('/lost-reasons', lostReasonsRoutes())
+    .route('/contacts', contactsRoutes({ dependents: contactDependents }))
+    .route('/organizations', organizationsRoutes())
 }
 
 /**
@@ -70,6 +83,7 @@ export function createApp({
   openDeals = NO_OPEN_DEALS,
   bulk = NO_BULK,
   stageDeals = NO_STAGE_DEALS,
+  contactDependents = NO_CONTACT_DEPENDENTS,
 }: AppDeps) {
   return (
     new Hono<AccessEnv>()
@@ -104,7 +118,7 @@ export function createApp({
       .route('/audit', auditRoutes())
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
-      .route('/v1', v1Routes({ stageDeals }))
+      .route('/v1', v1Routes({ stageDeals, contactDependents }))
   )
 }
 

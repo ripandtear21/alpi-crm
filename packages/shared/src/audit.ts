@@ -40,6 +40,9 @@ export const PROJECT_AUDIT_ACTIONS = [
   'lost_reason.reordered',
   /** Стартовая настройка проекта (`pnpm project-preset`): от имени системы. */
   'project.preset_applied',
+  // Тикет crm-deals/03: окончательное удаление из корзины (в подробностях — ничего, только id).
+  'contact.purged',
+  'organization.purged',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 
