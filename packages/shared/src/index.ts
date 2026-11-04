@@ -1,6 +1,7 @@
 export * from './audit.ts'
 export * from './members.ts'
 export * from './permissions.ts'
+export * from './phone.ts'
 export * from './pipelines.ts'
 
 // Общие типы сервера и клиента. Типы маршрутов API клиент берёт из apps/api через Hono RPC,

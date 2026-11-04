@@ -1,6 +1,7 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts, 0006_teams.ts, 0007_jobs_bulk.ts и 0008_pipelines.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts,
+// 0006_teams.ts, 0007_jobs_bulk.ts, 0008_pipelines.ts и 0009_contacts.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -303,6 +304,80 @@ export interface BulkJobErrorTable {
   message: string | null
 }
 
+/**
+ * Организация (migrations/0009_contacts.ts). Видна только в контексте своего проекта.
+ * `deleted_at` — в корзине.
+ */
+export interface OrganizationTable {
+  id: Generated<string>
+  project_id: string
+  name: string
+  address: string | null
+  website: string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+  deleted_at: Date | string | null
+  deleted_by: string | null
+}
+
+/**
+ * Контакт — человек в проекте. Организация не больше одной; ответственного нет, охват
+ * считается от `created_by`. `deleted_at` — в корзине.
+ */
+export interface ContactTable {
+  id: Generated<string>
+  project_id: string
+  first_name: string
+  last_name: string | null
+  /** Язык общения: 'uk' | 'ru'; null — не указан. */
+  language: string | null
+  organization_id: string | null
+  possible_duplicate: Generated<boolean>
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+  deleted_at: Date | string | null
+  deleted_by: string | null
+}
+
+/** Телефон контакта в E.164; не больше одного основного у контакта. */
+export interface ContactPhoneTable {
+  id: Generated<string>
+  project_id: string
+  contact_id: string
+  phone: string
+  is_primary: Generated<boolean>
+  created_at: Timestamp
+}
+
+/** Email контакта в нижнем регистре; не больше одного основного у контакта. */
+export interface ContactEmailTable {
+  id: Generated<string>
+  project_id: string
+  contact_id: string
+  email: string
+  is_primary: Generated<boolean>
+  created_at: Timestamp
+}
+
+/**
+ * Журнал изменений «было → стало». Только добавление: роль приложения не может ни изменить, ни
+ * удалить строку (историю стирает только `purge_from_trash` вместе с самой записью из корзины).
+ */
+export interface ChangeLogTable {
+  id: Generated<string>
+  project_id: string
+  occurred_at: Timestamp
+  actor_id: string | null
+  entity_type: string
+  entity_id: string
+  field: string
+  /** Было и стало: значения JSON. Читаются значением, пишутся строкой JSON. */
+  before: ColumnType<unknown, string | null, never>
+  after: ColumnType<unknown, string | null, never>
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -324,4 +399,9 @@ export interface Database {
   system_audit_log: SystemAuditLogTable
   bulk_job: BulkJobTable
   bulk_job_error: BulkJobErrorTable
+  organization: OrganizationTable
+  contact: ContactTable
+  contact_phone: ContactPhoneTable
+  contact_email: ContactEmailTable
+  change_log: ChangeLogTable
 }

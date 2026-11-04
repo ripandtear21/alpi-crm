@@ -84,6 +84,9 @@ function useSummary() {
         return t('summary.renamed', { before: text(before.name), after: text(after.name) })
       case 'team.deleted':
         return text(before.name)
+      case 'contact.purged':
+      case 'organization.purged':
+        return entry.entityId ?? ''
       case 'team.lead_assigned':
         return t('summary.leadAssigned', {
           team: text(entry.details.team),
