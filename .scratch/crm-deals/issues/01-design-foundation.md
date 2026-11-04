@@ -1,7 +1,9 @@
 # Основа дизайна: токены, шрифты, базовые компоненты
 
 Type: task
-Status: open 2026-11-04T13:32Z
+Status: blocked 2026-11-04T16:58Z
+Blocked reason: PR #6: узкий раунд NARROW: REJECTED — область уведомлений не переносится в диалог под StrictMode (dialog.tsx:64-66); нужен ещё один раунд по решению владельца
+Waits: owner
 Blocked by: —
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 1); .scratch/crm-mvp/spec.md, раздел 5
 
