@@ -1,15 +1,13 @@
 # Основа дизайна: токены, шрифты, базовые компоненты
 
 Type: task
-Status: blocked 2026-11-04T13:03Z
-Blocked reason: Ждёт выбора направления дизайна владельцем: Actum (docs/prototypes/actum-crm) или одно из четырёх (docs/prototypes/design-1..4)
-Waits: owner
+Status: open 2026-11-04T13:32Z
 Blocked by: —
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 1); .scratch/crm-mvp/spec.md, раздел 5
 
 ## Что сделать
 
-Тикет начинается только после того, как владелец выберет направление дизайна: образец Actum (`docs/design/actum-design-system.md`, токены `docs/prototypes/actum-crm/tokens.css`) или один из вариантов `docs/research/crm-design-directions.md` и прототипов в `docs/prototypes/`. До выбора тикет стоит в статусе «заблокирован».
+Решение владельца 2026-11-04: направление — Actum (`docs/design/actum-design-system.md`, прототип `docs/prototypes/actum-crm/`, токены `docs/prototypes/actum-crm/tokens.css`). Две правки владельца: 1) межбуквенное расстояние меньше, чем в образце, — текст не должен «разъезжаться в стороны» (токены трекинга `--tr-*` и `letter-spacing` у текста и подписей ужимаются; значения — по обновлённому прототипу); 2) карточка сделки внутри повторяет расположение интерфейса Pipedrive — это задача тикета «Карточка сделки», а здесь — только токены и компоненты, которые для неё нужны. Альтернативные направления 1–4 отклонены.
 
 По выбранному направлению:
 
