@@ -26,7 +26,7 @@ export const BULK_BATCH_SIZE = 100
 
 /** Наибольшая длина текста ошибки в журнале (столбец bulk_job_error.message). */
 const MAX_MESSAGE = 500
-/** Пределы столбцов bulk_job_error (migrations/0009_jobs_bulk.ts). */
+/** Пределы столбцов bulk_job_error (migrations/0007_jobs_bulk.ts). */
 const MAX_RECORD_ID = 100
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,59}$/
 

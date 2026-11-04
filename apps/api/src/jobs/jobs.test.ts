@@ -9,7 +9,7 @@ import { purgeProjectTrash, TRASH_RETENTION_DAYS, type TrashRegistry } from '../
 import { type Jobs, QUEUES, startJobs } from './jobs.ts'
 
 // Фоновые задачи по расписанию (тикет crm-deals/04) на настоящем PostgreSQL: pg-boss ходит
-// ролью приложения в схему pgboss из миграции 0009. Корзина — на тестовой таблице trash_probe.
+// ролью приложения в схему pgboss из миграции 0007. Корзина — на тестовой таблице trash_probe.
 
 interface ProbeDb {
   trash_probe: { id: Generated<string>; project_id: string; deleted_at: Date | null; label: string }
@@ -85,11 +85,11 @@ describe('фоновые задачи по расписанию', () => {
     return rows.map((r) => r.label)
   }
 
-  it('установленный pg-boss ждёт ту же версию схемы, что заморожена в миграции 0009', async () => {
+  it('установленный pg-boss ждёт ту же версию схемы, что заморожена в миграции 0007', async () => {
     const version = (plan: string) =>
       /pgboss\.version\(version\) VALUES \('(\d+)'\)/.exec(plan)?.[1]
     const frozen = readFileSync(
-      new URL('../../../../packages/db/migrations/0009_jobs_bulk.pgboss-v46.sql', import.meta.url),
+      new URL('../../../../packages/db/migrations/0007_jobs_bulk.pgboss-v46.sql', import.meta.url),
       'utf8',
     )
     // Упал — pg-boss обновили со сменой схемы: нужна новая миграция с getMigrationPlans.

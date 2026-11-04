@@ -1,5 +1,5 @@
 -- Установка pg-boss 12.38.0, схема pgboss версии 46: getConstructionPlans('pgboss') без обёртки
--- BEGIN … COMMIT. Заморожена текстом (миграция 0009_jobs_bulk): результат миграции не зависит от
+-- BEGIN … COMMIT. Заморожена текстом (миграция 0007_jobs_bulk): результат миграции не зависит от
 -- установленной версии пакета. Не менять — новая версия схемы ставится новой миграцией.
 SET LOCAL lock_timeout = 30000;
     SET LOCAL idle_in_transaction_session_timeout = 30000;
