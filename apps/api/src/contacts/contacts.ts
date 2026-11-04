@@ -1,5 +1,11 @@
 import type { ContactTable, Database } from '@alpi/db'
-import { normalizeEmail, normalizePhone, type ResourceScope, type Scope } from '@alpi/shared'
+import {
+  normalizeEmail,
+  normalizePhone,
+  type ResourceScope,
+  type RolePermissions,
+  type Scope,
+} from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, type Selectable, sql } from 'kysely'
 import { audit } from '../audit/record.ts'
@@ -12,7 +18,11 @@ import {
 } from '../change-log/record.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
-import { type ContactDependents, NO_CONTACT_DEPENDENTS } from './dependents.ts'
+import {
+  type ContactDependents,
+  type DependentRecord,
+  NO_CONTACT_DEPENDENTS,
+} from './dependents.ts'
 import {
   type Ctx,
   fail,
@@ -38,9 +48,13 @@ import { contactScopePredicate } from './scope.ts'
 //   несуществующий; в охвате чтения, но не изменения — 403.
 // - Телефоны и email: первый в списке — основной. Совпал телефон с другим контактом — 409:
 //   с видимым — CONTACT_EXISTS со ссылкой на него, с контактом вне охвата — CONTACT_OUT_OF_SCOPE
-//   без каких-либо его данных («чужой клиент»; имя менеджера открытой сделки добавит тикет 05).
+//   без каких-либо его данных («чужой клиент»): только имя менеджера его открытой сделки
+//   («клиент уже в работе у <менеджер>», spec.md, раздел 4), если такая сделка есть.
 //   Совпал только email — контакт пишется с отметкой «возможный дубль» (решено без владельца,
 //   подтвердить).
+// - Контакт, основной в сделках, уходит в корзину только вместе с ними: первый запрос отвечает
+//   409 CONTACT_HAS_DEALS со списком сделок, второй с подтверждением (`?confirm=<id сделок>`)
+//   удаляет. Восстановление контакта возвращает сделки, удалённые вместе с ним.
 // - Каждое изменение полей пишется в change_log той же транзакцией; окончательное удаление —
 //   ещё и в журнал опасных действий (audit_log), а история записи стирается.
 // - CRM сама ничего не делает и событий не шлёт (ADR 0003).
@@ -54,8 +68,15 @@ export type ContactsErrorCode =
   | 'CONTACT_NOT_FOUND'
   /** Телефон уже у видимого контакта: `details.contactId`. */
   | 'CONTACT_EXISTS'
-  /** Телефон у контакта вне охвата: без его данных. */
+  /** Телефон у контакта вне охвата: без его данных, `details.managerName` — если он в работе. */
   | 'CONTACT_OUT_OF_SCOPE'
+  /** Контакт основной в сделках: `details.deals` — что уйдёт в корзину вместе с ним. */
+  | 'CONTACT_HAS_DEALS'
+  /**
+   * Восстановление: открытая сделка контакта (`details.dealId`) стоит на удалённом этапе —
+   * контакт остаётся в корзине, пока сделку не перенесут.
+   */
+  | 'STAGE_DELETED'
   | 'ORGANIZATION_NOT_FOUND'
   /** Восстановить или окончательно удалить можно только запись из корзины. */
   | 'NOT_IN_TRASH'
@@ -182,6 +203,7 @@ export interface ContactContext extends ChangeAuthor {
   actorId: string
   ip: string | null
   scope: ResourceScope
+  permissions: RolePermissions
   viewer: Viewer
   dependents: ContactDependents
 }
@@ -195,6 +217,7 @@ async function contactContext(c: Ctx, dependents: ContactDependents): Promise<Co
     actorId: userId,
     ip: c.get('clientIp'),
     scope: c.get('access').permissions.scopes.contacts,
+    permissions: c.get('access').permissions,
     viewer: await resolveViewer(db, userId, PROJECT_TEAMS),
     dependents,
   }
@@ -304,12 +327,36 @@ async function lockPhones(ctx: ContactContext, phones: readonly string[]): Promi
   }
 }
 
-/** Телефон совпал с контактом `contactId`: ссылка на него или «чужой клиент» без данных. */
+/**
+ * Менеджер открытой сделки контакта (он основной): «клиент уже в работе у <менеджер>». Сначала
+ * неархивная, затем самая новая; сделки общей очереди менеджера не имеют. null — таких нет.
+ */
+async function openDealManager(db: Kysely<Database>, contactId: string): Promise<string | null> {
+  const row = await db
+    .selectFrom('deal as d')
+    .innerJoin('user as u', 'u.id', 'd.owner_id')
+    .select('u.name')
+    .where('d.primary_contact_id', '=', contactId)
+    .where('d.status', '=', 'open')
+    .where('d.deleted_at', 'is', null)
+    .orderBy(sql`d.archived_at is null`, 'desc')
+    .orderBy('d.created_at', 'desc')
+    .limit(1)
+    .executeTakeFirst()
+  return row?.name ?? null
+}
+
+/**
+ * Телефон совпал с контактом `contactId`: ссылка на него или «чужой клиент» — без данных
+ * контакта и сделки, только имя менеджера, у которого он в работе.
+ */
 async function phoneTaken(ctx: ContactContext, contactId: string): Promise<Result<never>> {
   const visible = await findContact(ctx, contactId, ctx.scope.read)
-  return visible
-    ? refuse(409, 'CONTACT_EXISTS', { contactId })
-    : refuse(409, 'CONTACT_OUT_OF_SCOPE')
+  if (visible) return refuse(409, 'CONTACT_EXISTS', { contactId })
+  const managerName = await openDealManager(ctx.db, contactId)
+  return managerName === null
+    ? refuse(409, 'CONTACT_OUT_OF_SCOPE')
+    : refuse(409, 'CONTACT_OUT_OF_SCOPE', { managerName })
 }
 
 /**
@@ -439,11 +486,34 @@ function deletedAtChange(before: Date | string | null, after: Date | string | nu
   }
 }
 
-/** В корзину: контакт и то, что удаляется вместе с ним (ContactDependents). */
-async function trashContact(ctx: ContactContext, id: string): Promise<Result<null>> {
+/** Подтверждение — ровно тот список, что удалится: иначе за время между запросами он сменился. */
+function confirmed(records: DependentRecord[], confirm: readonly string[] | null): boolean {
+  if (records.length === 0) return true
+  if (confirm === null) return false
+  const ids = new Set(confirm.map((id) => id.toLowerCase()))
+  return ids.size === records.length && records.every((r) => ids.has(r.id))
+}
+
+/**
+ * В корзину: контакт и то, что удаляется вместе с ним (ContactDependents). Есть зависимые
+ * записи — нужен `confirm` с их id; без него — 409 CONTACT_HAS_DEALS со списком, ничего не
+ * удаляется. Зависимые, которые пользователь удалить не может, — 403.
+ */
+async function trashContact(
+  ctx: ContactContext,
+  id: string,
+  confirm: readonly string[] | null,
+): Promise<Result<null>> {
   const found = await writableContact(ctx, id)
   if (!found.ok) return found
   if (found.value.deleted_at !== null) return refuse(404, 'CONTACT_NOT_FOUND')
+  const pending = await ctx.dependents.pending(ctx, id)
+  if (pending.forbidden) return refuse(403, 'PERMISSION_DENIED')
+  if (!confirmed(pending.records, confirm)) {
+    return refuse(409, 'CONTACT_HAS_DEALS', {
+      deals: pending.records.map(({ id: dealId, title }) => ({ id: dealId, title })),
+    })
+  }
   const { deleted_at } = await ctx.db
     .updateTable('contact')
     .set({ deleted_at: sql`now()`, deleted_by: ctx.actorId })
@@ -451,7 +521,7 @@ async function trashContact(ctx: ContactContext, id: string): Promise<Result<nul
     .returning('deleted_at')
     .executeTakeFirstOrThrow()
   const deletedAt = new Date(deleted_at ?? Date.now())
-  await ctx.dependents.trash(ctx.db, id, deletedAt)
+  await ctx.dependents.trash(ctx, id, deletedAt)
   await recordChanges(ctx, { type: 'contact', id }, [deletedAtChange(null, deletedAt)])
   return ok(null)
 }
@@ -472,6 +542,9 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
   const before = await contactView(ctx.db, row)
   const keys = await checkKeys(ctx, before.phones, before.emails, id)
   if (!keys.ok) return keys
+  // Пока контакт в корзине, его отметка deleted_at — та же, что у сделок, удалённых с ним.
+  const refused = await ctx.dependents.restore(ctx, id)
+  if (refused) return refuse(409, refused.code, { dealId: refused.dealId })
   await ctx.db
     .updateTable('contact')
     .set({
@@ -482,7 +555,6 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
     })
     .where('id', '=', id)
     .execute()
-  await ctx.dependents.restore(ctx.db, id, new Date(deleted_at))
   const after = await contactView(ctx.db, await reload(ctx, id))
   await recordChanges(ctx, { type: 'contact', id }, [
     deletedAtChange(deleted_at, null),
@@ -499,7 +571,7 @@ async function purgeContact(ctx: ContactContext, id: string): Promise<Result<nul
   const found = await writableContact(ctx, id)
   if (!found.ok) return found
   if (found.value.deleted_at === null) return refuse(409, 'NOT_IN_TRASH')
-  await ctx.dependents.purge(ctx.db, id)
+  await ctx.dependents.purge(ctx, id)
   await purgeFromTrash(ctx, { type: 'contact', id })
   await audit.record(ctx.db, ctx.projectId, {
     action: 'contact.purged',
@@ -550,6 +622,19 @@ async function listContacts(ctx: ContactContext, c: Ctx): Promise<Result<Contact
   return ok(await contactViews(ctx.db, await query.execute()))
 }
 
+/**
+ * Новый контакт из тела запроса `body` по правилам `POST /v1/contacts` (права проверяет
+ * вызывающий): «создать сделку с новым контактом» (deals/deals.ts).
+ */
+export async function createContactInRequest(
+  c: Ctx,
+  body: Record<string, unknown>,
+): Promise<Result<ContactView>> {
+  const input = parseInput(body, true)
+  if (!input.ok) return input
+  return createContact(await contactContext(c, NO_CONTACT_DEPENDENTS), input.value)
+}
+
 /** Маршруты контактов: `/v1/contacts`. `dependents` — что удаляется вместе с контактом. */
 export function contactsRoutes({
   dependents = NO_CONTACT_DEPENDENTS,
@@ -586,7 +671,12 @@ export function contactsRoutes({
       return outcome.ok ? c.json<ContactView>(outcome.value) : fail(c, outcome)
     })
     .delete('/:id', requirePermission('contacts', 'delete'), async (c) => {
-      const outcome = await trashContact(await context(c), c.req.param('id'))
+      const confirm = c.req.query('confirm')
+      const outcome = await trashContact(
+        await context(c),
+        c.req.param('id'),
+        confirm === undefined ? null : confirm.split(',').filter((v) => v !== ''),
+      )
       return outcome.ok ? c.body(null, 204) : fail(c, outcome)
     })
     .post('/:id/restore', requirePermission('trash', 'edit'), async (c) => {

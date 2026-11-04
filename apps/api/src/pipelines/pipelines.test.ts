@@ -354,7 +354,7 @@ describe('воронки, этапы и причины проигрыша', () =
       expect(asked).toEqual([busy?.id])
       expect((await stagesOf(projectA, pipeline.id)).map((s) => s.id)).toEqual([busy?.id, free?.id])
 
-      // Заглушка по умолчанию — «сделок нет»: этап пропадает из списка, строка остаётся.
+      // Проверка по умолчанию (таблица deal): сделок нет — этап уходит из списка, строка остаётся.
       const deleted = await as(admin, projectA)(
         'DELETE',
         `/pipelines/${pipeline.id}/stages/${free?.id}`,

@@ -1,7 +1,7 @@
 import type { ColumnType, Generated } from 'kysely'
 
 // Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts,
-// 0006_teams.ts, 0007_jobs_bulk.ts, 0008_pipelines.ts и 0009_contacts.ts; меняются вместе с
+// 0006_teams.ts, 0007_jobs_bulk.ts, 0008_pipelines.ts, 0009_contacts.ts и 0010_deals.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -378,6 +378,51 @@ export interface ChangeLogTable {
   after: ColumnType<unknown, string | null, never>
 }
 
+/**
+ * Сделка (migrations/0010_deals.ts). Видна только в контексте своего проекта. `owner_id`
+ * null — сделка в общей очереди; `archived_at` — отметка архива (не статус); `deleted_at` — в
+ * корзине. Не больше одной открытой неархивной сделки у основного контакта в воронке.
+ */
+export interface DealTable {
+  id: Generated<string>
+  project_id: string
+  title: string
+  pipeline_id: string
+  stage_id: string
+  /** 'open' | 'won' | 'lost'. */
+  status: Generated<string>
+  lost_reason_id: string | null
+  /** numeric(14, 2): читается строкой, пишется числом или строкой. */
+  amount: ColumnType<string, number | string | undefined, number | string>
+  /** 'EUR' | 'UAH' | 'USD'. */
+  currency: Generated<string>
+  owner_id: string | null
+  primary_contact_id: string
+  organization_id: string | null
+  won_at: Date | string | null
+  lost_at: Date | string | null
+  stage_changed_at: Timestamp
+  /** date: читать как текст (to_char), иначе драйвер сдвинет её часовым поясом. */
+  expected_close_date: string | null
+  archived_at: Date | string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+  deleted_at: Date | string | null
+  deleted_by: string | null
+}
+
+/** Участник сделки с ролью; основной контакт сделки здесь не дублируется. */
+export interface DealParticipantTable {
+  id: Generated<string>
+  project_id: string
+  deal_id: string
+  contact_id: string
+  role: string | null
+  created_at: Timestamp
+  created_by: string | null
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -404,4 +449,6 @@ export interface Database {
   contact_phone: ContactPhoneTable
   contact_email: ContactEmailTable
   change_log: ChangeLogTable
+  deal: DealTable
+  deal_participant: DealParticipantTable
 }

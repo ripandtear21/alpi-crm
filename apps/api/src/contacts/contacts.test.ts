@@ -395,12 +395,14 @@ describe('контакты и организации', () => {
       expect(moved.status).toBe(200)
       expect((await json<ContactView>(moved)).organizationId).toBe(second.id)
 
-      // В базе связь — один столбец contact.organization_id.
+      // В базе связь — один столбец contact.organization_id (своя организация есть ещё только у
+      // сделки) и никакой таблицы связей «контакт — организация».
       const columns = await sql<{ table_name: string }>`
         select table_name from information_schema.columns
         where table_schema = 'public' and column_name = 'organization_id'
+        order by table_name
       `.execute(h.owner)
-      expect(columns.rows.map((r) => r.table_name)).toEqual(['contact'])
+      expect(columns.rows.map((r) => r.table_name)).toEqual(['contact', 'deal'])
     })
 
     it('организация другого проекта или из корзины — 404', async () => {
@@ -807,7 +809,10 @@ describe('контакты и организации', () => {
       const calls: string[] = []
       let fail = false
       const dependents: ContactDependents = {
-        async trash(db, contactId, deletedAt) {
+        async pending() {
+          return { records: [], forbidden: false }
+        },
+        async trash({ db }, contactId, deletedAt) {
           const row = await db
             .selectFrom('contact')
             .select('deleted_at')
@@ -818,8 +823,9 @@ describe('контакты и организации', () => {
           calls.push(`trash ${contactId}`)
           if (fail) throw new Error('сделки не удалились')
         },
-        async restore(_db, contactId) {
+        async restore(_actor, contactId) {
           calls.push(`restore ${contactId}`)
+          return null
         },
         async purge(_db, contactId) {
           calls.push(`purge ${contactId}`)

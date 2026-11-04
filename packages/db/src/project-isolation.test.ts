@@ -23,6 +23,7 @@ const migrationNames = [
   '0007_jobs_bulk',
   '0008_pipelines',
   '0009_contacts',
+  '0010_deals',
 ]
 
 const tablesOfMigration = [
@@ -57,6 +58,9 @@ const tablesOfMigration = [
   'contact_phone',
   'contact_email',
   'change_log',
+  // 0010_deals
+  'deal',
+  'deal_participant',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -305,6 +309,8 @@ describe('схема и изоляция проектов', () => {
         { table: 'contact', rls: true, policies: 1 },
         { table: 'contact_email', rls: true, policies: 1 },
         { table: 'contact_phone', rls: true, policies: 1 },
+        { table: 'deal', rls: true, policies: 1 },
+        { table: 'deal_participant', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
         { table: 'lost_reason', rls: true, policies: 1 },
         { table: 'lost_reason_group', rls: true, policies: 1 },
