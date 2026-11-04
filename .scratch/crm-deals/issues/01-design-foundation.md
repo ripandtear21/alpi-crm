@@ -36,12 +36,15 @@ apps/web/src/styles/**, apps/web/src/ui/** (базовые компоненты)
 - [ ] Тесты компонентов: диалог закрывается по Esc и возвращает фокус; меню управляется стрелками; таблица и вкладки работают с клавиатуры.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/ui` exit 0 · windows - · 939a7c7
   - evidence: test-run pass · `pnpm vitest run apps/web/src/ui apps/web/src/styles apps/web/src/layout` exit 0; Esc во вложенном меню и подсказках не закрывает диалог, щелчок закрывает только по затемнению вне рамки, уведомления внутри открытого диалога; 16 мутантов доработки убиты · windows - · cd4c984606ab7ea7b2ef74f192b83c0cd454fba3
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/ui` exit 0; область уведомлений — один узел на странице, в диалоге, во вложенном и после закрытия; при «toast + закрыть» уведомление добавляется в стоящую область; таймер при переносе не перезапускается; 7 мутантов доработки убиты · windows - · 20a57ef611074c85f36e87d777139030a891aa01
 - [ ] Экраны фундамента в новом стиле проверены в настоящем браузере на 1280 и 375 px (снимки экрана приложены к отчёту), существующие тесты экранов зелёные.
   - evidence: test-run pass · `vite build` и снимки Playwright headless Chromium 1280 и 375 px, светлая и тёмная тема, без горизонтальной прокрутки и внешних запросов exit 0; экранные тесты в `pnpm verify` exit 0 · windows - · 939a7c7
   - evidence: test-run pass · `vite build` и Playwright headless Chromium: экран «Пользователи» 375 и 1280 px, светлая и тёмная тема — выбранное значение списков «Роль» и «Команда» помещается (без правки на 375 места 0px), без горизонтальной прокрутки страницы и внешних запросов exit 0; уведомление внутри модального диалога щёлкается, вне его неактивно · windows - · cd4c984606ab7ea7b2ef74f192b83c0cd454fba3
+  - evidence: test-run pass · `vite build` и Playwright headless Chromium exit 0: узел области тот же до диалога, в нём и после; MutationObserver при «сохранить и закрыть» видит добавление уведомления в стоящую область после её переноса; кнопка уведомления в диалоге и во вложенном нажимается, popover открыт после каждого переноса · windows - · 20a57ef611074c85f36e87d777139030a891aa01
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 939a7c7
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · cd4c984606ab7ea7b2ef74f192b83c0cd454fba3
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 20a57ef611074c85f36e87d777139030a891aa01
 
 ## Решение владельца
 
