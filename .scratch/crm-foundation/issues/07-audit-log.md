@@ -16,7 +16,10 @@ packages/db/migrations/**, apps/api/src/audit/**, apps/web/src/routes/ (наст
 ## Done when
 
 - [x] Тесты: вход и неудачный вход пишутся; смена роли пишется с «было → стало»; администратор проекта A не видит журнал проекта B.
+  - evidence: test-run pass · pnpm verify exit 0 (164 теста, apps/api/src/audit/audit.test.ts) · windows dev · 61f4526
+  - evidence: review pass · вторая проверка VERIFIED · - - · 61f4526
 - [x] `pnpm verify` зелёный.
+  - evidence: gate pass · gate full exit 0 [gate] green (full) · windows dev · 61f4526
 
 ## Результат
 
