@@ -1,0 +1,131 @@
+/* ПРОТОТИП — throwaway. Напрям 3 «Кольорова воронка».
+   Токени взято з docs/research/crm-design-directions.md, розділ «Направление 3».
+   Нейтральні — Radix Slate, відтінки етапів — кроки 2 і 9 Radix, ролі названі як у Material 3. */
+
+:root {
+  color-scheme: light;
+
+  /* ── Поверхні та текст (Radix Slate) ── */
+  --bg: #F9F9FB;            /* surface-container-low  · Slate 2 */
+  --surface: #FFFFFF;       /* surface-container-lowest */
+  --hover: #F0F0F3;         /* surface-container-high · Slate 3 */
+  --line: #D9D9E0;          /* Slate 6, декоративна */
+  --line-control: #8B8D98;  /* Slate 9, межа поля 3.30 */
+  --ink: #1C2024;           /* Slate 12 */
+  --ink-2: #60646C;         /* Slate 11, meta */
+
+  /* ── Головна дія (Radix Orange) ── */
+  --primary: #F76B15;               /* Orange 9 — заливка головної кнопки */
+  --on-primary: #1C2024;            /* темний текст на помаранчевому, 5.52 */
+  --primary-text: #B54300;          /* помаранчевий текст, 4.90 */
+  --primary-container: #FFEFD6;     /* Orange 3 — тональна кнопка (висновок) */
+  --on-primary-container: #B54300;
+  --focus: #0C6DC2;                 /* кільце фокусу, вибраний край — синій, не помаранчевий */
+
+  /* ── Результат угоди ── */
+  --won-text: #297A39;  --won: #2A7E3B;  --on-won: #FFFFFF;  --won-bg: #F5FBF5;
+  --lost-text: #CC2C31; --lost: #CE2C31; --on-lost: #FFFFFF; --lost-bg: #FFF7F7;
+  --warn-text: #9C5B00; --warn: #FFC53D; --on-warn: #1C2024;
+
+  /* ── Інверсна поверхня (снекбар M3) ── */
+  --inverse: #1C2024; --on-inverse: #EDEEF0; --inverse-action: #FFA057;
+
+  /* ── Кольори етапів: крок 9 — смуга і точка, крок 2 — підкладка колонки ── */
+  --st-cyan: #00A2C7;   --st-cyan-bg: #F2FAFB;
+  --st-blue: #0090FF;   --st-blue-bg: #F4FAFF;
+  --st-indigo: #3E63DD; --st-indigo-bg: #F7F9FF;
+  --st-iris: #5B5BD6;   --st-iris-bg: #F8F8FF;
+  --st-violet: #6E56CF; --st-violet-bg: #FAF8FF;
+  --st-plum: #AB4ABA;   --st-plum-bg: #FDF7FD;
+  --st-grass: #46A758;  --st-grass-bg: #F5FBF5;
+  --st-red: #E5484D;    --st-red-bg: #FFF7F7;
+  /* Етапів більше шести: відтінок повторюється через насиченість (змішування з Slate 9), не новим кольором */
+  --desat: #8B8D98;
+  /* Текст на заливці етапу: Cyan і Blue 9 світлі — темний текст (5.5 / 5.1), решта — білий (5.2+) */
+  --on-light-fill: #1C2024; --on-dark-fill: #FFFFFF; --on-deep: #FFFFFF;
+  --selected: #E8E8EC;      /* Slate 4 — індикатор вибраного пункту меню */
+
+  /* ── Тіні M3: рівні 0, 1, 2, 3 ── */
+  --sh-rgb: 28 32 36;
+  --el-1: 0 1px 2px 0 rgb(var(--sh-rgb) / .22), 0 1px 3px 1px rgb(var(--sh-rgb) / .10);
+  --el-2: 0 1px 2px 0 rgb(var(--sh-rgb) / .24), 0 2px 6px 2px rgb(var(--sh-rgb) / .12);
+  --el-3: 0 1px 3px 0 rgb(var(--sh-rgb) / .26), 0 4px 8px 3px rgb(var(--sh-rgb) / .14);
+
+  --scrim: rgb(28 32 36 / .38);
+  --skeleton: #E8E8EC;
+  --skeleton-hi: #F6F6F8;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111113;
+  --surface: #18191B;
+  --hover: #212225;
+  --line: #363A3F;
+  --line-control: #696E77;
+  --ink: #EDEEF0;
+  --ink-2: #B0B4BA;
+
+  --primary: #F76B15;
+  --on-primary: #111113;
+  --primary-text: #FFA057;
+  --primary-container: #331E0B;     /* Orange dark 3 */
+  --on-primary-container: #FFA057;
+  --focus: #70B8FF;
+
+  --won-text: #71D083;  --won: #46A758;  --on-won: #111113;  --won-bg: #141A15;
+  --lost-text: #FF9592; --lost: #E5484D; --on-lost: #111113; --lost-bg: #201314;
+  --warn-text: #FFCA16; --warn: #FFC53D; --on-warn: #1C2024;
+
+  --inverse: #EDEEF0; --on-inverse: #1C2024; --inverse-action: #B54300;
+
+  --st-cyan-bg: #101B20;
+  --st-blue-bg: #111927;
+  --st-indigo-bg: #141726;
+  --st-iris-bg: #171625;
+  --st-violet-bg: #1B1525;
+  --st-plum-bg: #201320;
+  --st-grass-bg: #141A15;
+  --st-red-bg: #201314;
+  --on-deep: #111113;
+  --selected: #2B2D31;
+
+  --sh-rgb: 0 0 0;
+  --el-1: 0 1px 2px 0 rgb(0 0 0 / .5), 0 1px 3px 1px rgb(0 0 0 / .25);
+  --el-2: 0 1px 2px 0 rgb(0 0 0 / .5), 0 2px 6px 2px rgb(0 0 0 / .28);
+  --el-3: 0 1px 3px 0 rgb(0 0 0 / .55), 0 4px 8px 3px rgb(0 0 0 / .3);
+
+  --scrim: rgb(0 0 0 / .6);
+  --skeleton: #232427;
+  --skeleton-hi: #2C2D31;
+}
+
+:root {
+  /* ── Шрифти ── */
+  --font-display: "Rubik", "Nunito Sans", system-ui, sans-serif;
+  --font-ui: "Nunito Sans", system-ui, sans-serif;
+
+  /* ── Сітка 4 px ── */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+
+  /* ── Радіуси M3: xs 4, s 8, m 12, l 16, xl 28, full ── */
+  --r-xs: 4px; --r-s: 8px; --r-m: 12px; --r-l: 16px; --r-xl: 28px; --r-full: 999px;
+
+  /* ── Рух M3 ── */
+  --d-short: 150ms; --d-short-4: 200ms; --d-medium: 300ms; --d-medium-2: 300ms; --d-medium-4: 400ms; --d-sheet: 350ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* наш вибір, не токен M3 */
+}
+
+/* ── Шкала шрифтів: ролі M3 ── */
+.t-hs { font: 600 24px/32px var(--font-display); letter-spacing: 0; }
+.t-tl { font: 500 22px/28px var(--font-display); font-variant-numeric: tabular-nums; }
+.t-tm { font: 500 16px/24px var(--font-display); letter-spacing: .15px; }
+.t-bl { font: 400 16px/24px var(--font-ui); letter-spacing: .2px; }
+.t-bm { font: 400 14px/20px var(--font-ui); letter-spacing: .1px; }
+.t-ll { font: 600 14px/20px var(--font-ui); letter-spacing: .1px; }
+.t-lm { font: 600 12px/16px var(--font-ui); letter-spacing: .3px; }
+.t-ls { font: 600 11px/16px var(--font-ui); letter-spacing: .4px; }
+.num { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
