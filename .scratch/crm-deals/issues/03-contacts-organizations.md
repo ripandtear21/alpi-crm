@@ -33,21 +33,26 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/phone.
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
-  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (in pnpm verify; 0007_contacts up, down, up) · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (in pnpm verify; 0009_contacts up, down, up after 0007_jobs_bulk, 0008_pipelines) · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] Тест нормализации: `0671234567`, `067 123 45 67`, `(067) 123-45-67`, `+380671234567`, `380671234567` дают `+380671234567`; польский `+48…` сохраняется как есть; мусор — 422.
-  - evidence: test-run pass · `pnpm vitest run packages/shared/src/phone.test.ts` exit 0; 422 INVALID_PHONE in apps/api/src/contacts/contacts.test.ts · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/phone.test.ts` exit 0; 422 INVALID_PHONE in apps/api/src/contacts/contacts.test.ts · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] Тест изоляции: контакты, телефоны, email, организации и журнал изменений проекта A не видны в контексте B; одинаковый телефон в A и B не считается совпадением.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (изоляция проектов) · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (изоляция проектов) · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] Тест прав и охвата: без права — 403; менеджер с охватом «свои» видит созданные им контакты и не видит чужие (404 на прямой запрос).
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (права и охват) · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (права и охват) · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] Тест «чужой клиент»: ответ 409 не содержит имени, телефона, email и id чужого контакта.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (чужой клиент при создании, изменении, восстановлении) · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (чужой клиент при создании, изменении, восстановлении) · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] Тест: контакт нельзя привязать ко второй организации; при конфликте «телефон — один, email — другой» функция поиска возвращает контакт по телефону с признаком конфликта.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (организация контакта, конфликт телефон и email) · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (организация контакта, в том числе из корзины; конфликт телефон и email) · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] Тест: изменение имени и телефона пишет в `change_log` «было → стало»; роль приложения не может изменить или удалить строку журнала.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (журнал изменений; цепочка UPDATE в корзину, purge_from_trash, INSERT с тем же id отклонена; красный на прежних правах) · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (журнал изменений; цепочка UPDATE в корзину, purge_from_trash, INSERT с тем же id отклонена) · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] Тест корзины: удалённый контакт не виден в выдаче, восстанавливается; окончательное удаление без права «корзина: удалять» — 403.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (корзина, восстановление по правилам создания) · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/contacts.test.ts` exit 0 (корзина; восстановление по правилам создания) · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
 - [ ] `pnpm verify` зелёный.
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
-  - evidence: gate pass · `gate fast` exit 0 · windows - · 5248bd41e9603e4e76ef069fd47b8d901dc69e73
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
+  - evidence: gate pass · `gate fast` exit 0 · windows - · d2c3ba1c353ddc517c9a2d99fa4617d8ec208ca4
+
+## Заметки
+
+- Долг (низкий, записан на ревью): роль приложения `alpi_app` может вставить в `change_log` произвольную строку — подделать историю записи, если у кого-то есть SQL-доступ под этой ролью. Стереть или изменить историю она не может (нет UPDATE и DELETE; окончательное удаление — только `purge_from_trash` вместе с записью из корзины), а через API строки пишет только `apps/api/src/change-log/record.ts`. Закрыть можно, отдав запись в журнал функции базы (SECURITY DEFINER), которая сверяет поле и значение с самой записью.
+- Окончательное удаление контактов и организаций по сроку корзины (реестр `apps/api/src/trash/purge.ts`, тикет 04) должно идти через `purge_from_trash`: у роли приложения нет DELETE на `contact` и `organization`.
