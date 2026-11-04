@@ -216,194 +216,277 @@ function timeline() {
     ${tlItem('reg', '', 'Реєстрація на вебінар «AI-контент з нуля»: Facebook Ads', '<span>26.10 19:02</span><span>угоду створено</span>')}
   </ul>`;
 }
-/* Deal card arranged like Pipedrive's deal view (Actum tokens and components, only the arrangement is borrowed):
-   full-width header + stage bar, a narrow column of collapsible sections on the left, and the working column on the
-   right: composer, "what to do next", history. Rights below are those of the prototype user (role «Менеджер», ALPI). */
+/* Deal card in the layout of Pipedrive's deal view, measured from the owner's account: full-width header (title,
+   owner, Won/Lost, stage bar, «pipeline → stage» link), then two columns with their own scroll — collapsible blocks
+   of fields on the left (raised surface), composer / Фокус / Історія on the right (page background).
+   Only the layout and density are borrowed; colours, fonts and radii are Actum's. Rights are those of the prototype
+   user (role «Менеджер», ALPI). */
 const DEAL_T = 'Ірина Мельник — AI-контент PRO';
 const DEAL_RIGHTS = { archive: true, upsell: true, del: false };
 const DEAL_DAYS = [2, 0, 1, 0, 0, 6, 1, 1, 0]; // days the deal spent on each stage
-const D = { cur: 5 };
-const icx = (n, s, cls) => ic(n, s).replace('class="i"', `class="i ${cls}"`);
-const drow = (k, v, cls = '') => `<div class="drow ${cls}"><span class="k">${k}</span><span class="v">${v}</span></div>`;
-const dsec = (id, title, body, { open = true, right = '' } = {}) => `<details class="dsec" data-sec="${id}" ${open ? 'open' : ''}><summary><span class="chev" aria-hidden="true"></span><h2 class="h2">${title}</h2>${right ? `<span class="r meta">${right}</span>` : ''}</summary><div class="dsec-b">${body}</div></details>`;
-const dgrp = (title, right, body, open = true) => `<details class="dgrp" ${open ? 'open' : ''}><summary><span class="chev" aria-hidden="true"></span><span class="lbl">${title}</span>${right ? `<span class="r meta-prose">${right}</span>` : ''}</summary><div class="body">${body}</div></details>`;
+const D = { cur: 5, s: 'default' };
+Object.assign(IC, {
+  cash: '<rect x="1.5" y="4" width="13" height="8" rx="1.2"/><circle cx="8" cy="8" r="1.8"/><path d="M4 6.5v3M12 6.5v3"/>',
+  scale: '<path d="M8 2.5v11M4.5 13.5h7M3 4.5h10"/><path d="M3 4.5L1.5 8.5a1.6 1.6 0 0 0 3 0zM13 4.5l-1.5 4a1.6 1.6 0 0 0 3 0z"/>',
+  tag: '<path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z"/><circle cx="5.3" cy="5.3" r=".9"/>',
+  flag: '<path d="M3.5 14V2.5M3.5 3h8l-1.6 3 1.6 3h-8"/>',
+  info: '<circle cx="8" cy="8" r="5.8"/><path d="M8 7.3v3.6M8 5.1h.01"/>',
+  pin: '<path d="M6 2.5h4M6.7 2.5v3.8L4.5 9h7L9.3 6.3V2.5M8 9v4.5"/>',
+  fold: '<path d="M5 2.5L8 5.5l3-3M5 13.5l3-3 3 3"/>',
+  grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
+  chat: '<path d="M2.5 13.5l1-3a5.5 5.5 0 1 1 2 2z"/><path d="M6 6.5c0 2 1.5 3.5 3.5 3.5l1-1-1.5-.8-.7.6a3 3 0 0 1-1.6-1.6l.6-.7L6.5 5z"/>',
+  doc: '<path d="M4 1.5h5.5l3 3v10H4z"/><path d="M9.5 1.5v3h3M6 8h4.5M6 10.5h4.5"/>',
+  sub: '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5a5 5 0 0 1 10 0"/><path d="M12.5 2v3M11 3.5h3"/>',
+});
+const dayW = (n) => { const a = Math.abs(n) % 100, b = a % 10; return `${n} ${a > 10 && a < 20 ? 'днів' : b === 1 ? 'день' : b >= 2 && b <= 4 ? 'дні' : 'днів'}`; };
+const ME = 'Олена Коваль';
+const ib = (icn, label, act, extra = '') => `<button type="button" class="ib" ${act ? `data-act="${act}"` : ''} aria-label="${label}" title="${label}" ${extra}>${ic(icn, 16)}</button>`;
+const moreB = (label, act = 'blk-more') => `<span class="me-wrap">${ib('more', label, act, 'aria-haspopup="menu" aria-expanded="false"')}</span>`;
+const chevB = (title, open, cls = '') => `<button type="button" class="tog ${cls}" data-act="tog" aria-expanded="${open}">${ic('chev', 16)}<span>${title}</span></button>`;
+/* collapsible block of the left column: 56px header (chevron, title, icons), body without gaps */
+const blk = (id, title, body, { open = true, icons = '', cls = '' } = {}) => `<section class="blk tog-box ${cls}" data-blk="${id}" aria-label="${title}">
+  <div class="blk-h">${chevB(title, open, 'blk-t')}<div class="blk-i">${icons}</div></div>
+  <div class="blk-b tog-b" ${open ? '' : 'hidden'}>${body}</div></section>`;
+/* field row: label column 100px right-aligned, value column; editable values are buttons */
+const fld = (f, label, val, { edit = '', need = false, info = '', ro = false, empty = false, jump = false } = {}) => `<div class="dfl${need ? ' need' : ''}${ro ? ' ro' : ''}" data-f="${f}">
+  <span class="k">${label}${info ? `<span class="inf" title="${info}" aria-label="${info}" role="img">${ic('info', 12)}</span>` : ''}</span>
+  ${ro ? `<span class="v">${val}</span>` : `<button type="button" class="v fv${empty ? ' empty' : ''}" data-act="${jump ? 'fill' : 'fedit'}" ${edit ? `data-opts="${edit}"` : ''} aria-label="${label.replace(/<[^>]+>/g, '')}: ${empty ? 'не заповнено' : String(val).replace(/<[^>]+>/g, '')}, змінити">${empty ? '—' : val}${ic('pen', 14)}</button>`}</div>`;
+/* field group of «Деталі»: bordered accordion card, 48px header with counter chip filled/total */
+const grp = (id, title, rows, { open = true, ro = false, total } = {}) => {
+  const filled = rows.filter((r) => !r.includes(' empty"') && !r.includes('class="v fv empty')).length;
+  return `<div class="fgrp tog-box" data-grp="${id}"><div class="fgrp-h">${chevB(title, open, 'fgrp-t')}<span class="cnt" title="Заповнено ${filled} з ${total || rows.length}">${filled}/${total || rows.length}</span>${ro ? `<span class="ro-m" title="Лише перегляд для ролі «Менеджер»">${ic('lock', 12)}лише перегляд</span>` : ''}<span class="fgrp-i">${moreB(`Дії з групою «${title}»`)}</span></div>
+    <div class="fgrp-b tog-b" ${open ? '' : 'hidden'}>${rows.join('')}</div></div>`;
+};
 const chg = (f, was, now) => `<span class="chg">${f}: <span class="was">${was}</span><span class="arrow" aria-label="стало">→</span><span class="now">${now}</span></span>`;
-const hItem = (k, icn, tone, what, meta, extra = '', cls = '') => `<li data-k="${k}" class="${cls}"><span class="ic ${tone}">${ic(icn, 12)}</span><div class="body"><div class="what">${what}</div>${extra}<div class="ml meta">${meta}</div></div></li>`;
-const ME = '<span>Олена Коваль</span>';
 
+/* ---------- header ---------- */
 function stageBar(s, cur) {
   const mode = s === 'won' ? 'won' : s === 'lost' ? 'lost' : s === 'archived' ? 'arch' : '';
-  const closed = !!mode;
-  return `<div class="stagebar ${mode}" role="group" aria-label="Етапи воронки ALPI${closed ? ', угода закрита' : ''}">${PATH.map((n, i) => {
-    const past = i <= cur;
-    return `<button type="button" class="sg ${i < cur ? 'done' : i === cur ? 'cur' : ''}" data-act="path" data-i="${i}" ${i === cur ? 'aria-current="step"' : ''} title="${n}${past ? `: ${DEAL_DAYS[i]} дн. на етапі` : ''}" ${closed ? 'disabled' : ''}><span class="n">${n}</span><span class="d ${past ? '' : 'hov'}">${past ? `${DEAL_DAYS[i]} дн.` : closed ? '—' : 'перемістити'}</span></button>`;
+  return `<div class="dv-stages ${mode}" role="group" aria-label="Етапи воронки ALPI${mode ? ', угода закрита' : ''}">${PATH.map((n, i) => {
+    const t = i === cur ? `${dayW(DEAL_DAYS[i])} · ${n}` : n;
+    return `<button type="button" class="sg ${i < cur ? 'done' : i === cur ? 'cur' : ''}" data-act="path" data-i="${i}" ${i === cur ? 'aria-current="step"' : ''} title="${n}${i <= cur ? `: ${dayW(DEAL_DAYS[i])} на етапі` : ''}" ${mode ? 'disabled' : ''}><span>${t}</span></button>`;
   }).join('')}</div>`;
 }
-
-function dealHeader(s, amount, cur) {
+function dealHeader(s, cur) {
   const won = s === 'won', lost = s === 'lost', arch = s === 'archived';
-  const act = won ? `<span class="dh-badge win">${ic('check', 14)}Виграно 04.11</span><button class="btn ghost sm" data-act="reopen">Відкрити знову</button>`
-    : lost ? `<span class="dh-badge lose">Програно 04.11</span><button class="btn ghost sm" data-act="reopen">Відкрити знову</button>`
-    : arch ? `<span class="dh-badge">${ic('arch', 14)}В архіві з 04.11</span><button class="btn primary sm" data-act="unarch">Повернути з архіву</button>`
-    : `<button type="button" class="btn win-b" data-act="d-won">Виграно</button><button type="button" class="btn lose-b" data-act="d-lost">Програно</button>`;
-  return `<a class="back" href="#/kanban/default" style="margin-top:12px">${ic('back', 14)}Воронка ALPI</a>
-  <header class="dh">
-    <div class="dh-top">
-      <div class="dh-main">
-        <div class="ml meta"><span>№ <b>4517</b></span><span>воронка ALPI</span><span>створено 26.10.2026</span></div>
-        <div class="dh-tw editable" data-act="edit-title" title="Натисніть, щоб змінити назву"><h1 class="h1" id="d-title" tabindex="-1">${DEAL_T}</h1>${icx('pen', 18, 'pen')}</div>
-        <div class="dh-sub">
-          <button type="button" class="dh-amount editable" data-act="edit-amount" title="Змінити суму"><span class="big-money" id="d-amt">${fmt(amount)} €</span><span class="meta">≈ ${fmt(amount * RATES.EUR)} ₴</span></button>
-          <span class="sep" aria-hidden="true"></span>
-          <button type="button" class="owner" data-act="transfer" title="Передати угоду"><span class="ava" aria-hidden="true">ОК</span>Олена Коваль<span class="meta">відповідальна</span></button>
-          <span class="sep" aria-hidden="true"></span>
-          <div class="labels" aria-label="Мітки"><span class="ltag" data-c="ask"><i aria-hidden="true"></i>Гаряча</span><span class="ltag" data-c="acc"><i aria-hidden="true"></i>Повторна реєстрація</span>${arch ? '' : '<span class="me-wrap"><button type="button" class="ltag add" data-act="add-label" aria-haspopup="menu">+ Мітка</button></span>'}</div>
-        </div>
+  const act = won ? `<span class="dv-badge win">${ic('check', 14)}Виграно 04.11</span><button type="button" class="dv-btn ghost-b" data-act="reopen">Відкрити знову</button>`
+    : lost ? `<span class="dv-badge lose">Програно 04.11</span><button type="button" class="dv-btn ghost-b" data-act="reopen">Відкрити знову</button>`
+    : arch ? `<span class="dv-badge">${ic('arch', 14)}В архіві з 04.11</span><button type="button" class="dv-btn ghost-b" data-act="unarch">Повернути з архіву</button>`
+    : '<button type="button" class="dv-btn win-b" data-act="d-won">Виграно</button><button type="button" class="dv-btn lose-b" data-act="d-lost">Програно</button>';
+  return `<header class="dv-head">
+    <div class="dv-r1">
+      <h1 class="dv-title" id="d-title" data-act="edit-title" title="Натисніть, щоб змінити назву">${DEAL_T}</h1>
+      <div class="dv-acts">
+        <button type="button" class="dv-owner" data-act="transfer" title="Передати угоду"><span class="ava" aria-hidden="true">ОК</span><span class="o-t"><b>${ME}</b><span>Власник</span></span></button>
+        <span class="me-wrap"><button type="button" class="dv-btn ghost-b" data-act="subs" aria-haspopup="menu" aria-expanded="false">1 підписник${ic('chev', 14)}</button></span><span class="brk" aria-hidden="true"></span>
+        ${act}
+        <span class="me-wrap"><button type="button" class="dv-btn ghost-b view-b" data-act="view-sw" aria-label="Вигляд картки" aria-haspopup="menu" aria-expanded="false">${ic('grid', 16)}${ic('chev', 14)}</button></span>
+        <span class="me-wrap"><button type="button" class="dv-btn ghost-b more-b" data-act="deal-more" aria-label="Інші дії з угодою" aria-haspopup="menu" aria-expanded="false">${ic('more', 16)}</button></span>
       </div>
-      <div class="dh-act">${act}<div class="me-wrap"><button type="button" class="icon-btn more-b" data-act="deal-more" aria-label="Інші дії з угодою" aria-haspopup="menu" aria-expanded="false">${ic('more')}</button></div></div>
     </div>
     ${stageBar(s, cur)}
+    <div class="dv-path"><span class="me-wrap"><button type="button" class="link-a" data-act="pick-stage" aria-haspopup="menu" aria-expanded="false" ${won || lost || arch ? 'disabled' : ''}>ALPI<span class="arr" aria-hidden="true">→</span><span id="d-stage">${PATH[cur]}</span></button></span></div>
   </header>`;
 }
 
-function dealSide(s, amount) {
+/* ---------- left column ---------- */
+function dealLeft(s, amount) {
   const won = s === 'won', lost = s === 'lost', arch = s === 'archived', dup = s === 'duplicate', val = s === 'validation';
+  const closed = won || lost || arch;
+  /* a) Заповніть: important fields that are still empty */
+  const KANAL = 'Facebook Ads|Google Ads|Instagram|Рекомендація';
+  const needRows = [fld('kanal', 'Канал', '', { empty: true, need: true, jump: true, info: 'Звідки прийшов клієнт. Потрібне для звіту за джерелами.' })];
+  if (val) needRows.push(fld('paket', 'Пакет', '', { empty: true, need: true, jump: true, info: 'Обов’язкове з етапу «Сплатив бронювання».' }), fld('ztype', 'Тип закриття', '', { empty: true, need: true, jump: true, info: 'Обов’язкове з етапу «Сплатив бронювання».' }));
+  const fill = blk('fill', 'Заповніть', `<div class="fill-sub">${ic('cash', 14)}Угода</div>${needRows.join('')}`, { icons: ib('pen', 'Налаштувати важливі поля', 'stub') + moreB('Дії з блоком «Заповніть»'), cls: 'fill' });
+  /* b) Підсумок: rows of 32px, icon + value; empty ones are call-to-action links */
   const paidP = Math.round(700 / amount * 100);
-  const summary = drow('сума угоди', `<span class="money" id="d-sum">${fmt(amount)} €</span> <span class="meta">EUR</span>`)
-    + drow('оплачено', `<span class="money">700 €</span> <span class="meta">з ${fmt(amount)} €</span><div class="prog" style="margin-top:6px" role="progressbar" aria-valuenow="${paidP}" aria-valuemin="0" aria-valuemax="100" aria-label="Оплачено"><i style="--p:${paidP}%"></i></div>`)
-    + drow(won || lost ? 'закрито' : 'очікуване закриття', won || lost ? '<span class="num">04.11.2026</span>' : '<span class="num">06.11.2026</span> <span class="meta">через 2 дн.</span>')
-    + drow('мітки', '<span class="labels"><span class="ltag" data-c="ask"><i aria-hidden="true"></i>Гаряча</span><span class="ltag" data-c="acc"><i aria-hidden="true"></i>Повторна реєстрація</span></span>')
-    + `<div class="sub-h"><span>Товари</span>${arch ? '' : '<button type="button" class="link-a" style="font-size:13px;font-weight:400" data-act="copy">+ Товар</button>'}</div>
+  const sr = (icn, main, { right = '', edit = '', title = '', cls = '' } = {}) => `<div class="sr ${cls}" ${title ? `title="${title}"` : ''}>${ic(icn, 16)}<div class="sr-v">${main}</div>${edit && !arch ? ib('pen', 'Змінити', edit) : ''}${right ? `<span class="sr-x">${right}</span>` : ''}</div>`;
+  const prods = `<div class="sr-sub" id="prod-sub" hidden>
       <div class="prod"><span>AI-контент PRO</span><span class="money">1 190 €</span><span class="meta">1 × 1 190 €</span></div>
       <div class="prod"><span>Модуль «AI-відео»</span><span class="money">100 €</span><span class="meta">1 × 100 €</span></div>
       <div class="prod tot"><span class="meta">сума по товарах</span><span class="money">1 290 €</span></div>
-      ${won ? '' : `<div class="diff" id="sumhint"><span class="grow">Сума угоди <b class="num" style="font-weight:500">${fmt(amount)} €</b> відрізняється від суми товарів.</span><button type="button" class="btn ghost sm" data-act="apply-sum" ${arch ? 'disabled' : ''}>Підставити 1 290 €</button></div>`}
-      <div class="sub-h"><span>Платежі</span><span class="meta" style="font-weight:400">WayForPay</span></div>
-      ${[['Бронь', 200, st('ok', 'успішний'), '30.10'], ['Доплата', 500, st('ok', 'успішний'), '01.11'], ['Рахунок', 590, st('wait', 'очікує'), 'до 06.11']].map(([t, a, s2, d]) => `<div class="prod"><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${t}${s2}</span><span class="money">${a} €</span><span class="meta">${d}</span></div>`).join('')}
-      <button type="button" class="btn ghost sm" style="justify-self:start;margin-top:8px" data-act="invoice" ${arch || lost ? 'disabled' : ''}>Виставити рахунок</button>`;
-  const contact = `<div class="who-line"><span class="ava" aria-hidden="true">ІМ</span><a class="nm" href="#/contact/default">Ірина Мельник</a>${dup ? `<span class="dup-badge">${ic('merge', 12)}можливий дубль</span>` : '<span class="meta">основний контакт</span>'}</div>
-    ${drow('телефон', '<span class="num">+380 00 123 45 67</span>')}${drow('email', 'iryna.melnyk@example.com')}${drow('мова', 'українська')}${drow('учасник', 'Андрій Мельник <span class="meta">співрішення</span>')}
-    ${dup ? `<div class="diff"><span class="grow">Email збігається з контактом «Iryna M.» (№ 3302).</span><button type="button" class="btn ghost sm" data-act="go" data-to="contact" data-st="duplicate">Порівняти</button></div>` : ''}`;
-  const org = `<div class="who-line"><span class="ava" aria-hidden="true" style="border-radius:var(--r-inner)">${ic('org', 14)}</span><a class="nm" href="#/org/default">ФОП Мельник І. В.</a></div>
-    ${drow('місто', 'Київ')}${drow('угоди', '1 відкрита')}${drow('сайт', '<span class="meta">—</span>')}`;
-  const need = val ? ' need' : '';
-  const selOrVal = (label, opts, v) => (won ? v : `<select class="select sm" aria-label="${label}" ${val ? 'aria-invalid="true"' : ''} ${arch ? 'disabled' : ''}>${opts.map((o) => `<option>${o}</option>`).join('')}</select>`);
-  const details = dgrp('Кваліфікація', '', drow('тип клієнта', 'Найманий працівник') + drow('професія', 'Дизайнер') + drow('дохід на місяць', '<span class="money">45 000 ₴</span>'))
-    + dgrp('Закриття', val ? '<span class="ask">2 порожні обов’язкові</span>' : 'обов’язкові з 7-го етапу',
-      drow('пакет <span class="ask" aria-label="обов’язкове">*</span>', selOrVal('Пакет', ['Не вибрано', 'START', 'PRO', 'MAX'], 'PRO'), need)
-      + drow('тип закриття <span class="ask" aria-label="обов’язкове">*</span>', selOrVal('Тип закриття', ['Не вибрано', 'Бронь + доплата', 'Повна оплата'], 'Бронь + доплата'), need)
-      + drow('дата оплати', '<span class="meta">—</span>'))
-    + dgrp('Вебінар', '3 поля', drow('вебінар', '«AI-контент з нуля», 28.10') + drow('перегляд', '<span class="num">86 %</span> <span class="meta">68 хв з 79</span>') + drow('рівень прогріву', 'Високий'), false)
-    + dgrp('Службове', `${ic('lock', 12)}лише перегляд`, drow('підрядник', 'Свій таргет', 'ro') + drow('вартість реєстрації', '<span class="money">3,10 $</span>', 'ro'))
-    + `<p class="hidden-grp meta-prose">${ic('lock', 14)}Ще 1 група полів прихована для ролі «Менеджер».</p>`;
-  const regs = [['Google Ads', '31.10 18:30', [['utm_source', 'google'], ['utm_campaign', 'search_ai_kurs'], ['сторінка', 'alpi.example/ai-video']]], ['Facebook Ads', '26.10 19:02', [['utm_source', 'facebook'], ['utm_campaign', 'ai_content_webinar_oct'], ['сторінка', 'alpi.example/ai-content']]]];
-  const overview = drow('вік угоди', '<span class="num">9</span> дн.') + drow('без руху', `<span class="num">${won || lost ? 0 : 1}</span> дн. <span class="meta">остання зміна ${won || lost ? '04.11' : '03.11'}</span>`)
-    + drow('на етапі', `${PATH[D.cur]} <span class="meta">${DEAL_DAYS[D.cur]} дн.</span>`) + drow('створено', '<span class="num">26.10.2026 19:02</span>') + drow('джерело', 'Facebook Ads <span class="ctag">ai_content_webinar_oct</span>')
-    + dgrp('Реєстрації', '2', regs.map(([src, d, rows]) => `<div class="sub-h" style="border:0;padding-top:6px;margin:0"><span>${src}</span><span class="meta" style="font-weight:400">${d}</span></div>${rows.map(([k, v]) => drow(k, /^utm/.test(k) ? `<span class="ctag">${v}</span>` : v)).join('')}`).join(''), false);
-  return `<div class="d-side">
-    ${dsec('sum', 'Підсумок', summary)}
-    ${dsec('contact', 'Контакт', contact, { right: '2 угоди' })}
-    ${dsec('org', 'Організація', org)}
-    ${dsec('details', 'Деталі', details, { right: 'воронка ALPI' })}
-    ${dsec('overview', 'Огляд', overview)}
-  </div>`;
+      ${won ? '' : `<div class="diff" id="sumhint"><span class="grow">Сума угоди <b class="num" style="font-weight:500">${fmt(amount)} €</b> відрізняється від суми товарів.</span><button type="button" class="dv-btn ghost-b" data-act="apply-sum" ${arch ? 'disabled' : ''}>Підставити 1 290 €</button></div>`}
+      ${arch ? '' : '<button type="button" class="link-a sm-l" data-act="stub">+ Товар</button>'}</div>`;
+  const pays = `<div class="sr-sub" id="pay-sub" hidden><div class="prog" role="progressbar" aria-valuenow="${paidP}" aria-valuemin="0" aria-valuemax="100" aria-label="Оплачено"><i style="--p:${paidP}%"></i></div>
+      ${[['Бронь', 200, st('ok', 'успішний'), '30.10'], ['Доплата', 500, st('ok', 'успішний'), '01.11'], ['Рахунок', 590, st('wait', 'очікує'), 'до 06.11']].map(([t, a, s2, d]) => `<div class="prod"><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${t}${s2}</span><span class="money">${a} €</span><span class="meta">${d} · WayForPay</span></div>`).join('')}</div>`;
+  const summary = sr('cash', '<span class="money">45 000 ₴</span>', { title: 'Дохід на місяць', edit: 'stub' })
+    + sr('cal', '<span class="num">28.10.2026</span>', { title: 'Дата вебінару', edit: 'stub' })
+    + sr('cash', `<button type="button" class="sr-amt" data-act="edit-amount" ${arch ? 'disabled' : ''} title="Сума угоди"><span class="money" id="d-sum">${fmt(amount)} €</span></button>${won ? '' : '<button type="button" class="sr-warn" id="sumwarn" data-act="prod-toggle" title="Сума угоди відрізняється від суми товарів">≠ товари 1 290 €</button>'}`,
+      { right: `<button type="button" class="link-a" data-act="prod-toggle" aria-expanded="false" aria-controls="prod-sub">${ic('plus', 14)}Товари</button>` }) + prods
+    + sr('scale', `<span class="me-wrap"><button type="button" class="link-a" data-act="prob" id="d-prob" aria-haspopup="menu" aria-expanded="false" ${closed ? 'disabled' : ''}>Встановити ймовірність</button></span>`)
+    + sr('plus', `<button type="button" class="link-a" data-act="org-attach" ${arch ? 'disabled' : ''}>Організація</button>`, { cls: 'sr-org' })
+    + sr('user', `<a href="#/contact/default">Ірина Мельник</a>`, { right: `<span class="me-wrap"><button type="button" class="link-a" data-act="add-part" aria-haspopup="menu" aria-expanded="false" ${arch ? 'disabled' : ''}>${ic('plus', 14)}Учасники</button></span>` })
+    + sr('tag', `<span class="labels" id="d-labels"><span class="me-wrap"><button type="button" class="link-a" data-act="add-label" aria-haspopup="menu" aria-expanded="false" ${arch ? 'disabled' : ''}>Додати мітки</button></span></span>`)
+    + sr('flag', won || lost ? '<span class="num">04.11.2026</span><span class="meta">закрито</span>' : '<span class="num">06.11.2026</span><span class="meta">через 2 дні</span>', { title: 'Очікувана дата закриття', edit: 'stub' })
+    + sr('pay', `<button type="button" class="sr-pay" data-act="pay-toggle" aria-expanded="false" aria-controls="pay-sub">Оплачено <span class="money">700 €</span> з <span class="money">${fmt(amount)} €</span></button>`,
+      { right: `<button type="button" class="link-a" data-act="invoice" ${arch || lost ? 'disabled' : ''}>Виставити рахунок</button>` }) + pays;
+  /* c) Деталі: groups of fields */
+  const pk = val ? fld('paket', 'Пакет', '', { empty: true, need: true, edit: 'START|PRO|MAX' }) : fld('paket', 'Пакет', 'PRO', { edit: 'START|PRO|MAX', ro: won });
+  const zt = val ? fld('ztype', 'Тип закриття', '', { empty: true, need: true, edit: 'Бронь + доплата|Повна оплата|Розстрочка' }) : fld('ztype', 'Тип закриття', 'Бронь + доплата', { edit: 'Бронь + доплата|Повна оплата|Розстрочка', ro: won });
+  const E = (f, l, o = {}) => fld(f, l, '', { empty: true, ...o });
+  const details = grp('qual', 'Кваліфікація', [
+    fld('ctype', 'Тип клієнта', 'Найманий працівник', { edit: 'Найманий працівник|Підприємець|Фрилансер|Студент' }),
+    fld('prof', 'Професія клієнта', 'Дизайнер'),
+    E('kanal', 'Канал', { need: true, edit: KANAL }),
+    fld('income', 'Дохід на місяць', '<span class="money">45 000 ₴</span>'),
+    E('barrier', 'Бар’єр'), E('motive', 'Головний мотив'),
+    fld('support', 'Менеджер саппорту', 'Андрій Шевчук', { info: 'Хто супроводжує після оплати' }),
+  ], { total: 12 })
+    + grp('web', 'Вебінар', [
+      fld('webn', 'Вебінар', '«AI-контент з нуля», 28.10'),
+      fld('view', 'Перегляд, %', '<span class="num">86</span>'),
+      fld('warm', 'Рівень прогріву', 'Високий', { edit: 'Низький|Середній|Високий' }),
+      E('qst', 'Питання з чату'),
+    ])
+    + grp('course', 'Курс', [pk, zt, E('paydate', 'Дата оплати'), E('flow', 'Потік навчання'), E('cur', 'Куратор')], { open: true })
+    + grp('labels', 'Мітки', [fld('hot', 'Теплота', 'Гаряча', { edit: 'Холодна|Тепла|Гаряча' }), fld('rep', 'Повторна реєстрація', 'так', { edit: 'так|ні' }), E('seg', 'Сегмент')], { open: false })
+    + grp('svc', 'Службове', [fld('ctr', 'Підрядник', 'Свій таргет', { ro: true }), fld('cpl', 'Вартість реєстрації', '<span class="money">3,10 $</span>', { ro: true })], { ro: true, open: false })
+    + `<p class="fgrp-hid">${ic('lock', 14)}Ще 1 група полів прихована для ролі «Менеджер».</p>`;
+  /* d) Контакт, e) Організація */
+  const contact = `<div class="sr">${ic('user', 16)}<div class="sr-v"><a href="#/contact/default" class="nm">Ірина Мельник</a>${dup ? `<span class="dup-badge">${ic('merge', 12)}можливий дубль</span>` : ''}</div></div>
+    ${fld('ph', 'Телефон', '<span class="num">+380 00 123 45 67</span><span class="meta">мобільний</span>')}${fld('em', 'Email', 'iryna.melnyk@example.com')}${fld('lang', 'Мова', 'українська', { edit: 'українська|російська|англійська' })}
+    ${dup ? '<div class="diff"><span class="grow">Email збігається з контактом «Iryna M.» (№ 3302).</span><button type="button" class="dv-btn ghost-b" data-act="go" data-to="contact" data-st="duplicate">Порівняти</button></div>' : ''}`;
+  const org = `<div class="blk-empty" id="org-body"><p>Організацію не прив’язано.</p><button type="button" class="link-a" data-act="org-attach" ${arch ? 'disabled' : ''}>${ic('plus', 14)}Прив’язати організацію</button></div>`;
+  const icons3 = (n) => ib('filter', `Фільтр полів блоку «${n}»`, 'stub') + ib('pen', `Редагувати поля блоку «${n}»`, 'stub') + moreB(`Дії з блоком «${n}»`);
+  return `<aside class="dv-left" aria-label="Поля угоди">
+    <div class="dv-filter"><label class="vh" for="ffilter">Фільтрувати поля</label>${ic('search', 16)}<input id="ffilter" class="input" type="search" placeholder="Фільтрувати поля" autocomplete="off"></div>
+    <p class="ff-none meta-prose" hidden>Полів з такою назвою немає.</p>
+    ${fill}
+    ${blk('sum', 'Підсумок', summary, { icons: moreB('Дії з блоком «Підсумок»') })}
+    ${blk('details', 'Деталі', details, { icons: icons3('Деталі') })}
+    ${blk('contact', 'Контакт', contact, { icons: icons3('Контакт') })}
+    ${blk('org', 'Організація', org, { icons: moreB('Дії з блоком «Організація»') })}
+  </aside>`;
 }
 
+/* ---------- right column ---------- */
 function dealComposer(arch) {
   const dis = arch ? 'disabled' : '';
-  const tab = (t, label, icn, on) => `<button type="button" class="tab" role="tab" aria-selected="${on}" data-act="ctab" data-t="${t}">${ic(icn, 14)}${label}</button>`;
-  const soon = (label, icn) => `<button type="button" class="tab" role="tab" aria-selected="false" disabled title="З’явиться в наступній версії">${ic(icn, 14)}${label}<span class="soon">скоро</span></button>`;
-  return `<section class="panel d-comp" aria-label="Додати до угоди">
-    <div class="tabs" role="tablist" aria-label="Що додати">${tab('note', 'Нотатка', 'note', true)}${tab('task', 'Задача', 'task', false)}${tab('file', 'Файл', 'clip', false)}${soon('Дзвінок', 'phone')}${soon('Рахунок', 'pay')}</div>
-    <div class="cpane" data-pane="note" role="tabpanel"><label class="vh" for="nt">Нотатка</label><textarea id="nt" class="textarea" placeholder="${arch ? 'Угода в архіві: нотатки не додаються' : 'Що важливо знати про клієнта'}" ${dis}></textarea>
-      <div class="foot"><span class="meta-prose">бачать усі, хто має доступ до угоди</span><button type="button" class="btn primary sm" data-act="note" ${dis}>Зберегти <kbd aria-hidden="true">Ctrl ↵</kbd></button></div></div>
+  const tab = (t, label, icn, on) => `<button type="button" class="ctab" role="tab" aria-selected="${on}" data-act="ctab" data-t="${t}">${ic(icn, 16)}${label}</button>`;
+  const soon = (label, icn) => `<button type="button" class="ctab" role="tab" aria-selected="false" disabled title="З’явиться в наступній версії">${ic(icn, 16)}${label}<span class="soon">скоро</span></button>`;
+  return `<section class="cmp" aria-label="Додати до угоди">
+    <div class="cmp-tabs" role="tablist" aria-label="Що додати">${tab('note', 'Нотатка', 'note', true)}${tab('task', 'Задача', 'task', false)}${soon('Дзвінок', 'phone')}${soon('WhatsApp', 'chat')}${soon('Email', 'mail')}${tab('file', 'Файли', 'clip', false)}${soon('Документи', 'doc')}${tab('inv', 'Рахунок', 'pay', false)}</div>
+    <div class="cpane" data-pane="note" role="tabpanel"><label class="vh" for="nt">Нотатка</label><textarea id="nt" class="cmp-in" rows="1" placeholder="${arch ? 'Угода в архіві: нотатки не додаються' : 'Введіть нотатку, @ім’я…'}" ${dis}></textarea>
+      <div class="foot"><span class="meta-prose">бачать усі, хто має доступ до угоди</span><button type="button" class="dv-btn ghost-b" data-act="note-cancel">Скасувати</button><button type="button" class="btn primary sm" data-act="note" ${dis}>Зберегти <kbd aria-hidden="true">Ctrl ↵</kbd></button></div></div>
     <div class="cpane" data-pane="task" role="tabpanel" hidden><div class="task-f">
       ${field('ct1', 'Тип', sel('ct1', ['Дзвінок', 'Очікую оплату', 'Дожим', 'Консультація'], 'Дзвінок'))}${field('ct2', 'Дата', inp('ct2', '05.11.2026', { cls: 'num' }))}${field('ct3', 'Час', inp('ct3', '11:00', { cls: 'num' }))}
       <div class="wide">${field('ct4', 'Тема', inp('ct4', '', { ph: 'Наприклад: нагадати про залишок 490 €' }))}</div></div>
-      <div class="foot"><span class="meta-prose">виконавець: Олена Коваль</span><button type="button" class="btn primary sm" data-act="ctask" ${dis}>Створити задачу</button></div></div>
+      <div class="foot"><span class="meta-prose">виконавець: ${ME}</span><button type="button" class="btn primary sm" data-act="ctask" ${dis}>Створити задачу</button></div></div>
     <div class="cpane" data-pane="file" role="tabpanel" hidden><div class="drop">${ic('clip', 18)}<span>Перетягніть файл сюди або <button type="button" class="link-a" data-act="cfile" ${dis}>виберіть на комп’ютері</button></span><span class="meta-prose">PDF, зображення, документи до 25 МБ</span></div></div>
+    <div class="cpane" data-pane="inv" role="tabpanel" hidden><div class="foot"><span class="meta-prose">Рахунок WayForPay у валюті угоди. Залишок до суми угоди: <span class="money">490 €</span>.</span><button type="button" class="btn primary sm" data-act="invoice" ${dis}>Виставити рахунок</button></div></div>
   </section>`;
 }
 
-const NEXT = [['over', 'mail', 'Надіслати програму модуля «AI-відео»', 'лист', 'вчора 18:00 · прострочено'], ['today', 'phone', 'Дізнатись рішення', 'дзвінок', 'сьогодні 12:00'], ['future', 'pay', 'Очікую оплату: рахунок 590 €', 'оплата', '06.11']];
-const nxRow = ([tone, icn, t, kind, when], fresh) => `<div class="nx ${tone}${fresh ? ' fresh' : ''}" ${fresh ? 'style="animation:fresh 1.2s var(--ease) both"' : ''}><input type="checkbox" class="cb" aria-label="Виконано: ${esc(t)}" data-change="nx-done"><span class="ic" aria-hidden="true">${ic(icn, 12)}</span><div style="display:grid;gap:2px;min-width:0"><span class="ttl">${esc(t)}</span><span class="ml meta"><span>${kind}</span>${ME}</span></div><span class="when">${when}</span></div>`;
-function dealNext(closed) {
-  return `<section class="panel d-next" aria-labelledby="nx-t"><div class="sh"><h2 class="h2" id="nx-t">Що зробити далі</h2>${closed ? '' : `<button type="button" class="btn ghost sm" data-act="ctab" data-t="task">${ic('plus', 14)}Задача</button>`}</div>
-    <div id="nx-list">${closed ? '<p class="meta-prose" style="padding:14px 16px 16px">Запланованих задач немає. Угода закрита.</p>' : NEXT.map((n) => nxRow(n)).join('')}</div></section>`;
+const NEXT = [['over', 'mail', 'Надіслати програму модуля «AI-відео»', 'лист', 'вчора 18:00 · прострочено'], ['today', 'phone', 'Дізнатись рішення', 'дзвінок', 'сьогодні 12:00'], ['future', 'pay', 'Очікую оплату: рахунок 590 €', 'оплата', '06.11 · через 2 дні']];
+const tcActs = (full) => `<div class="tc-a">${ib('fold', 'Згорнути', 'tc-fold', 'aria-pressed="false"')}${full ? `<button type="button" class="tc-c" data-act="tc-comment">Коментар</button>${ib('pen', 'Редагувати', 'tc-edit')}${ib('pin', 'Закріпити у фокусі', 'tc-pin', 'aria-pressed="false"')}` : ''}${moreB('Інші дії', 'tc-more')}</div>`;
+/* timeline item: 56px column with a round type icon and a dashed line, then a card (or a compact line for change log) */
+const hCard = (k, icn, tone, head, body, { full = false, cls = '' } = {}) => `<li data-k="${k}" class="${cls}"><span class="ti ${tone}" aria-hidden="true">${ic(icn, 14)}</span><article class="tc"><header class="tc-h"><span class="tc-m">${head}</span>${tcActs(full)}</header><div class="tc-b">${body}</div></article></li>`;
+const hLine = (k, icn, what, head, cls = '') => `<li data-k="${k}" class="flat ${cls}"><span class="ti" aria-hidden="true">${ic(icn, 14)}</span><div class="tl-line"><span class="what">${what}</span><span class="tc-m">${head}</span></div></li>`;
+const fItem = ([tone, icn, t, kind, when], fresh) => `<li data-k="task" class="fx ${tone}${fresh ? ' fresh' : ''}"><span class="ti ${tone === 'over' ? 'dng' : ''}" aria-hidden="true">${ic(icn, 14)}</span><article class="tc"><header class="tc-h"><label class="fx-t"><input type="checkbox" class="cb" aria-label="Виконано: ${esc(t)}" data-change="nx-done"><span class="ttl">${esc(t)}</span></label>${tcActs(false)}</header><div class="tc-b fx-m"><span class="when">${when}</span><span>${kind}</span><span>${ME}</span></div></article></li>`;
+const formInfo = (rows) => `<div class="form-info"><p class="fi-t">Інформація з форми</p>${rows.map(([k, v]) => `<div class="fi-r"><span class="fk">${k}:</span> ${v}</div>`).join('')}</div>`;
+
+function dealFocus(empty, arch) {
+  return `<section class="dv-sec tog-box" aria-label="Фокус"><div class="dv-sh">${chevB('Фокус', true, 'sec-t')}<label class="xall"><button type="button" role="switch" class="sw" aria-checked="true" data-act="xall"><i aria-hidden="true"></i></button><span>Розгорнути все</span></label></div>
+    <div class="tog-b">${empty ? `<div class="focus-empty"><p class="fe-t">Поки немає елементів фокусу</p><p class="meta-prose">Тут з’являться заплановані задачі, закріплені нотатки й листи, що чекають відправки.</p>${arch ? '' : `<button type="button" class="link-a" data-act="ctab" data-t="task">${ic('plus', 14)}Заплануйте задачу</button>`}</div><ul class="tlx" id="nx-list"></ul>`
+      : `<ul class="tlx" id="nx-list">${NEXT.map((n) => fItem(n)).join('')}</ul>`}</div></section>`;
 }
 
 function dealHistory(s) {
   const items = [];
-  if (s === 'won') items.push(hItem('change', 'check', 'win', chg('Статус', 'відкрита', 'виграна'), `<span>сьогодні 10:05</span>${ME}`));
-  if (s === 'lost') items.push(hItem('change', 'close', '', chg('Статус', 'відкрита', 'програна'), `<span>сьогодні 10:05</span>${ME}`, '<div class="note">Причина: АІ 2 · Після вебінару → Дорого. «Повернеться після Нового року».</div>'));
-  if (s === 'archived') items.push(hItem('change', 'arch', '', 'Угоду перенесено в архів', `<span>сьогодні 10:05</span>${ME}`));
+  const at = (d) => `${d} · ${ME}`;
+  if (s === 'won') items.push(hLine('change', 'check', chg('Статус', 'відкрита', 'виграна'), at('сьогодні 10:05')));
+  if (s === 'lost') items.push(hCard('note', 'close', '', at('сьогодні 10:05'), `${chg('Статус', 'відкрита', 'програна')}<p>Причина: АІ 2 · Після вебінару → Дорого. «Повернеться після Нового року».</p>`));
+  if (s === 'archived') items.push(hLine('change', 'arch', 'Угоду перенесено в архів', at('сьогодні 10:05')));
   items.push(
-    hItem('call', 'phone', 'ask', '<b style="font-weight:500">Пропущений вхідний дзвінок</b> з +380 00 123 45 67', '<span>сьогодні 09:12</span><span>Unitalk</span>'),
-    hItem('file', 'file', '', 'Файл додано', `<span>03.11 16:45</span>${ME}`, '<a class="file" href="#" onclick="return false"><span class="ext">PDF</span><span class="ellip">Договір-оферта_Мельник.pdf</span><span class="meta">214 КБ</span></a>'),
-    hItem('task', 'task', '', 'Задача «Очікую оплату» на 06.11', `<span>03.11 16:41</span>${ME}`),
-    hItem('pay', 'pay', 'acc', 'Виставлено рахунок <span class="money">590 €</span>', `<span>03.11 16:40</span>${ME}<span>WayForPay</span>`),
-    hItem('change', 'edit', '', chg('Сума угоди', '1 290 €', '1 190 €'), `<span>02.11 10:20</span>${ME}`, '<span class="meta-prose">знижка на модуль «AI-відео» за домовленістю</span>'),
-    hItem('note', 'note', '', 'Нотатка', `<span>01.11 12:15</span>${ME}`, '<div class="note">Доплатила 500 €. Залишок 590 € — чекає зарплату, обіцяла до 06.11.</div>'),
-    hItem('pay', 'pay', 'acc', 'Платіж успішний: доплата <span class="money">500 €</span>', '<span>01.11 12:10</span><span>картка **** 4417</span>'),
-    hItem('task', 'check', '', 'Задачу виконано: «Дзвінок після вебінару»', `<span>30.10 15:30</span>${ME}`),
-    hItem('pay', 'pay', 'acc', 'Платіж успішний: бронь <span class="money">200 €</span>', '<span>30.10 14:03</span><span>картка **** 4417</span>'),
-    hItem('change', 'stage', '', chg('Етап', 'Був на вебінарі', 'Приймає рішення'), `<span>29.10 11:24</span>${ME}`),
-    hItem('call', 'phone', '', 'Вхідний дзвінок, 12:48', `<span>29.10 11:05</span>${ME}`, `<div class="player"><button type="button" class="play" aria-label="Прослухати запис">${ic('play', 12)}</button><span class="wave" aria-hidden="true"></span><span class="meta">4:52 / 12:48</span></div>`),
-    hItem('change', 'edit', '', chg('Перегляд, %', '—', '86'), '<span>28.10 21:40</span><span>ключ API «Make: вебінари»</span>'),
-    hItem('change', 'stage', '', chg('Етап', 'Новий лід', 'Був на вебінарі'), '<span>28.10 21:40</span><span>ключ API «Make: вебінари»</span>'),
-    hItem('reg', 'reg', '', 'Угоду створено з реєстрації на вебінар «AI-контент з нуля»: Facebook Ads', '<span>26.10 19:02</span><span>лендинг ai-content</span>'),
+    hCard('call', 'phone', 'ask', 'сьогодні 09:12 · Unitalk', '<b class="w5">Пропущений вхідний дзвінок</b> з <span class="num">+380 00 123 45 67</span>'),
+    hCard('file', 'file', '', at('03.11 16:45'), '<a class="file" href="#" onclick="return false"><span class="ext">PDF</span><span class="ellip">Договір-оферта_Мельник.pdf</span><span class="meta">214 КБ</span></a>'),
+    hCard('pay', 'pay', 'acc', at('03.11 16:40'), 'Виставлено рахунок <span class="money">590 €</span> · WayForPay, дійсний до 06.11'),
+    hLine('change', 'edit', chg('Сума угоди', '1 290 €', '1 190 €'), at('02.11 10:20')),
+    hCard('note', 'note', '', at('01.11 12:15'), 'Доплатила 500 €. Залишок 590 € — чекає зарплату, обіцяла до 06.11. Просила нагадати в четвер увечері, після 19:00 — вдень на роботі не відповідає.', { full: true }),
+    hCard('pay', 'pay', 'acc', '01.11 12:10 · WayForPay', 'Платіж успішний: доплата <span class="money">500 €</span>, картка **** 4417'),
+    hCard('note', 'reg', '', '31.10 18:30 · Make: реєстрації (API)', formInfo([['Formtype', 'lead_magnet'], ['name', 'Ірина Мельник'], ['phone', '<span class="num">+380001234567</span>'], ['email', 'iryna.melnyk@example.com'], ['page', '<a href="#" onclick="return false">alpi.example/ai-video</a>'], ['utm_source', 'google'], ['utm_medium', 'cpc'], ['utm_campaign', 'search_ai_kurs'], ['utm_term', 'курс ai відео'], ['gclid', 'Cj0KFAKE-x7Qd2Lw0']]), { full: true }),
+    hCard('task', 'check', '', at('30.10 15:30'), '<s class="ink3">Дзвінок після вебінару</s> · задачу виконано'),
+    hCard('pay', 'pay', 'acc', '30.10 14:03 · WayForPay', 'Платіж успішний: бронь <span class="money">200 €</span>, картка **** 4417'),
+    hLine('change', 'stage', chg('Етап', 'Був на вебінарі', 'Приймає рішення'), at('29.10 11:24')),
+    hCard('call', 'phone', '', at('29.10 11:05'), `Вхідний дзвінок, <span class="num">12:48</span><div class="player"><button type="button" class="play" aria-label="Прослухати запис">${ic('play', 12)}</button><span class="wave" aria-hidden="true"></span><span class="meta">4:52 / 12:48</span></div>`),
+    hLine('change', 'edit', chg('Перегляд, %', '—', '86'), '28.10 21:40 · ключ API «Make: вебінари»'),
+    hLine('change', 'stage', chg('Етап', 'Новий лід', 'Був на вебінарі'), '28.10 21:40 · ключ API «Make: вебінари»'),
+    hCard('note', 'reg', '', '26.10 19:02 · Make: вебінари (API)', formInfo([['Formtype', 'webinar_registration'], ['webinar', 'AI-контент з нуля, 28.10 19:00'], ['name', 'Ірина Мельник'], ['phone', '<span class="num">+380001234567</span>'], ['email', 'iryna.melnyk@example.com'], ['utm_source', 'facebook'], ['utm_medium', 'paid_social'], ['utm_campaign', 'ai_content_webinar_oct'], ['utm_content', 'reels_v2'], ['fbclid', 'IwAR0FAKEq9Zt3mVb7']]), { full: true }),
+    hLine('change', 'plus', 'Угоду створено з реєстрації на вебінар', '26.10 19:02 · ключ API «Make: вебінари»'),
   );
-  const count = (k) => items.filter((h) => k === 'all' || h.startsWith(`<li data-k="${k}"`)).length;
-  const chips = [['all', 'Усе'], ['note', 'Нотатки'], ['task', 'Задачі'], ['file', 'Файли'], ['change', 'Зміни']];
-  return `<section class="panel d-hist" aria-labelledby="h-t"><div class="sh"><h2 class="h2" id="h-t">Історія</h2>
-    <div class="hchips" role="group" aria-label="Фільтр історії">${chips.map(([k, l]) => `<button type="button" class="fchip nox" aria-pressed="${k === 'all'}" data-act="hfilter" data-k="${k}">${l} <span class="meta" data-n="${k}">${count(k)}</span></button>`).join('')}</div></div>
-    <ul class="hist">${items.join('')}</ul></section>`;
+  const n = (k) => items.filter((h) => h.startsWith(`<li data-k="${k}"`)).length;
+  const chips = [['all', 'Усе'], ['note', `Нотатки (<span data-n="note">${n('note')}</span>)`], ['task', `Задачі (<span data-n="task">${n('task')}</span>)`], ['call', 'Дзвінки'], ['file', 'Файли'], ['pay', 'Рахунки'], ['change', 'Журнал змін']];
+  return `<section class="dv-sec tog-box" aria-label="Історія"><div class="dv-sh">${chevB('Історія', true, 'sec-t')}</div>
+    <div class="tog-b"><div class="hch" role="group" aria-label="Фільтр історії">${chips.map(([k, l]) => `<button type="button" aria-pressed="${k === 'all'}" data-act="hfilter" data-k="${k}">${l}</button>`).join('')}<button type="button" disabled title="З’явиться в наступній версії">Email</button><button type="button" disabled title="З’явиться в наступній версії">WhatsApp</button><button type="button" disabled title="З’явиться в наступній версії">Документи</button></div>
+    <ul class="tlx hist">${items.join('')}</ul></div></section>`;
 }
 
 function dealPage(s) {
   const won = s === 'won', lost = s === 'lost', arch = s === 'archived', dup = s === 'duplicate', val = s === 'validation';
   const amount = won ? 1290 : 1190;
-  D.cur = won ? 7 : 5;
-  return `${dealHeader(s, amount, D.cur)}
-  ${arch || dup || lost || val ? `<div class="col" style="gap:10px;margin:-6px 0 18px">
-    ${arch ? `<div class="notice">${ic('arch')}<span class="grow">Угода в архіві: не видна на канбані й у робочих списках, але є в пошуку та звітах. Нова реєстрація цієї людини створить нову угоду.</span></div>` : ''}
-    ${dup ? `<div class="notice"><span class="grow"><b style="font-weight:500">Можливий дубль.</b> Телефон з нової реєстрації збігається з контактом «Ірина Мельник», email — з контактом «Iryna M.» (№ 3302). Об’єднайте їх, щоб історія була в одному місці.</span><button type="button" class="btn ghost sm" data-act="go" data-to="contact" data-st="duplicate">${ic('merge', 14)}Порівняти й об’єднати</button></div>` : ''}
-    ${lost ? '<div class="notice calm" style="background:var(--raised);box-shadow:inset 2px 0 0 var(--danger)"><span class="grow">Причина програшу: <b style="font-weight:500">АІ 2 · Після вебінару → Дорого</b>. Коментар: «Повернеться після Нового року».</span></div>' : ''}
-    ${val ? '<div class="notice" role="alert"><span class="grow">Угоду не перенесено на етап «Сплатив бронювання»: заповніть поля <b style="font-weight:500">Пакет</b> і <b style="font-weight:500">Тип закриття</b> (розділ «Деталі»). Ці правила діють і для людей, і для запитів API.</span></div>' : ''}
-  </div>` : ''}
-  <div class="deal">
-    ${dealComposer(arch)}
-    ${dealSide(s, amount)}
-    ${dealNext(won || lost || arch)}
-    ${dealHistory(s)}
+  D.cur = won ? 7 : 5; D.s = s;
+  const notes = [
+    arch && `<div class="notice">${ic('arch')}<span class="grow">Угода в архіві: не видна на канбані й у робочих списках, але є в пошуку та звітах. Нова реєстрація цієї людини створить нову угоду.</span></div>`,
+    dup && `<div class="notice"><span class="grow"><b class="w5">Можливий дубль.</b> Телефон з нової реєстрації збігається з контактом «Ірина Мельник», email — з контактом «Iryna M.» (№ 3302). Об’єднайте їх, щоб історія була в одному місці.</span><button type="button" class="dv-btn ghost-b" data-act="go" data-to="contact" data-st="duplicate">${ic('merge', 14)}Порівняти й об’єднати</button></div>`,
+    lost && '<div class="notice calm lost-n"><span class="grow">Причина програшу: <b class="w5">АІ 2 · Після вебінару → Дорого</b>. Коментар: «Повернеться після Нового року».</span></div>',
+    val && '<div class="notice" role="alert"><span class="grow">Угоду не перенесено на етап «Сплатив бронювання»: заповніть поля <b class="w5">Пакет</b> і <b class="w5">Тип закриття</b> (блоки «Заповніть» і «Деталі»). Ці правила діють і для людей, і для запитів API.</span></div>',
+  ].filter(Boolean);
+  return `<div class="dv">
+    ${dealHeader(s, D.cur)}
+    ${notes.length ? `<div class="dv-notes">${notes.join('')}</div>` : ''}
+    <div class="dv-body">
+      ${dealLeft(s, amount)}
+      <div class="dv-right"><div class="dv-rin">
+        ${dealComposer(arch)}
+        ${dealFocus(won || lost || arch || s === 'nofocus', arch)}
+        ${dealHistory(s)}
+      </div></div>
+    </div>
   </div>`;
 }
 
-const dealLoading = () => `<div class="dh" aria-busy="true" style="margin-top:20px"><span class="sk" style="font-size:13px;width:220px"><span class="bar"></span></span><span class="sk" style="font-size:40px;width:min(560px,100%)"><span class="bar"></span></span><span class="sk" style="font-size:22px;width:min(420px,90%)"><span class="bar"></span></span><span class="bar" style="height:44px;border-radius:var(--r-inner)"></span></div>
-  <div class="deal" aria-busy="true"><div class="panel d-comp" style="padding:16px"><span class="bar tall"></span></div>
-    <div class="d-side">${[4, 4, 3, 5].map((n) => `<div class="dsec" style="padding:14px 16px"><span class="sk" style="font-size:15px"><span class="bar" style="--w:40%"></span>${Array.from({ length: n }, (_, i) => `<span class="bar" style="--w:${88 - (i % 3) * 14}%"></span>`).join('')}</span></div>`).join('')}</div>
-    <div class="d-next">${generic('loading')}</div></div>`;
+const dealLoading = () => `<div class="dv" aria-busy="true"><header class="dv-head"><div class="dv-r1"><span class="sk" style="font-size:25px;width:min(420px,70%)"><span class="bar"></span></span></div><span class="bar" style="height:24px;margin-top:14px;border-radius:var(--r-inner)"></span><span class="sk" style="font-size:12px;width:160px;margin-top:10px"><span class="bar"></span></span></header>
+  <div class="dv-body"><aside class="dv-left"><div class="dv-filter"><span class="bar" style="height:32px;border-radius:var(--r-chip)"></span></div>${[3, 8, 6].map((n) => `<div class="blk"><div class="blk-h"><span class="sk" style="font-size:16px;width:40%"><span class="bar"></span></span></div><div class="blk-b"><span class="sk" style="font-size:14px">${Array.from({ length: n }, (_, i) => `<span class="bar" style="--w:${86 - (i % 3) * 14}%"></span>`).join('')}</span></div></div>`).join('')}</aside>
+  <div class="dv-right"><div class="dv-rin"><span class="bar" style="height:101px;border-radius:var(--r-inner)"></span><span class="sk" style="font-size:16px;width:120px"><span class="bar"></span></span>${[0, 1, 2].map(() => '<span class="bar" style="height:84px;border-radius:var(--r-inner)"></span>').join('')}</div></div></div></div>`;
 
 def('deal', {
   title: 'Картка угоди', group: '3. Угоди', nav: 'kanban', what: 'угоду',
-  states: [['default', 'Відкрита'], ['won', 'Виграна'], ['lost', 'Програна'], ['archived', 'В архіві'], ['duplicate', 'Можливий дубль'], ['validation', 'Обов’язкові з етапу'], ['invoice', 'Рахунок: форма'], ['invoice-done', 'Рахунок створено'], ['loading', 'Завантаження'], ['error', 'Помилка'], ['forbidden', 'Немає доступу'], ['offline', 'Офлайн']],
+  states: [['default', 'Відкрита'], ['won', 'Виграна'], ['lost', 'Програна'], ['archived', 'В архіві'], ['duplicate', 'Можливий дубль'], ['validation', 'Обов’язкові з етапу'], ['nofocus', 'Фокус порожній'], ['invoice', 'Рахунок: форма'], ['invoice-done', 'Рахунок створено'], ['loading', 'Завантаження'], ['error', 'Помилка'], ['forbidden', 'Немає доступу'], ['offline', 'Офлайн']],
   render(s) {
     if (s === 'loading') return dealLoading();
-    if (s === 'forbidden') return `<section class="panel"><div class="empty"><p class="meta" style="margin-bottom:10px"><b>403</b></p><h2 class="t">Клієнт уже в роботі в Марії Бондар.</h2><p class="x">Угода № 4510 поза вашим охопленням «свої». Вміст угоди не показуємо. Якщо клієнт звернувся саме до вас, напишіть Марії або тімліду Дмитру Ткачу.</p><div class="a"><a class="btn ghost sm" href="#/kanban/default">До воронки</a></div></div></section>`;
+    if (s === 'forbidden') return `<section class="panel" style="margin-top:12px"><div class="empty"><p class="meta" style="margin-bottom:10px"><b>403</b></p><h2 class="t">Клієнт уже в роботі в Марії Бондар.</h2><p class="x">Угода № 4510 поза вашим охопленням «свої». Вміст угоди не показуємо. Якщо клієнт звернувся саме до вас, напишіть Марії або тімліду Дмитру Ткачу.</p><div class="a"><a class="btn ghost sm" href="#/kanban/default">До воронки</a></div></div></section>`;
     if (s === 'error') return null;
     return dealPage(s);
   },
   after(s) {
-    const sb = $('.stagebar'), cur = $('.sg.cur');
+    const sb = $('.dv-stages'), cur = $('.sg.cur');
     if (sb && cur && sb.scrollWidth > sb.clientWidth) sb.scrollLeft += cur.getBoundingClientRect().left - sb.getBoundingClientRect().left - 40;
-    // on a phone the sections come as collapsed blocks under the composer; the one the state is about stays open
-    const keep = { duplicate: 'contact', validation: 'details' }[s];
-    if (innerWidth <= 860) $$('.dsec').forEach((d) => { d.open = d.dataset.sec === 'sum' || d.dataset.sec === keep; });
-    $('#nt')?.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ACT.note(); } });
+    /* on a phone the left blocks come first, collapsed into a 56px index; the one the state is about stays open */
+    const keep = { duplicate: 'contact', validation: 'fill' }[s] || 'fill';
+    if (innerWidth <= 860) $$('.blk[data-blk]').forEach((b) => setOpen(b, b.dataset.blk === keep));
+    const nt = $('#nt');
+    nt?.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ACT.note(); } });
+    nt?.addEventListener('focus', () => nt.closest('.cmp').classList.add('open'));
+    nt?.addEventListener('blur', () => setTimeout(() => { if (!nt.value.trim() && !nt.closest('.cmp').contains(document.activeElement)) nt.closest('.cmp').classList.remove('open'); }, 150));
+    $('#ffilter')?.addEventListener('input', (e) => filterFields(e.target.value));
+    if (s === 'archived') $$('.dv-left .fv').forEach((b) => { b.disabled = true; }); // archived deal: fields are read-only
     if (s === 'invoice' || s === 'invoice-done') invoiceDialog(s === 'invoice-done');
     if (s === 'validation') requiredDialog(DEAL_T, STAGES[6], () => moveStage(6), true);
   },
 });
+function setOpen(box, open) {
+  const t = $(':scope > .blk-h > .tog, :scope > .fgrp-h > .tog, :scope > .dv-sh > .tog', box), b = $(':scope > .tog-b', box);
+  if (!t || !b) return;
+  t.setAttribute('aria-expanded', String(open)); b.hidden = !open;
+}
+function filterFields(q) {
+  const left = $('.dv-left'), v = q.trim().toLowerCase();
+  left.classList.toggle('filtering', !!v);
+  $$('.dfl', left).forEach((r) => { r.hidden = !!v && !$('.k', r).textContent.toLowerCase().includes(v); });
+  $$('.fgrp', left).forEach((g) => { g.hidden = !!v && !$$('.dfl', g).some((r) => !r.hidden); });
+  $$('.blk', left).forEach((b) => { b.hidden = !!v && !$$('.dfl', b).some((r) => !r.hidden); });
+  $('.ff-none', left).hidden = !v || $$('.blk', left).some((b) => !b.hidden);
+}
 function invoiceDialog(done) {
   const d = openDialog(`${dlgHead('Виставити рахунок', 'WayForPay. Сума у валюті угоди: EUR.')}
     <div class="dlg-b" id="invb">${done ? invoiceDone() : `
@@ -414,17 +497,18 @@ function invoiceDialog(done) {
     <div class="dlg-f">${done ? '<button class="btn primary sm" data-close>Готово</button>' : '<button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" id="invgo">Створити рахунок</button>'}</div>`);
   $('#invgo', d)?.addEventListener('click', (e) => {
     const b = e.currentTarget; b.disabled = true; b.setAttribute('aria-busy', 'true'); b.textContent = 'Створюємо…';
-    setTimeout(() => { $('#invb', d).innerHTML = invoiceDone(); $('.dlg-f', d).innerHTML = '<button class="btn primary sm" data-close>Готово</button>'; toast('Рахунок на 490 € створено.'); }, 900);
+    setTimeout(() => { $('#invb', d).innerHTML = invoiceDone(); $('.dlg-f', d).innerHTML = '<button class="btn primary sm" data-close>Готово</button>'; toast('Рахунок на 490 € створено.'); histAdd('pay', 'pay', 'Виставлено рахунок <span class="money">490 €</span> · WayForPay, дійсний до 07.11'); }, 900);
   });
 }
-const invoiceDone = () => `<div class="secret"><p class="secret-title">Рахунок на <span class="num">490</span> € створено</p><p class="ink2" style="font-size:14px">Надішліть посилання клієнтці. Воно дійсне до 07.11.2026 23:59.</p>
+const invoiceDone = () => `<div class="secret"><p class="secret-title">Рахунок на <span class="num">490</span> € створено</p><p class="ink2" style="font-size:14px">Надішліть посилання клієнтці. Воно дійсне до 07.11.2026 23:59.</p>
   <div class="copy-row"><input class="input mono" readonly value="https://secure.wayforpay.com/invoice/i7f2c9a41d" aria-label="Посилання на оплату"><button class="btn ghost sm" data-act="copy">${ic('copy', 14)}Скопіювати</button></div></div>`;
-const closePops = () => { $$('.pop').forEach((p) => p.remove()); $$('[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false')); };
-function histAdd(k, icn, what, extra = '') {
+const closePops = () => { $$('.pop').forEach((p) => p.remove()); $$('[aria-expanded="true"][aria-haspopup]').forEach((b) => b.setAttribute('aria-expanded', 'false')); };
+function histCounts() { $$('[data-n]').forEach((n) => { n.textContent = $$('.hist > li').filter((li) => li.dataset.k === n.dataset.n).length; }); }
+function histAdd(k, icn, body, { line = false, full = false } = {}) {
   const ul = $('.hist');
   if (!ul) return;
-  ul.insertAdjacentHTML('afterbegin', hItem(k, icn, '', what, `<span>щойно</span>${ME}`, extra, 'fresh'));
-  $$('[data-n]').forEach((n) => { n.textContent = $$('.hist > li').filter((li) => n.dataset.n === 'all' || li.dataset.k === n.dataset.n).length; });
+  ul.insertAdjacentHTML('afterbegin', line ? hLine(k, icn, body, `щойно · ${ME}`, 'fresh') : hCard(k, icn, '', `щойно · ${ME}`, body, { full, cls: 'fresh' }));
+  histCounts();
   const on = $('[data-act="hfilter"][aria-pressed="true"]')?.dataset.k;
   if (on && on !== 'all' && on !== k) ul.firstElementChild.hidden = true;
 }
@@ -437,25 +521,56 @@ function moveStage(i) {
     x.style.setProperty('--k', between ? Math.abs(j - from) : 0);
     x.classList.toggle('done', j < i); x.classList.toggle('cur', j === i); x.classList.remove('landed');
     if (j === i) x.setAttribute('aria-current', 'step'); else x.removeAttribute('aria-current');
-    const d = x.querySelector('.d');
-    d.classList.toggle('hov', j > i);
-    d.textContent = j > i ? 'перемістити' : j === i ? '0 дн.' : `${DEAL_DAYS[j]} дн.`;
+    $('span', x).textContent = j === i ? `${dayW(0)} · ${PATH[j]}` : PATH[j];
+    x.title = j < i ? `${PATH[j]}: ${dayW(DEAL_DAYS[j])} на етапі` : j === i ? `${PATH[j]}: ${dayW(0)} на етапі` : PATH[j];
   });
+  $('#d-stage').textContent = PATH[i];
   const c = $('.sg.cur');
   setTimeout(() => { c.classList.add('landed'); }, Math.abs(i - from) * 45 + 120);
-  histAdd('change', 'stage', chg('Етап', PATH[from], PATH[i]));
+  histAdd('change', 'stage', chg('Етап', PATH[from], PATH[i]), { line: true });
   toast(`Етап змінено на «${PATH[i]}».`, { action: 'Скасувати' });
 }
+function setAmount(v) {
+  const was = $('#d-sum').textContent;
+  $('#d-sum').textContent = `${fmt(v)} €`;
+  $$('.sr-pay .money')[1].textContent = `${fmt(v)} €`;
+  if (v === 1290) { $('#sumhint')?.remove(); $('#sumwarn')?.remove(); }
+  histAdd('change', 'edit', chg('Сума угоди', was, `${fmt(v)} €`), { line: true });
+}
+const subToggle = (b, id) => { const s = $('#' + id), open = s.hidden; s.hidden = !open; $$(`[aria-controls="${id}"]`).forEach((x) => x.setAttribute('aria-expanded', String(open))); };
 Object.assign(ACT, {
-  invoice: () => invoiceDialog(false),
-  'apply-sum': () => {
-    $('#d-amt').textContent = '1 290 €'; $('#d-sum').textContent = '1 290 €';
-    $('.dh-amount .meta').textContent = `≈ ${fmt(1290 * RATES.EUR)} ₴`;
-    $('#sumhint')?.remove();
-    histAdd('change', 'edit', chg('Сума угоди', '1 190 €', '1 290 €'));
-    toast('Суму угоди змінено на 1 290 €.', { action: 'Скасувати' });
+  'sub-me': (b) => { closePops(); $('[data-act="subs"]').firstChild.textContent = '2 підписники'; toast('Ви підписалися на угоду.'); },
+  stub: () => { closePops(); toast('У прототипі ця дія не реалізована.'); },
+  fill: (b) => {
+    const f = b.closest('.dfl').dataset.f, t = $(`.blk[data-blk="details"] .dfl[data-f="${f}"] .fv`);
+    if (!t) return;
+    setOpen(t.closest('.blk'), true); setOpen(t.closest('.fgrp'), true);
+    t.scrollIntoView({ behavior: S.calm ? 'auto' : 'smooth', block: 'center' });
+    ACT.fedit(t);
   },
-  path: (b) => { const i = +b.dataset.i; if (i === D.cur) return; if (i >= 6 && i > D.cur) { requiredDialog(DEAL_T, STAGES[6], () => moveStage(i)); return; } moveStage(i); },
+  tog: (b) => setOpen(b.closest('.tog-box'), b.getAttribute('aria-expanded') !== 'true'),
+  invoice: () => invoiceDialog(false),
+  'prod-toggle': (b) => subToggle(b, 'prod-sub'),
+  'pay-toggle': (b) => subToggle(b, 'pay-sub'),
+  'apply-sum': () => { setAmount(1290); toast('Суму угоди змінено на 1 290 €.', { action: 'Скасувати' }); },
+  path: (b) => { closePops(); const i = +b.dataset.i; if (i === D.cur) return; if (i >= 6 && i > D.cur && D.s !== 'won') { requiredDialog(DEAL_T, STAGES[6], () => moveStage(i)); return; } moveStage(i); },
+  'pick-stage': (b) => togglePop(b, `<div class="glabel meta">Воронка</div><button class="opt" role="menuitemradio" aria-selected="true">ALPI</button><button class="opt" role="menuitemradio" aria-selected="false" disabled style="opacity:.55">Платформа (допродаж)<span class="meta" style="margin-left:auto">через допродаж</span></button><hr><div class="glabel meta">Етап</div>${PATH.map((n, i) => `<button class="opt" role="menuitemradio" aria-selected="${i === D.cur}" data-act="path" data-i="${i}">${n}${STAGES[i].required ? `<span class="meta" style="margin-left:auto">${ic('lock', 12)}</span>` : ''}</button>`).join('')}`),
+  subs: (b) => togglePop(b, `<div class="glabel meta">Підписники угоди</div><div class="opt" style="cursor:default"><span class="ava" aria-hidden="true">ІЛ</span>Ірина Лисенко<span class="meta" style="margin-left:auto">тімлід</span></div><hr><button class="opt" role="menuitem" data-act="sub-me">${ic('plus')}Підписатися самій</button>`),
+  'view-sw': (b) => togglePop(b, `<button class="opt" role="menuitemradio" aria-selected="true">Детальний вигляд</button><button class="opt" role="menuitemradio" aria-selected="false" disabled style="opacity:.55">Компактний вигляд<span class="soon-t">скоро</span></button>`, true),
+  'blk-more': (b) => togglePop(b, `<button class="opt" role="menuitem" data-act="stub">${ic('pen')}Налаштувати поля</button><button class="opt" role="menuitem" data-act="copy">${ic('copy')}Копіювати значення</button>`, true),
+  'tc-more': (b) => togglePop(b, `<button class="opt" role="menuitem" data-act="copy">${ic('copy')}Копіювати посилання</button>`, true),
+  prob: (b) => togglePop(b, `<div class="glabel meta">Ймовірність виграшу</div>${[10, 25, 50, 75, 90].map((p) => `<button class="opt" role="menuitem" data-act="prob-set" data-p="${p}"><span class="num">${p} %</span></button>`).join('')}`),
+  'prob-set': (b) => { closePops(); const x = $('#d-prob'); x.textContent = `Ймовірність ${b.dataset.p} %`; x.classList.add('set'); histAdd('change', 'edit', chg('Ймовірність', '—', `${b.dataset.p} %`), { line: true }); toast(`Ймовірність: ${b.dataset.p} %.`); },
+  'add-part': (b) => togglePop(b, `<div class="glabel meta">Учасники угоди</div><button class="opt" role="menuitem" data-act="part-set">${ic('user')}Андрій Мельник<span class="meta" style="margin-left:auto">співрішення</span></button><button class="opt" role="menuitem" data-act="stub">${ic('plus')}Новий контакт</button>`, true),
+  'part-set': () => { closePops(); toast('Учасника «Андрій Мельник» додано.'); },
+  'org-attach': () => openDialog(`${dlgHead('Прив’язати організацію', 'Угода «Ірина Мельник — AI-контент PRO».')}<div class="dlg-b">${field('oq', 'Організація', inp('oq', 'ФОП Мельник', { ph: 'Назва або ЄДРПОУ' }), { hint: 'Знайдено 1: ФОП Мельник І. В., Київ.' })}</div><div class="dlg-f"><button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" data-act="org-ok">Прив’язати</button></div>`),
+  'org-ok': () => {
+    closeDialogs();
+    $('.sr-org').innerHTML = `${ic('org', 16)}<div class="sr-v"><a href="#/org/default">ФОП Мельник І. В.</a></div>`;
+    $('#org-body').innerHTML = `<div class="sr">${ic('org', 16)}<div class="sr-v"><a href="#/org/default" class="nm">ФОП Мельник І. В.</a></div></div>${fld('city', 'Місто', 'Київ')}${fld('odeals', 'Угоди', '1 відкрита', { ro: true })}`;
+    histAdd('change', 'org', chg('Організація', '—', 'ФОП Мельник І. В.'), { line: true });
+    toast('Організацію прив’язано.');
+  },
   'd-won': () => wonDialog(DEAL_T),
   'd-lost': () => lostDialog(DEAL_T),
   'd-arch': () => { closePops(); openDialog(`${dlgHead('Перенести угоду в архів?')}<div class="dlg-b"><p class="ink2" style="font-size:14px">Угода зникне з канбана й робочих списків, але залишиться в пошуку та звітах. Статус «відкрита» не зміниться.</p></div><div class="dlg-f"><button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" data-act="go" data-to="deal" data-st="archived">В архів</button></div>`); },
@@ -469,56 +584,107 @@ Object.assign(ACT, {
   unarch: () => { go('deal', 'default'); toast('Угоду повернено з архіву.'); },
   reopen: () => { go('deal', 'default'); toast('Угоду відкрито знову.'); },
   upsell: () => { closePops(); toast('Створено угоду в воронці «Платформа (допродаж)» з тим самим контактом.'); },
-  transfer: () => openDialog(`${dlgHead('Передати угоду')}<div class="dlg-b">${field('tr', 'Новий відповідальний', sel('tr', ['Андрій Шевчук', 'Ірина Лисенко', 'Без відповідального (загальна черга)'], 'Андрій Шевчук'))}</div><div class="dlg-f"><button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" data-close data-act="copy">Передати</button></div>`),
-  'edit-title': (b) => {
-    const h = $('#d-title', b);
+  transfer: () => openDialog(`${dlgHead('Передати угоду')}<div class="dlg-b">${field('tr', 'Новий власник', sel('tr', ['Андрій Шевчук', 'Ірина Лисенко', 'Без відповідального (загальна черга)'], 'Андрій Шевчук'))}</div><div class="dlg-f"><button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" data-close data-act="copy">Передати</button></div>`),
+  'edit-title': (h) => {
     if (h.isContentEditable) return;
     const before = h.textContent;
-    b.classList.add('editing'); h.contentEditable = 'true'; h.focus();
+    h.contentEditable = 'true'; h.focus();
     getSelection().selectAllChildren(h);
     const done = (save) => {
-      h.contentEditable = 'false'; b.classList.remove('editing');
+      h.contentEditable = 'false';
       const now = h.textContent.trim();
       if (!save || !now) { h.textContent = before; return; }
-      if (now !== before) { histAdd('change', 'edit', chg('Назва', esc(before), esc(now))); toast('Назву угоди змінено.'); }
+      if (now !== before) { histAdd('change', 'edit', chg('Назва', esc(before), esc(now)), { line: true }); toast('Назву угоди змінено.'); }
     };
     h.addEventListener('keydown', function k(e) { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); h.removeEventListener('keydown', k); done(e.key === 'Enter'); h.blur(); } });
     h.addEventListener('blur', () => { if (h.isContentEditable) done(true); }, { once: true });
   },
-  'edit-amount': () => openDialog(`${dlgHead('Сума угоди', 'Сума по товарах: 1 290 €. Зміна потрапить в історію угоди.')}<div class="dlg-b"><div class="grid2">${field('ea', 'Сума', inp('ea', $('#d-amt').textContent.replace(/[^\d]/g, ''), { cls: 'num' }))}${field('ec', 'Валюта', sel('ec', ['EUR', 'UAH', 'USD'], 'EUR'))}</div></div><div class="dlg-f"><button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" data-act="ea-ok">Зберегти</button></div>`),
+  'edit-amount': () => openDialog(`${dlgHead('Сума угоди', 'Сума по товарах: 1 290 €. Зміна потрапить в історію угоди.')}<div class="dlg-b"><div class="grid2">${field('ea', 'Сума', inp('ea', $('#d-sum').textContent.replace(/[^\d]/g, ''), { cls: 'num' }))}${field('ec', 'Валюта', sel('ec', ['EUR', 'UAH', 'USD'], 'EUR'))}</div></div><div class="dlg-f"><button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" data-act="ea-ok">Зберегти</button></div>`),
   'ea-ok': () => {
-    const v = +$('#ea').value.replace(/\D/g, ''), was = $('#d-amt').textContent;
+    const v = +$('#ea').value.replace(/\D/g, '');
     closeDialogs();
-    if (!v || `${fmt(v)} €` === was) return;
-    $('#d-amt').textContent = `${fmt(v)} €`; $('#d-sum').textContent = `${fmt(v)} €`; $('.dh-amount .meta').textContent = `≈ ${fmt(v * RATES.EUR)} ₴`;
-    if (v === 1290) $('#sumhint')?.remove();
-    histAdd('change', 'edit', chg('Сума угоди', was, `${fmt(v)} €`));
+    if (!v || `${fmt(v)} €` === $('#d-sum').textContent) return;
+    setAmount(v);
     toast(`Суму угоди змінено на ${fmt(v)} €.`);
   },
-  'add-label': (b) => togglePop(b, `<div class="glabel meta">Мітки угоди</div>${[['VIP', 'acc'], ['Розстрочка', ''], ['Партнер', 'ask']].map(([l, c]) => `<button class="opt" role="menuitem" data-act="pick-label" data-l="${l}" data-c="${c}"><span class="ltag" data-c="${c}"><i aria-hidden="true"></i>${l}</span></button>`).join('')}`),
-  'pick-label': (b) => { closePops(); $('.dh .labels .me-wrap').insertAdjacentHTML('beforebegin', `<span class="ltag" data-c="${b.dataset.c}" style="animation:actum-lift var(--dur-base) var(--ease)"><i aria-hidden="true"></i>${b.dataset.l}</span>`); toast(`Мітку «${b.dataset.l}» додано.`); },
+  'add-label': (b) => togglePop(b, `<div class="glabel meta">Мітки угоди</div>${[['Гаряча', 'ask'], ['VIP', 'acc'], ['Розстрочка', ''], ['Партнер', 'ask']].map(([l, c]) => `<button class="opt" role="menuitem" data-act="pick-label" data-l="${l}" data-c="${c}"><span class="ltag" data-c="${c}"><i aria-hidden="true"></i>${l}</span></button>`).join('')}`),
+  'pick-label': (b) => {
+    closePops();
+    const box = $('#d-labels'), add = $('[data-act="add-label"]', box);
+    box.insertAdjacentHTML('afterbegin', `<span class="ltag" data-c="${b.dataset.c}" style="animation:actum-lift var(--dur-base) var(--ease)"><i aria-hidden="true"></i>${b.dataset.l}</span>`);
+    add.textContent = '+ мітка';
+    toast(`Мітку «${b.dataset.l}» додано.`);
+  },
+  fedit: (b) => {
+    const row = b.closest('.dfl'), label = $('.k', row).textContent.trim(), opts = b.dataset.opts?.split('|');
+    const was = b.classList.contains('empty') ? '—' : b.textContent.trim();
+    const ed = document.createElement(opts ? 'select' : 'input');
+    ed.className = (opts ? 'select' : 'input') + ' sm fe'; ed.setAttribute('aria-label', label);
+    if (opts) ed.innerHTML = `<option value="">Не вибрано</option>${opts.map((o) => `<option ${o === was ? 'selected' : ''}>${o}</option>`).join('')}`; else ed.value = was === '—' ? '' : was;
+    b.hidden = true; b.after(ed); ed.focus();
+    let closed = false;
+    const finish = (save) => {
+      if (closed) return; closed = true;
+      const now = ed.value.trim(); ed.remove(); b.hidden = false; b.focus();
+      if (!save || now === (was === '—' ? '' : was)) return;
+      b.innerHTML = (now || '—') + ic('pen', 14); b.classList.toggle('empty', !now);
+      if (now) { $$(`.dfl.need[data-f="${row.dataset.f}"]`).forEach((r) => { if (r.closest('.blk.fill')) r.remove(); else r.classList.remove('need'); }); }
+      const fill = $('.blk.fill');
+      if (fill && !$('.dfl', fill)) fill.remove();
+      const g = row.closest('.fgrp');
+      if (g) { const c = $('.cnt', g), [f, t] = c.textContent.split('/').map(Number); c.textContent = `${f + (was === '—' ? 1 : 0) - (now ? 0 : 1)}/${t}`; }
+      histAdd('change', 'edit', chg(esc(label), esc(was), esc(now || '—')), { line: true });
+      toast(`Поле «${esc(label)}» збережено.`);
+    };
+    ed.addEventListener('change', () => opts && finish(true));
+    ed.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } if (e.key === 'Escape') { e.preventDefault(); finish(false); } });
+    ed.addEventListener('blur', () => finish(true));
+  },
   ctab: (b) => {
     const t = b.dataset.t;
-    $$('.d-comp .tab[data-t]').forEach((x) => x.setAttribute('aria-selected', String(x.dataset.t === t)));
-    $$('.d-comp .cpane').forEach((p) => { p.hidden = p.dataset.pane !== t; });
-    const pane = $(`.d-comp .cpane[data-pane="${t}"]`);
+    $$('.cmp .ctab[data-t]').forEach((x) => x.setAttribute('aria-selected', String(x.dataset.t === t)));
+    $$('.cmp .cpane').forEach((p) => { p.hidden = p.dataset.pane !== t; });
+    const pane = $(`.cmp .cpane[data-pane="${t}"]`);
     pane.style.animation = 'none'; void pane.offsetWidth; pane.style.animation = 'actum-fade var(--dur-base) var(--ease)';
-    if (!b.closest('.d-comp')) { $('.d-comp').scrollIntoView({ behavior: S.calm ? 'auto' : 'smooth', block: 'center' }); setTimeout(() => $('#ct4')?.focus(), 300); }
+    if (!b.closest('.cmp')) { $('.cmp').scrollIntoView({ behavior: S.calm ? 'auto' : 'smooth', block: 'start' }); setTimeout(() => $('#ct4')?.focus({ preventScroll: true }), 300); }
   },
-  note: () => { const t = $('#nt'); if (!t.value.trim()) { t.setAttribute('aria-invalid', 'true'); toast('Нотатка порожня.', { tone: 'error' }); return; } t.removeAttribute('aria-invalid'); histAdd('note', 'note', 'Нотатка', `<div class="note">${esc(t.value)}</div>`); t.value = ''; toast('Нотатку збережено.'); },
+  'note-cancel': () => { const t = $('#nt'); t.value = ''; t.removeAttribute('aria-invalid'); t.closest('.cmp').classList.remove('open'); },
+  note: () => { const t = $('#nt'); if (!t.value.trim()) { t.setAttribute('aria-invalid', 'true'); toast('Нотатка порожня.', { tone: 'error' }); return; } t.removeAttribute('aria-invalid'); histAdd('note', 'note', esc(t.value), { full: true }); t.value = ''; t.closest('.cmp').classList.remove('open'); toast('Нотатку збережено.'); },
   ctask: () => {
     const subj = $('#ct4').value.trim() || $('#ct1').value, when = `${$('#ct2').value.slice(0, 5)} ${$('#ct3').value}`.trim();
-    $('#nx-list').insertAdjacentHTML('beforeend', nxRow(['future', 'task', subj, $('#ct1').value.toLowerCase(), when], true));
-    histAdd('task', 'task', `Задача «${esc(subj)}» на ${esc(when)}`);
+    $('.focus-empty')?.remove();
+    $('#nx-list').insertAdjacentHTML('beforeend', fItem(['future', 'task', subj, $('#ct1').value.toLowerCase(), when], true));
+    histAdd('change', 'task', `Заплановано задачу «${esc(subj)}» на ${esc(when)}`, { line: true });
     $('#ct4').value = ''; toast('Задачу створено.');
   },
-  cfile: () => { histAdd('file', 'file', 'Файл додано', '<a class="file" href="#" onclick="return false"><span class="ext">PDF</span><span class="ellip">Програма_AI-відео.pdf</span><span class="meta">1,2 МБ</span></a>'); toast('Файл «Програма_AI-відео.pdf» додано.'); },
+  cfile: () => { histAdd('file', 'file', '<a class="file" href="#" onclick="return false"><span class="ext">PDF</span><span class="ellip">Програма_AI-відео.pdf</span><span class="meta">1,2 МБ</span></a>'); toast('Файл «Програма_AI-відео.pdf» додано.'); },
   'nx-done': (b) => {
-    const row = b.closest('.nx'); row.classList.toggle('done', b.checked);
+    const row = b.closest('.fx'); row.classList.toggle('done', b.checked);
     if (!b.checked) return;
-    histAdd('task', 'check', `Задачу виконано: «${esc(row.querySelector('.ttl').textContent)}»`);
-    $('.d-next .strip')?.remove();
+    histAdd('task', 'check', `<s class="ink3">${esc($('.ttl', row).textContent)}</s> · задачу виконано`);
+    $('.dv-sec .strip')?.remove();
     $('#nx-list').insertAdjacentHTML('afterend', `<div class="strip"><p>Задачу виконано. Запланувати наступну?</p><div class="actions"><button type="button" class="btn primary sm" data-act="ctab" data-t="task">Запланувати</button><button type="button" class="btn quiet sm" onclick="this.closest('.strip').remove()">Ні, дякую</button></div></div>`);
+  },
+  xall: (b) => { const on = b.getAttribute('aria-checked') !== 'true'; b.setAttribute('aria-checked', String(on)); $$('.dv-right .tc').forEach((c) => c.classList.toggle('folded', !on)); $$('.dv-right [data-act="tc-fold"]').forEach((x) => x.setAttribute('aria-pressed', String(!on))); },
+  'tc-fold': (b) => { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Розгорнути' : 'Згорнути'); b.title = b.getAttribute('aria-label'); b.closest('.tc').classList.toggle('folded', on); },
+  'tc-comment': (b) => {
+    const card = b.closest('.tc');
+    if ($('.tc-cm', card)) { $('.tc-cm textarea', card).focus(); return; }
+    $('.tc-b', card).insertAdjacentHTML('afterend', `<div class="tc-cm"><textarea class="textarea" rows="2" aria-label="Коментар" placeholder="Коментар до запису"></textarea><div class="foot"><button type="button" class="btn quiet sm" onclick="this.closest('.tc-cm').remove()">Скасувати</button><button type="button" class="btn primary sm" data-act="tc-cm-ok">Коментувати</button></div></div>`);
+    $('.tc-cm textarea', card).focus();
+  },
+  'tc-cm-ok': (b) => { const box = b.closest('.tc-cm'), t = $('textarea', box).value.trim(); if (!t) { $('textarea', box).setAttribute('aria-invalid', 'true'); return; } box.outerHTML = `<div class="tc-cmt"><span class="meta">щойно · ${ME}</span><p>${esc(t)}</p></div>`; toast('Коментар додано.'); },
+  'tc-edit': (b) => {
+    const body = $('.tc-b', b.closest('.tc'));
+    if (body.isContentEditable) return;
+    body.contentEditable = 'true'; body.classList.add('editing'); body.focus();
+    body.addEventListener('blur', () => { body.contentEditable = 'false'; body.classList.remove('editing'); toast('Нотатку змінено.'); }, { once: true });
+  },
+  'tc-pin': (b) => {
+    const on = b.getAttribute('aria-pressed') !== 'true', li = b.closest('li');
+    b.setAttribute('aria-pressed', String(on));
+    if (on) { $('.focus-empty')?.remove(); const c = li.cloneNode(true); c.classList.add('pinned', 'fresh'); c.dataset.pin = li.dataset.pin = String(Date.now()); $('[data-act="tc-pin"]', c).remove(); $('#nx-list').prepend(c); toast('Нотатку закріплено у фокусі.'); }
+    else { $(`#nx-list [data-pin="${li.dataset.pin}"]`)?.remove(); toast('Нотатку відкріплено.'); }
   },
   hfilter: (b) => {
     const k = b.dataset.k;

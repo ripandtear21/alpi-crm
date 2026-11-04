@@ -77,6 +77,8 @@
   --ask: #FFB45C; --ask-wash: rgb(255 180 92 / .08); --ask-line: rgb(255 180 92 / .55);
   --danger: #FF7A7A; --danger-wash: rgb(255 122 122 / .09);
   --danger-ink: #1A0606; --win: #5CCB8F; --win-ink: #04130A; --win-wash: rgb(92 203 143 / .11); --win-line: rgb(92 203 143 / .5);
+  /* solid fills under white text (stage bar, Won / Lost): AA contrast with #fff */
+  --win-solid: #218352; --lose-solid: #C93B3B; --on-solid: #FFFFFF;
   --nav-on: var(--hover); --nav-on-ink: var(--ink); --nav-on-meta: var(--ink-3);
   --grid: rgb(255 255 255 / .035);
   --glow: var(--accent-wash);
@@ -95,6 +97,7 @@
   --ask: #B45309; --ask-wash: rgb(245 158 11 / .09); --ask-line: rgb(180 83 9 / .6);
   --danger: #B42318; --danger-wash: rgb(180 35 24 / .07);
   --danger-ink: #FFFFFF; --win: #17804A; --win-ink: #FFFFFF; --win-wash: rgb(23 128 74 / .08); --win-line: rgb(23 128 74 / .55);
+  --win-solid: #17804A; --lose-solid: #B42318; --on-solid: #FFFFFF;
   --nav-on: #E4DAFF; --nav-on-ink: #5537C2; --nav-on-meta: #5537C2;
   --grid: rgb(10 12 16 / .025);
   --glow: var(--accent-wash);

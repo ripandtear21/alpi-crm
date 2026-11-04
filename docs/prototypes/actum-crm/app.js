@@ -242,7 +242,7 @@ function togglePop(anchor, html, right = false) {
   const wrap = anchor.parentElement;
   const open = wrap.querySelector('.pop');
   $$('.pop').forEach((p) => p.remove());
-  $$('[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  $$('[aria-expanded="true"]:not(.tog):not([aria-controls])').forEach((b) => b.setAttribute('aria-expanded', 'false'));
   if (open) return;
   wrap.insertAdjacentHTML('beforeend', `<div class="pop ${right ? 'right' : ''}" role="menu">${html}</div>`);
   anchor.setAttribute('aria-expanded', 'true');
@@ -287,10 +287,10 @@ document.addEventListener('click', (e) => {
   if (lg) { S.lang = lg.dataset.lang; render(); toast(S.lang === 'ru' ? 'Язык интерфейса: русский.' : 'Мова інтерфейсу: українська.'); return; }
   const w = e.target.closest('[data-w]');
   if (w) { S.w = +w.dataset.w; render(); return; }
-  if (e.target.closest('[data-calm]')) { S.calm = !S.calm; document.documentElement.toggleAttribute('data-calm', S.calm); render(); return; }
+  if (e.target.closest('button[data-calm]')) { S.calm = !S.calm; document.documentElement.toggleAttribute('data-calm', S.calm); render(); return; }
   const a = e.target.closest('[data-act]');
   if (a && ACT[a.dataset.act]) { e.preventDefault(); ACT[a.dataset.act](a, e); return; }
-  if (!e.target.closest('.pop')) { $$('.pop').forEach((p) => p.remove()); $$('[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false')); }
+  if (!e.target.closest('.pop')) { $$('.pop').forEach((p) => p.remove()); $$('[aria-expanded="true"]:not(.tog):not([aria-controls])').forEach((b) => b.setAttribute('aria-expanded', 'false')); }
 });
 document.addEventListener('change', (e) => {
   if (e.target.id === 'pscreen') go(e.target.value);
