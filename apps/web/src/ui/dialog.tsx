@@ -1,4 +1,4 @@
-import { type MouseEvent, type ReactNode, useEffect, useId, useRef } from 'react'
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useId, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from './button.tsx'
 import { cx } from './cx.ts'
@@ -54,6 +54,19 @@ function DialogFrame({
   // Нажатие началось на затемнении: только тогда щелчок закрывает.
   const pressedOnBackdrop = useRef(false)
   const addToastLayer = useToastLayer()
+  const releaseToasts = useRef<(() => void) | undefined>(undefined)
+
+  // Закрывая диалог, React убирает <dialog> со страницы раньше, чем запускает очистку useEffect,
+  // и область уведомлений ушла бы вместе с ним. Очистка ref-колбэка идёт до удаления узла —
+  // здесь область и отпускаем, чтобы она осталась на странице тем же узлом.
+  const attach = useCallback((node: HTMLDialogElement | null) => {
+    ref.current = node
+    return () => {
+      releaseToasts.current?.()
+      releaseToasts.current = undefined
+      ref.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const dialog = ref.current
@@ -68,9 +81,11 @@ function DialogFrame({
       ;(first ?? dialog).focus()
     }
     // Остальная страница под модальным диалогом недоступна — уведомления переезжают в него.
-    const removeToastLayer = addToastLayer?.(dialog)
+    // После showModal: так область встаёт в верхнем слое над диалогом, а не под ним.
+    releaseToasts.current = addToastLayer?.(dialog)
     return () => {
-      removeToastLayer?.()
+      releaseToasts.current?.()
+      releaseToasts.current = undefined
       if (dialog.open) dialog.close()
       opener?.focus()
     }
@@ -80,7 +95,7 @@ function DialogFrame({
 
   return (
     <dialog
-      ref={ref}
+      ref={attach}
       className={cx('ui-dialog', side && 'ui-dialog--side', className)}
       aria-labelledby={titleId}
       onKeyDown={(event) => {

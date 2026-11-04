@@ -1,4 +1,13 @@
-import { createContext, type ReactNode, use, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  use,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
@@ -21,11 +30,37 @@ const ToastLayerContext = createContext<AddToastLayer | null>(null)
  * читалки, даже если поверх нарисовано. Поэтому, пока диалог открыт, область живёт внутри
  * самого верхнего из них (диалоги сообщают о себе через useToastLayer), а чтобы её не обрезала
  * прокрутка диалога, она выводится в верхний слой браузера как popover="manual".
+ *
+ * Узел области один на всё время жизни провайдера: React рисует уведомления в него порталом,
+ * а между страницей и диалогами его переносим мы. Область, вставленная на страницу сразу
+ * с текстом, читалкой не объявляется — объявляется то, что добавили в уже стоящую.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([])
-  const [layers, setLayers] = useState<HTMLElement[]>([])
+  const [region] = useState(createRegion)
+  // Открытые модальные диалоги снизу вверх. Не состояние: область переносится сразу, в том же
+  // коммите React, где закрывается диалог, а не после следующей отрисовки.
+  const layers = useRef<HTMLElement[]>([])
+  // Куда область возвращается без диалогов; null — провайдер снят, переносить некуда.
+  const home = useRef<HTMLElement | null>(null)
   const nextId = useRef(0)
+
+  const place = useCallback(() => {
+    const host = layers.current.at(-1) ?? home.current
+    if (!host) return
+    if (region.parentNode !== host) host.appendChild(region)
+    // Перенос закрывает popover; показанный заново, он встаёт над только что открытым диалогом.
+    showInTopLayer(region)
+  }, [region])
+
+  useLayoutEffect(() => {
+    home.current = document.body
+    place()
+    return () => {
+      home.current = null
+      region.remove()
+    }
+  }, [region, place])
 
   const dismiss = useCallback((id: number) => {
     setToasts((list) => list.filter((toast) => toast.id !== id))
@@ -37,39 +72,45 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((list) => [...list, { id, text, tone: options?.tone ?? 'info' }])
   }, [])
 
-  const addLayer = useCallback<AddToastLayer>((layer) => {
-    setLayers((list) => [...list, layer])
-    return () => setLayers((list) => list.filter((item) => item !== layer))
-  }, [])
-
-  const layer = layers.at(-1)
-  const region = (
-    <div
-      ref={showInTopLayer}
-      popover="manual"
-      className="ui-toasts"
-      aria-live="polite"
-      aria-relevant="additions"
-    >
-      {toasts.map((toast) => (
-        <Toast key={toast.id} toast={toast} onDismiss={dismiss} />
-      ))}
-    </div>
+  const addLayer = useCallback<AddToastLayer>(
+    (layer) => {
+      layers.current = [...layers.current, layer]
+      place()
+      // Повторный вызов ничего не меняет: диалог отпускает область и до удаления, и после.
+      return () => {
+        layers.current = layers.current.filter((item) => item !== layer)
+        place()
+      }
+    },
+    [place],
   )
 
   return (
     <ToastContext value={show}>
       <ToastLayerContext value={addLayer}>
         {children}
-        {/* Ключ по глубине: при смене диалога область создаётся заново и снова встаёт поверх. */}
-        {layer ? createPortal(region, layer, String(layers.length)) : region}
+        {/* После children: в коммите, где диалог закрывается, область уходит из него раньше,
+            чем в неё добавится уведомление. */}
+        {createPortal(
+          toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={dismiss} />),
+          region,
+        )}
       </ToastLayerContext>
     </ToastContext>
   )
 }
 
-function showInTopLayer(element: HTMLDivElement | null) {
-  if (!element || typeof element.showPopover !== 'function') return
+function createRegion(): HTMLDivElement {
+  const region = document.createElement('div')
+  region.className = 'ui-toasts'
+  region.setAttribute('popover', 'manual')
+  region.setAttribute('aria-live', 'polite')
+  region.setAttribute('aria-relevant', 'additions')
+  return region
+}
+
+function showInTopLayer(element: HTMLDivElement) {
+  if (typeof element.showPopover !== 'function') return
   try {
     if (!element.matches(':popover-open')) element.showPopover()
   } catch {
