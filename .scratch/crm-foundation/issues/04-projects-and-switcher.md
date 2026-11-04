@@ -1,7 +1,7 @@
 # Проекты, участники и переключатель проекта
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T01:11Z
 Blocked by: 02, 03
 Source: .scratch/crm-mvp/spec.md, раздел 12, эпик 1
 
