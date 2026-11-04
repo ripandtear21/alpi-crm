@@ -176,6 +176,8 @@ function MembersEditor({
 
       {transferOf && (
         <TransferDealsDialog
+          // Новый участник — новый диалог: шаг и ход операции прежнего не переходят к нему.
+          key={transferOf.userId}
           api={api}
           projectId={projectId}
           member={transferOf}
@@ -186,8 +188,10 @@ function MembersEditor({
             // Сделки могли уйти и без отключения: список участников — заново.
             void refresh()
           }}
-          onDisabled={async () => {
-            setTransferOf(null)
+          onDisabled={async (userId) => {
+            // Отключение могло закончиться, когда диалог уже закрыт и открыт для другого
+            // участника: закрываем только диалог того, кого отключили.
+            setTransferOf((current) => (current?.userId === userId ? null : current))
             await refresh()
             setMessage(t('members.saved'))
           }}

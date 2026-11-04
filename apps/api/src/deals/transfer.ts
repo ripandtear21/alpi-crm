@@ -69,7 +69,16 @@ export const transferDeals: BulkAction = {
   },
 
   async select(trx, _filter, ctx) {
-    const rows = await openDealsOf(trx, params(ctx).fromUserId).select('id').orderBy('id').execute()
+    const { fromUserId } = params(ctx)
+    // Участник вне охвата изменения инициатора — не выбираем ничего. Иначе запуск через общий
+    // POST /v1/bulk-jobs (тимлиду его открывает standalone выше) дал бы операцию, где каждая
+    // запись падает с OUT_OF_SCOPE, а GET /v1/bulk-jobs/:id показал бы число и id чужих
+    // открытых сделок. Здесь, а не в validate: у validate нет ни роли, ни охвата инициатора, а
+    // select разворачивается правами на момент старта операции (runner.ts, prepare).
+    if (!ownerAllowed(fromUserId, ctx.access.permissions.scopes.deals.write, ctx.viewer)) {
+      return []
+    }
+    const rows = await openDealsOf(trx, fromUserId).select('id').orderBy('id').execute()
     return rows.map((r) => r.id)
   },
 

@@ -317,26 +317,31 @@ describe('передача сделок участника', () => {
     let mate: string
     let mate2: string
     let outsider: string
+    let teamId: string
+
+    /** Новый участник команды тимлида. */
+    async function teamMate(): Promise<string> {
+      const userId = await member(projectA)
+      const res = await admin.call(app, 'PUT', `/members/${userId}/team`, {
+        project: projectA,
+        body: { teamId },
+      })
+      expect(res.status).toBe(200)
+      return userId
+    }
 
     beforeAll(async () => {
       lead = await h.signIn()
       await h.addMember(projectA, lead.id, 'teamlead')
-      mate = await member(projectA)
-      mate2 = await member(projectA)
       outsider = await member(projectA)
       const team = await admin.call(app, 'POST', '/teams', {
         project: projectA,
         body: { name: `Команда ${++counter}`, leadUserId: lead.id },
       })
       expect(team.status).toBe(201)
-      const { id: teamId } = (await team.json()) as TeamSummary
-      for (const userId of [mate, mate2]) {
-        const res = await admin.call(app, 'PUT', `/members/${userId}/team`, {
-          project: projectA,
-          body: { teamId },
-        })
-        expect(res.status).toBe(200)
-      }
+      teamId = ((await team.json()) as TeamSummary).id
+      mate = await teamMate()
+      mate2 = await teamMate()
     })
 
     it('без права «передача сделок» — 403', async () => {
@@ -372,6 +377,49 @@ describe('передача сделок участника', () => {
       })
       expect(await owners(own)).toEqual(new Set([mate]))
       expect(await owners(foreign)).toEqual(new Set([outsider]))
+    })
+
+    /** Запуск передачи через общий POST /v1/bulk-jobs и конец операции. */
+    async function bulkTransferAndWait(
+      selection: unknown,
+      fromUserId: string,
+      toUserId: string | null,
+    ): Promise<BulkJobDetails> {
+      const res = await lead.call(app, 'POST', '/v1/bulk-jobs', {
+        project: projectA,
+        body: { action: TRANSFER_DEALS_ACTION, selection, params: { fromUserId, toUserId } },
+      })
+      expect(res.status, JSON.stringify(await res.clone().json())).toBe(202)
+      const started = (await res.json()) as BulkJobSummary
+      return waitFinished(lead, projectA, started.id)
+    }
+
+    it('общий POST /v1/bulk-jobs по фильтру: сделки участника другой команды не выбираются и не видны', async () => {
+      const foreign = await insertDeals(projectA, outsider, 3)
+      const job = await bulkTransferAndWait({ filter: {} }, outsider, mate)
+      // Ни числа, ни id чужих открытых сделок: операция пуста.
+      expect(job).toMatchObject({ status: 'done', total: 0, processed: 0, failed: 0 })
+      expect(job.errors).toEqual([])
+      expect(await owners(foreign)).toEqual(new Set([outsider]))
+    })
+
+    it('общий POST /v1/bulk-jobs по id: сделки вне охвата — OUT_OF_SCOPE, ответственный прежний', async () => {
+      const foreign = await insertDeals(projectA, outsider, 2)
+      const job = await bulkTransferAndWait({ ids: foreign }, outsider, mate)
+      expect(job).toMatchObject({ status: 'done', total: 2, processed: 2, failed: 2 })
+      expect(job.errors.map((e) => e.code)).toEqual(['OUT_OF_SCOPE', 'OUT_OF_SCOPE'])
+      expect(await owners(foreign)).toEqual(new Set([outsider]))
+    })
+
+    it('общий POST /v1/bulk-jobs: получатель вне команды — OUT_OF_SCOPE, ответственный прежний', async () => {
+      const from = await teamMate()
+      const own = await insertDeals(projectA, from, 2)
+      for (const selection of [{ filter: {} }, { ids: own }]) {
+        const job = await bulkTransferAndWait(selection, from, outsider)
+        expect(job).toMatchObject({ status: 'done', total: 2, processed: 2, failed: 2 })
+        expect(job.errors.map((e) => e.code)).toEqual(['OUT_OF_SCOPE', 'OUT_OF_SCOPE'])
+        expect(await owners(own)).toEqual(new Set([from]))
+      }
     })
 
     it('получатель из другого проекта или отключённый — 422', async () => {

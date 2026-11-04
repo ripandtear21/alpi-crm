@@ -9,6 +9,10 @@ import { type MembersApi, MembersApiError } from './members-api.ts'
 // или в общую очередь, затем ход массовой операции и отключение участника. Права и охват
 // проверяет API; диалог показывает его отказ текстом. Тикет 01 (базовые компоненты) ещё не
 // слит — диалог на текущих элементах.
+//
+// Диалог модальный (showModal): пока он открыт, страница за ним недоступна, и передачу другого
+// участника не начать поверх недоконченной. Экран участников вдобавок пересоздаёт диалог на
+// каждого участника (key), чтобы ход чужой операции не достался следующему.
 
 /** Как часто спрашивать ход операции, мс. */
 const POLL_MS = 1000
@@ -33,11 +37,12 @@ export function TransferDealsDialog({
   /** Текст отказа API — тот же, что у экрана участников. */
   errorText: (error: unknown) => string
   onClose: () => void
-  /** Участник отключён после передачи. */
-  onDisabled: () => void
+  /** Участник `userId` отключён после передачи. */
+  onDisabled: (userId: string) => void
 }) {
   const { t } = useTranslation('settings')
   const headingId = useId()
+  const dialog = useRef<HTMLDialogElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const [step, setStep] = useState<Step>({ kind: 'choose' })
   const [message, setMessage] = useState<string | null>(null)
@@ -46,6 +51,9 @@ export function TransferDealsDialog({
   const recipients = members.filter((m) => !m.disabled && m.userId !== member.userId)
 
   useEffect(() => {
+    const element = dialog.current
+    // Без закрытия при размонтировании: убранный из документа диалог браузер снимает сам.
+    if (element && !element.open) element.showModal()
     heading.current?.focus()
   }, [])
 
@@ -79,7 +87,7 @@ export function TransferDealsDialog({
     setPending(true)
     try {
       await api.disable(projectId, member.userId)
-      onDisabled()
+      onDisabled(member.userId)
     } catch (error) {
       const count = error instanceof MembersApiError ? error.details?.count : undefined
       if (error instanceof MembersApiError && error.code === 'HAS_OPEN_DEALS') {
@@ -97,12 +105,12 @@ export function TransferDealsDialog({
   const progress = job.data
   return (
     <dialog
-      open
+      ref={dialog}
       className="transfer-dialog"
       aria-labelledby={headingId}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose()
-      }}
+      // Escape модального диалога браузер закрывает сам (событие close): экран участников
+      // убирает диалог так же, как по кнопке «Закрыть».
+      onClose={onClose}
     >
       <h2 id={headingId} ref={heading} tabIndex={-1}>
         {t('members.transfer.title', { name: who })}
