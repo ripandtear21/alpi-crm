@@ -25,9 +25,14 @@ export type {
 
 /** Подключение к PostgreSQL через пул `pg`. Закрывать — `db.destroy()`. */
 export function createDb(connectionString: string): Kysely<Database> {
-  return new Kysely<Database>({
-    dialect: new PostgresDialect({
-      pool: new pg.Pool({ connectionString }),
-    }),
-  })
+  const pool = new pg.Pool({ connectionString })
+  // Сервер может оборвать соединение сам (перезапуск, остановка): ошибка приходит событием
+  // на соединении, и без обработчика роняет весь процесс. Запрос на таком соединении всё
+  // равно получает ошибку, а пул выбрасывает соединение и откроет новое.
+  const onConnectionError = (error: Error) => {
+    console.warn(`PostgreSQL оборвал соединение: ${error.message}`)
+  }
+  pool.on('error', onConnectionError)
+  pool.on('connect', (client) => client.on('error', onConnectionError))
+  return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) })
 }
