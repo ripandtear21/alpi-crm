@@ -16,10 +16,14 @@ import { type AuthApi, createAuthApi } from './routes/auth/auth-api.ts'
 import { SignInPage } from './routes/auth/sign-in-page.tsx'
 import { TwoFactorPage } from './routes/auth/two-factor-page.tsx'
 import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
+import { createRolesApi, type RolesApi } from './routes/settings/roles-api.ts'
+import { RolesPage } from './routes/settings/roles-page.tsx'
+import { SettingsPage } from './routes/settings/settings-page.tsx'
 
 export interface RouterContext {
   auth: AuthApi
   projects: ProjectsApi
+  roles: RolesApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -120,7 +124,16 @@ const reportsRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/settings',
-  component: () => <SectionPlaceholder title="nav.settings" />,
+  component: SettingsPage,
+})
+
+const rolesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/roles',
+  component: function RolesRoute() {
+    const { roles } = rolesRoute.useRouteContext()
+    return <RolesPage api={roles} />
+  },
 })
 
 const routeTree = rootRoute.addChildren([
@@ -134,6 +147,7 @@ const routeTree = rootRoute.addChildren([
     tasksRoute,
     reportsRoute,
     settingsRoute,
+    rolesRoute,
   ]),
 ])
 
@@ -144,6 +158,8 @@ export interface AppRouterOptions {
   auth?: AuthApi
   /** Только в тестах: подставной клиент проектов. В браузере — запросы к API. */
   projects?: ProjectsApi
+  /** Только в тестах: подставной клиент ролей. В браузере — запросы к API. */
+  roles?: RolesApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -152,9 +168,10 @@ export function createAppRouter({
   history,
   auth = createAuthApi(),
   projects = createProjectsApi(),
+  roles = createRolesApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
-  const context: RouterContext = { auth, projects, queryClient }
+  const context: RouterContext = { auth, projects, roles, queryClient }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })
 }
 

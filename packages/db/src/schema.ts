@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts и 0002_auth.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts и 0004_roles.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -27,8 +27,29 @@ export interface ProjectMemberTable {
   project_id: string
   /** id учётной записи (`user.id`). */
   user_id: string
-  /** Роль проекта; таблица ролей — тикет 05. */
-  role_id: string | null
+  /** Роль проекта (`role.id` того же проекта); у участника ровно одна роль. */
+  role_id: string
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/**
+ * Роль проекта. Видна только в контексте своего проекта. Роль «администратор» (`is_admin`)
+ * не удаляется и не меняется — защищает база (migrations/0004_roles.ts).
+ */
+export interface RoleTable {
+  id: Generated<string>
+  project_id: string
+  name: string
+  /** Шаблон-источник: 'admin' | 'head' | 'teamlead' | 'manager'; null — своя роль. */
+  template_key: string | null
+  is_admin: Generated<boolean>
+  /**
+   * Права роли (RolePermissions из @alpi/shared). Читается объектом, пишется строкой JSON:
+   * форму проверяет parseRolePermissions до записи.
+   */
+  permissions: ColumnType<unknown, string, string>
   created_at: Timestamp
   updated_at: Timestamp
   created_by: string | null
@@ -131,6 +152,7 @@ export interface RateLimitTable {
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
+  role: RoleTable
   external_link: ExternalLinkTable
   user: UserTable
   session: SessionTable

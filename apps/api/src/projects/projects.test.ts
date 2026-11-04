@@ -183,11 +183,22 @@ describe('проекты и контекст проекта', () => {
     return (await res.json()) as ProjectSummary
   }
 
-  /** Участие пользователя в проекте — служебной ролью, как его выдаст тикет 06. */
+  /**
+   * Участие пользователя в проекте — служебной ролью, как его выдаст тикет 06; роль —
+   * шаблон «менеджер» этого проекта.
+   */
   async function addMember(projectId: string, userId: string): Promise<void> {
     await owner
       .insertInto('project_member')
-      .values({ project_id: projectId, user_id: userId })
+      .values({
+        project_id: projectId,
+        user_id: userId,
+        role_id: owner
+          .selectFrom('role')
+          .select('id')
+          .where('project_id', '=', projectId)
+          .where('template_key', '=', 'manager'),
+      })
       .execute()
   }
 

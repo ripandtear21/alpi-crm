@@ -13,7 +13,7 @@ import { startTestDatabase, type TestDatabase } from './testing/index.ts'
 const APP_USER = 'alpi_test_app'
 const APP_PASSWORD = 'alpi_test_app'
 
-const migrationNames = ['0001_project_isolation', '0002_auth', '0003_projects']
+const migrationNames = ['0001_project_isolation', '0002_auth', '0003_projects', '0004_roles']
 
 const tablesOfMigration = [
   'project',
@@ -26,6 +26,8 @@ const tablesOfMigration = [
   'verification',
   'two_factor',
   'rate_limit',
+  // 0004_roles
+  'role',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -100,12 +102,21 @@ describe('схема и изоляция проектов', () => {
     await owner
       .insertInto('project_member')
       .values([
-        { project_id: projectA, user_id: 'user-1' },
-        { project_id: projectB, user_id: 'user-1' },
-        { project_id: projectB, user_id: 'user-2' },
+        { project_id: projectA, user_id: 'user-1', role_id: adminRoleOf(projectA) },
+        { project_id: projectB, user_id: 'user-1', role_id: adminRoleOf(projectB) },
+        { project_id: projectB, user_id: 'user-2', role_id: adminRoleOf(projectB) },
       ])
       .execute()
   })
+
+  /** Роль администратора проекта (шаблон, созданный вместе с проектом) — подзапросом. */
+  function adminRoleOf(projectId: string) {
+    return owner
+      .selectFrom('role')
+      .select('id')
+      .where('project_id', '=', projectId)
+      .where('is_admin', '=', true)
+  }
 
   afterAll(async () => {
     await app?.destroy()
@@ -166,7 +177,7 @@ describe('схема и изоляция проектов', () => {
       await expect(
         owner
           .insertInto('project_member')
-          .values({ project_id: projectA, user_id: 'no-such-user' })
+          .values({ project_id: projectA, user_id: 'no-such-user', role_id: adminRoleOf(projectA) })
           .execute(),
       ).rejects.toThrow(/project_member_user_id_fkey/)
     })
@@ -257,6 +268,7 @@ describe('схема и изоляция проектов', () => {
       expect(rows).toEqual([
         { table: 'external_link', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
+        { table: 'role', rls: true, policies: 1 },
       ])
     })
 

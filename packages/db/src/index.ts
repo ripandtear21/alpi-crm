@@ -12,6 +12,7 @@ export type {
   ProjectMemberTable,
   ProjectTable,
   RateLimitTable,
+  RoleTable,
   SessionTable,
   TwoFactorTable,
   UserTable,

@@ -6,6 +6,7 @@ import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { projectContext } from './middleware/project-context.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
+import { membersRoutes, rolesRoutes } from './roles/roles.ts'
 
 /** Ответ `GET /me`: кто вошёл. */
 export interface MeResponse {
@@ -46,6 +47,8 @@ export function createApp({ auth, db }: AppDeps) {
     .route('/projects', projectsRoutes(db))
     .use('*', projectContext(db))
     .route('/project', currentProjectRoutes())
+    .route('/roles', rolesRoutes())
+    .route('/members', membersRoutes())
 }
 
 /** Тип приложения для Hono RPC: клиент (apps/web) получает из него типы маршрутов. */
