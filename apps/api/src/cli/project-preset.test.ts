@@ -1,4 +1,4 @@
-import { createDb, createProject, type Database, migrateToLatest, PROJECT_PRESETS } from '@alpi/db'
+import { createDb, createProject, type Database, migrateToLatest } from '@alpi/db'
 import { startTestDatabase, type TestDatabase } from '@alpi/db/testing'
 import type { Kysely } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -86,13 +86,34 @@ describe('pnpm project-preset', () => {
         code: 'platform',
         name: 'Платформа (допродаж)',
         isUpsell: true,
-        stages: PROJECT_PRESETS.alpi.pipelines[1]?.stages,
+        // docs/research/our-pipedrive.md, раздел 1, «Платформа (допродаж) (7)».
+        stages: [
+          'Новий лід (Д)',
+          'Передано в роботу (Д)',
+          "Не вийшов на зв'язок (Д)",
+          'Приймає рішення (Д)',
+          'Сплатив бронювання (Д)',
+          'Виставили рахунок (Д)',
+          'Відкладений попит (Д)',
+        ],
       },
       {
         code: 'autowebinars',
         name: 'Автовебінари',
         isUpsell: false,
-        stages: PROJECT_PRESETS.alpi.pipelines[2]?.stages,
+        // docs/research/our-pipedrive.md, раздел 1, «Автовебінари (4)».
+        stages: [
+          'Новий лід',
+          'Був на вебі',
+          'Взятий в роботу',
+          'Лід не кваліфікован',
+          'Дивиться запис',
+          'Приймає рішення',
+          'Відкладений попит',
+          'Передплата',
+          'Розстрочка',
+          'Виставлений рахунок',
+        ],
       },
     ])
     expect(second.pipelines[1]?.stages.every((name) => name.endsWith('(Д)'))).toBe(true)

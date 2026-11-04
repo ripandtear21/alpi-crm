@@ -66,9 +66,14 @@ function PipelinesEditor({ api, projectId }: { api: PipelinesApi; projectId: str
     )
   }
 
-  const run = (action: () => Promise<unknown>) => {
+  /** Выполняет изменение; true — API принял его (формы создания очищаются только тогда). */
+  const run = (action: () => Promise<unknown>): Promise<boolean> => {
     setNotice(null)
-    change.mutate(action)
+    return change.mutateAsync(action).then(
+      () => true,
+      // Отказ уже показан сообщением (onError).
+      () => false,
+    )
   }
   const ids = pipelines.data.map((p) => p.id)
 
@@ -122,7 +127,7 @@ function PipelineCard({
   pending: boolean
   onMove: (delta: -1 | 1) => void
   onChange: (change: PipelineChange) => void
-  onAddStage: (name: string) => void
+  onAddStage: (name: string) => Promise<boolean>
   onRenameStage: (stageId: string, name: string) => void
   onReorderStages: (ids: string[]) => void
   onDeleteStage: (stageId: string) => void
@@ -313,21 +318,26 @@ function CreatePipelineForm({
   onCreate,
 }: {
   pending: boolean
-  onCreate: (input: { name: string; code: string; isUpsell: boolean }) => void
+  onCreate: (input: { name: string; code: string; isUpsell: boolean }) => Promise<boolean>
 }) {
   const { t } = useTranslation('settings')
   return (
     <form
       className="directory__card directory__settings"
       aria-label={t('pipelines.new')}
-      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      onSubmit={async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
-        const form = new FormData(event.currentTarget)
+        const element = event.currentTarget
+        const form = new FormData(element)
         const name = String(form.get('name') ?? '').trim()
         const code = String(form.get('code') ?? '').trim()
-        if (name !== '' && code !== '') {
-          onCreate({ name, code, isUpsell: form.get('isUpsell') === 'on' })
-          event.currentTarget.reset()
+        // Очищается только после ответа API: при отказе (код занят) введённое остаётся.
+        if (
+          name !== '' &&
+          code !== '' &&
+          (await onCreate({ name, code, isUpsell: form.get('isUpsell') === 'on' }))
+        ) {
+          element.reset()
         }
       }}
     >

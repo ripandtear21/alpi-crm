@@ -192,6 +192,8 @@ describe('воронки, этапы и причины проигрыша', () =
         ['DELETE', `/pipelines/${pipeline.id}/stages/${stage?.id}`],
         ['POST', '/lost-reasons/groups', { name: 'Ще' }],
         ['PUT', `/lost-reasons/groups/${group.id}`, { archived: true }],
+        ['PUT', '/lost-reasons/groups/order', { ids: [group.id] }],
+        ['PUT', `/lost-reasons/groups/${group.id}/order`, { ids: [reason?.id] }],
         ['POST', '/lost-reasons', { groupId: group.id, name: 'Ще' }],
         ['PUT', `/lost-reasons/${reason?.id}`, { archived: true }],
       ]

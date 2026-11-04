@@ -120,20 +120,18 @@ export function AddForm({
 }: {
   label: string
   pending: boolean
-  onAdd: (name: string) => void
+  /** true — добавлено: поле очищается; при отказе введённое остаётся. */
+  onAdd: (name: string) => Promise<boolean>
 }) {
   const { t } = useTranslation('settings')
   return (
     <form
       className="directory__rename"
-      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      onSubmit={async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
-        const input = new FormData(event.currentTarget).get('name')
-        const name = String(input ?? '').trim()
-        if (name !== '') {
-          onAdd(name)
-          event.currentTarget.reset()
-        }
+        const element = event.currentTarget
+        const name = String(new FormData(element).get('name') ?? '').trim()
+        if (name !== '' && (await onAdd(name))) element.reset()
       }}
     >
       <input

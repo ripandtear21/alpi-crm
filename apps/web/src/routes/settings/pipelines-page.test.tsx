@@ -111,6 +111,45 @@ describe('экран воронок', () => {
     await waitFor(() => expect(stageNames('ALPI')).toEqual(['Новий лід', 'Передано в роботу']))
   })
 
+  it('отказ 409 при создании воронки не стирает введённое; после успеха форма очищается', async () => {
+    const api = await renderAt('/settings/pipelines')
+    const form = await screen.findByRole('form', { name: 'Нова воронка' })
+    const name = within(form).getByRole('textbox', { name: 'Назва' }) as HTMLInputElement
+    const code = within(form).getByRole('textbox', { name: 'Код (латиницею)' }) as HTMLInputElement
+    fireEvent.change(name, { target: { value: 'Дубль' } })
+    fireEvent.change(code, { target: { value: 'alpi' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Створити воронку' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Воронка з таким кодом у проєкті вже є.',
+    )
+    expect([name.value, code.value]).toEqual(['Дубль', 'alpi'])
+
+    fireEvent.change(code, { target: { value: 'dubl' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Створити воронку' }))
+    await screen.findByRole('list', { name: 'Етапи воронки Дубль' })
+    expect(api.pipelines.map((p) => p.code)).toEqual(['alpi', 'dubl'])
+    expect([name.value, code.value]).toEqual(['', ''])
+  })
+
+  it('отказ при добавлении этапа не стирает введённое название', async () => {
+    const api = await renderAt('/settings/pipelines')
+    const input = (await screen.findByRole('textbox', {
+      name: 'Новий етап воронки ALPI',
+    })) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Сплатив бронювання' } })
+    api.failNextWith = 'INVALID_ORDER'
+    fireEvent.click(
+      within(input.closest('form') as HTMLElement).getByRole('button', { name: 'Додати' }),
+    )
+    await screen.findByRole('alert')
+    expect(input.value).toBe('Сплатив бронювання')
+    fireEvent.click(
+      within(input.closest('form') as HTMLElement).getByRole('button', { name: 'Додати' }),
+    )
+    await waitFor(() => expect(stageNames('ALPI')).toContain('Сплатив бронювання'))
+    expect(input.value).toBe('')
+  })
+
   it('архив воронки и отметка «воронка допродажу»', async () => {
     const api = await renderAt('/settings/pipelines')
     const settings = await screen.findByRole('form', { name: 'Налаштування воронки ALPI' })
@@ -163,6 +202,17 @@ describe('экран причин проигрыша', () => {
     await screen.findByRole('list', { name: 'Причини групи Інше' })
     fireEvent.click(screen.getByRole('button', { name: 'Вище: Інше' }))
     await waitFor(() => expect(api.groups.map((g) => g.name)).toEqual(['Інше', 'Якість ліда']))
+  })
+
+  it('отказ 409 при создании группы не стирает введённое название', async () => {
+    const api = await renderAt('/settings/lost-reasons')
+    const form = await screen.findByRole('form', { name: 'Нова група' })
+    const input = within(form).getByRole('textbox', { name: 'Назва групи' }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Якість ліда' } })
+    api.failNextWith = 'LOST_REASON_GROUP_NAME_TAKEN'
+    fireEvent.click(within(form).getByRole('button', { name: 'Створити групу' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Група з такою назвою вже є.')
+    expect(input.value).toBe('Якість ліда')
   })
 
   it('разделы настроек ведут на оба экрана', async () => {
