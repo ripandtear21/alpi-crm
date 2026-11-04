@@ -26,6 +26,23 @@ export const BULK_BATCH_SIZE = 100
 
 /** Наибольшая длина текста ошибки в журнале (столбец bulk_job_error.message). */
 const MAX_MESSAGE = 500
+/** Пределы столбцов bulk_job_error (migrations/0009_jobs_bulk.ts). */
+const MAX_RECORD_ID = 100
+const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,59}$/
+
+/**
+ * Почему операция остановилась целиком (`bulk_job.failure`): коды для клиента.
+ * - ACTION_NOT_REGISTERED — действия больше нет в реестре;
+ * - PERMISSION_DENIED — фильтр нечем развернуть: у инициатора нет прав на действие;
+ * - INITIATOR_BANNED — учётную запись инициатора заблокировал владелец системы;
+ * - PROCESSING_FAILED — задача упала после всех повторов pg-boss (в том числе процесс убит, и
+ *   срок задачи истёк): её отметку ставит обработчик очереди мёртвых задач (jobs/jobs.ts).
+ */
+export type BulkJobFailure =
+  | 'ACTION_NOT_REGISTERED'
+  | 'PERMISSION_DENIED'
+  | 'INITIATOR_BANNED'
+  | 'PROCESSING_FAILED'
 
 export interface RunOptions {
   batchSize?: number
@@ -60,15 +77,15 @@ export async function runBulkJob(
   }
 }
 
-/** Останавливает операцию целиком: например, действие больше не зарегистрировано. */
+/** Останавливает операцию целиком; законченную (`done`, `failed`) не трогает. */
 export async function failBulkJob(
   trx: Transaction<Database>,
   bulkJobId: string,
-  failure: string,
+  failure: BulkJobFailure,
 ): Promise<void> {
   await trx
     .updateTable('bulk_job')
-    .set({ status: 'failed', failure: failure.slice(0, MAX_MESSAGE), finished_at: sql`now()` })
+    .set({ status: 'failed', failure, finished_at: sql`now()` })
     .where('id', '=', bulkJobId)
     .where('status', 'in', ['queued', 'running'])
     .execute()
@@ -89,7 +106,11 @@ async function prepare(
   if (!job || job.status === 'done' || job.status === 'failed') return null
   const action = actions.get(job.action)
   if (!action) {
-    await failBulkJob(trx, job.id, `действие ${job.action} не зарегистрировано`)
+    await failBulkJob(trx, job.id, 'ACTION_NOT_REGISTERED')
+    return null
+  }
+  if (await isBanned(trx, job.initiator_id)) {
+    await failBulkJob(trx, job.id, 'INITIATOR_BANNED')
     return null
   }
   if (job.record_ids !== null) return action
@@ -147,14 +168,23 @@ async function runPortion(
     .forUpdate()
     .executeTakeFirst()
   if (job?.status !== 'running') return false
+  // Заблокированный пользователь не действует нигде: операция останавливается целиком.
+  if (await isBanned(trx, job.initiator_id)) {
+    await failBulkJob(trx, job.id, 'INITIATOR_BANNED')
+    return false
+  }
   const portion = job.portion ?? []
   const errors: { position: number; record_id: string; code: string; message: string | null }[] = []
   const fail = (index: number, code: string, message: string | null = null) => {
+    // Код и id приходят и от действия: приводим к пределам столбцов, иначе вставка журнала
+    // падала бы и роняла порцию на каждом повторе. Неподходящий код — FAILED, сам он — в тексте.
+    const valid = ERROR_CODE.test(code)
+    const text = valid ? message : [code, message].filter(Boolean).join(': ')
     errors.push({
       position: job.processed + index,
-      record_id: portion[index] ?? '',
-      code,
-      message: message?.slice(0, MAX_MESSAGE) ?? null,
+      record_id: (portion[index] ?? '').slice(0, MAX_RECORD_ID),
+      code: valid ? code : 'FAILED',
+      message: text ? text.slice(0, MAX_MESSAGE) : null,
     })
   }
 
@@ -208,6 +238,15 @@ async function runPortion(
     .where('id', '=', job.id)
     .execute()
   return !finished
+}
+
+async function isBanned(trx: Transaction<Database>, userId: string): Promise<boolean> {
+  const user = await trx
+    .selectFrom('user')
+    .select('banned')
+    .where('id', '=', userId)
+    .executeTakeFirst()
+  return user?.banned ?? true
 }
 
 function allowed(access: MemberAccess, action: BulkAction): boolean {

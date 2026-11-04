@@ -73,7 +73,30 @@ const increment: BulkAction = {
   },
 }
 
-const ACTIONS = new Map([['probe.increment', increment]])
+/** Сбой вне записи (например, база недоступна): порция падает целиком на каждой попытке. */
+const crash: BulkAction = {
+  ...increment,
+  async inScope() {
+    throw new Error('сбой вне записи')
+  },
+}
+
+/** Действие с кодом ошибки и id, которые не влезают в столбцы журнала ошибок. */
+const LONG_ID = 'x'.repeat(150)
+const malformed: BulkAction = {
+  requires: { resource: 'deals', action: 'edit' },
+  select: async () => [LONG_ID],
+  inScope: async (_trx, ids) => new Set(ids),
+  async apply() {
+    throw new BulkRecordError('bad code!', 'текст')
+  },
+}
+
+const ACTIONS = new Map([
+  ['probe.increment', increment],
+  ['probe.crash', crash],
+  ['probe.malformed', malformed],
+])
 
 describe('массовые операции', () => {
   let h: ApiHarness
@@ -107,6 +130,8 @@ describe('массовые операции', () => {
       bulkActions: ACTIONS,
       trashPurgers: NO_TRASH_PURGERS,
       bulkBatchSize: BATCH,
+      // Без повторов: задача, провалившая попытку, сразу уходит в очередь мёртвых задач.
+      bulkRetryLimit: 0,
       pollingIntervalSeconds: 0.5,
     })
     app = createApp({
@@ -367,6 +392,72 @@ describe('массовые операции', () => {
       expect(codes.map((r) => r.code)).toEqual(Array(3).fill('PERMISSION_DENIED'))
       expect(new Set((await values(ids)).values())).toEqual(new Set([0]))
     })
+  })
+
+  it('задача, провалившая все попытки, помечает операцию failed (очередь мёртвых задач)', async () => {
+    const ids = await insertProbe(projectA, 2, admin.id)
+    const res = await start(admin, projectA, { action: 'probe.crash', selection: { ids } })
+    expect(res.status).toBe(202)
+    const job = await waitFinished(admin, projectA, ((await res.json()) as BulkJobSummary).id)
+    expect(job).toMatchObject({ status: 'failed', failure: 'PROCESSING_FAILED', processed: 0 })
+    expect(job.finishedAt).not.toBeNull()
+    expect(new Set((await values(ids)).values())).toEqual(new Set([0]))
+  })
+
+  it('неподходящий код ошибки и длинный id записи не ломают журнал ошибок', async () => {
+    const res = await start(admin, projectA, {
+      action: 'probe.malformed',
+      selection: { filter: {} },
+    })
+    expect(res.status).toBe(202)
+    const job = await waitFinished(admin, projectA, ((await res.json()) as BulkJobSummary).id)
+    expect(job).toMatchObject({ status: 'done', total: 1, processed: 1, failed: 1 })
+    expect(job.errors).toEqual([
+      { position: 0, recordId: 'x'.repeat(100), code: 'FAILED', message: 'bad code!: текст' },
+    ])
+  })
+
+  it('блокировка инициатора владельцем системы останавливает операцию на следующей порции', async () => {
+    const { user } = await memberWithRole(projectA, 'head', 'all')
+    const ids = await insertProbe(projectA, 3, user.id)
+    const queued: { projectId: string; bulkJobId: string }[] = []
+    let banned = false
+    const banAfterFirst: BulkAction = {
+      ...increment,
+      async apply(trx, id, ctx) {
+        await increment.apply(trx, id, ctx)
+        if (banned) return
+        banned = true
+        const ban = await admin.api('POST', '/auth/admin/ban-user', { body: { userId: user.id } })
+        expect(ban.status).toBe(200)
+      },
+    }
+    const actions = new Map([['probe.ban', banAfterFirst]])
+    const manual = createApp({
+      auth: h.auth,
+      db: h.appDb,
+      bulk: { actions, enqueue: async (_trx, message) => void queued.push(message) },
+    })
+    const res = await user.call(manual, 'POST', '/v1/bulk-jobs', {
+      project: projectA,
+      body: { action: 'probe.ban', selection: { ids } },
+    })
+    expect(res.status).toBe(202)
+    const [message] = queued
+    if (!message) throw new Error('операция не поставлена в очередь')
+
+    await runBulkJob(h.appDb, actions, message, { batchSize: 1 })
+
+    const job = await withProject(h.appDb, projectA, (trx) =>
+      trx
+        .selectFrom('bulk_job')
+        .select(['status', 'failure', 'processed', 'failed'])
+        .where('id', '=', message.bulkJobId)
+        .executeTakeFirstOrThrow(),
+    )
+    expect(job).toEqual({ status: 'failed', failure: 'INITIATOR_BANNED', processed: 1, failed: 0 })
+    const after = await values(ids)
+    expect(ids.map((id) => after.get(id))).toEqual([1, 0, 0])
   })
 
   describe('кто видит операцию', () => {
