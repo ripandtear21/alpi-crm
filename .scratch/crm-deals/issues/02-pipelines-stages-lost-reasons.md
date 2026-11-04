@@ -31,15 +31,15 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/db/src/presets/**
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
-  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · 1ebf1d3f88a2a01c702ef989a89c06d3af19bb64
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · bddd04c02d4fde4ac43fc8473368a4f7fa0476b4
 - [ ] Тест изоляции: воронки, этапы и причины проекта A не видны в контексте проекта B без фильтра в коде; запись в чужой проект отклоняется политикой.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/pipelines/pipelines.test.ts` exit 0 · windows - · 1ebf1d3f88a2a01c702ef989a89c06d3af19bb64
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/pipelines/pipelines.test.ts` exit 0 · windows - · bddd04c02d4fde4ac43fc8473368a4f7fa0476b4
 - [ ] Тест прав: без права «сделки: смотреть» список воронок — 403; без права «воронки и этапы» создание, изменение и удаление — 403; менеджер по шаблону читает, но не меняет.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/pipelines/pipelines.test.ts` exit 0 · windows - · 1ebf1d3f88a2a01c702ef989a89c06d3af19bb64
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/pipelines/pipelines.test.ts` exit 0 · windows - · bddd04c02d4fde4ac43fc8473368a4f7fa0476b4
 - [ ] Тест: второй `code` воронки в проекте и вторая «воронка допродаж» отклоняются; удаление этапа вызывает проверку открытых сделок и отказывает, если заглушка вернула «есть».
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/pipelines/pipelines.test.ts` exit 0 · windows - · 1ebf1d3f88a2a01c702ef989a89c06d3af19bb64
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/pipelines/pipelines.test.ts` exit 0 · windows - · bddd04c02d4fde4ac43fc8473368a4f7fa0476b4
 - [ ] Тест: `pnpm project-preset alpi` дважды подряд даёт ровно 3 воронки, их этапы в порядке исследования и причины без дублей.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/project-preset.test.ts` exit 0 · windows - · 1ebf1d3f88a2a01c702ef989a89c06d3af19bb64
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/project-preset.test.ts` exit 0 · windows - · bddd04c02d4fde4ac43fc8473368a4f7fa0476b4
 - [ ] Экран настроек проверен в браузере на 1280 и 375 px.
 - [ ] `pnpm verify` зелёный.
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 1ebf1d3f88a2a01c702ef989a89c06d3af19bb64
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · bddd04c02d4fde4ac43fc8473368a4f7fa0476b4
