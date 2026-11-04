@@ -7,7 +7,10 @@ import type { ColumnType, Generated } from 'kysely'
 /** Метка времени: читается как Date, при вставке необязательна (default now()). */
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>
 
-/** Проект — отдельный бизнес. Глобальная таблица, без row-level security. */
+/**
+ * Проект — отдельный бизнес. Глобальная таблица, без row-level security: приложение её только
+ * читает, создаёт и меняет проекты служебная роль (`createProject`).
+ */
 export interface ProjectTable {
   id: Generated<string>
   code: string

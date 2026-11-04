@@ -3,7 +3,7 @@ import pg from 'pg'
 import type { Database } from './schema.ts'
 
 export { createMigrator, migrateToLatest } from './migrate.ts'
-export { withProject } from './project.ts'
+export { createProject, withProject } from './project.ts'
 export type { Database, ExternalLinkTable, ProjectMemberTable, ProjectTable } from './schema.ts'
 
 /** Подключение к PostgreSQL через пул `pg`. Закрывать — `db.destroy()`. */

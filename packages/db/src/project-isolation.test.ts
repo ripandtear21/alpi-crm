@@ -2,7 +2,7 @@ import { Kysely, PostgresDialect, sql } from 'kysely'
 import { NO_MIGRATIONS } from 'kysely/migration'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createDb, type Database, withProject } from './index.ts'
+import { createDb, createProject, type Database, withProject } from './index.ts'
 import { createMigrator, migrateToLatest } from './migrate.ts'
 import { startTestDatabase, type TestDatabase } from './testing/index.ts'
 
@@ -280,7 +280,94 @@ describe('схема и изоляция проектов', () => {
       )
     })
   })
+
+  // На project нет RLS: любое право записи у роли приложения задело бы чужой проект.
+  describe('таблица project для роли приложения — только чтение', () => {
+    it('из всех прав на project у alpi_app и у роли входа есть только SELECT', async () => {
+      const { rows } = await sql<{ role: string; privilege: string }>`
+        select r.role, p.privilege
+        from unnest(array['alpi_app', ${APP_USER}]) as r(role)
+        cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE',
+          'REFERENCES', 'TRIGGER']) as p(privilege)
+        where has_table_privilege(r.role, 'project', p.privilege)
+        order by r.role
+      `.execute(owner)
+      expect(rows).toEqual([
+        { role: 'alpi_app', privilege: 'SELECT' },
+        { role: APP_USER, privilege: 'SELECT' },
+      ])
+    })
+
+    it('delete проекта B внутри withProject(A) отказывает, строки B целы', async () => {
+      await expect(
+        withProject(app, projectA, (trx) =>
+          trx.deleteFrom('project').where('id', '=', projectB).execute(),
+        ),
+      ).rejects.toThrow(/permission denied for table project/)
+      await expect(
+        withProject(app, projectA, (trx) => sql`delete from project`.execute(trx)),
+      ).rejects.toThrow(/permission denied for table project/)
+
+      expect(await rowsOfProject(owner, projectB)).toEqual({
+        project: 1,
+        external_link: 1,
+        project_member: 2,
+      })
+    })
+
+    it('update проекта B внутри withProject(A) отказывает, проект не изменён', async () => {
+      await expect(
+        withProject(app, projectA, (trx) =>
+          trx.updateTable('project').set({ name: 'Чужой' }).where('id', '=', projectB).execute(),
+        ),
+      ).rejects.toThrow(/permission denied for table project/)
+
+      const b = await owner
+        .selectFrom('project')
+        .select(['code', 'name'])
+        .where('id', '=', projectB)
+        .executeTakeFirst()
+      expect(b).toEqual({ code: 'franch', name: 'Франч' })
+    })
+
+    it('createProject: роль приложения создать проект не может, служебная роль — может', async () => {
+      await expect(createProject(app, { code: 'intruder', name: 'Чужак' })).rejects.toThrow(
+        /permission denied for table project/,
+      )
+      expect(
+        await owner.selectFrom('project').select('id').where('code', '=', 'intruder').execute(),
+      ).toEqual([])
+
+      const created = await createProject(owner, { code: 'third', name: 'Третий' })
+      expect(created).toMatchObject({
+        code: 'third',
+        name: 'Третий',
+        default_locale: 'uk',
+        timezone: 'Europe/Kyiv',
+      })
+      expect(created.id).toMatch(/^[0-9a-f-]{36}$/)
+
+      // Созданный проект виден приложению: project оно читает.
+      const seen = await withProject(app, created.id, (trx) =>
+        trx.selectFrom('project').select(['id', 'code']).where('id', '=', created.id).execute(),
+      )
+      expect(seen).toEqual([{ id: created.id, code: 'third' }])
+    })
+  })
 })
+
+async function rowsOfProject(
+  db: Kysely<Database>,
+  projectId: string,
+): Promise<{ project: number; external_link: number; project_member: number }> {
+  const { rows } = await sql<{ project: number; external_link: number; project_member: number }>`
+    select
+      (select count(*)::int from project where id = ${projectId}) as project,
+      (select count(*)::int from external_link where project_id = ${projectId}) as external_link,
+      (select count(*)::int from project_member where project_id = ${projectId}) as project_member
+  `.execute(db)
+  return rows[0] ?? { project: 0, external_link: 0, project_member: 0 }
+}
 
 async function existingTables(db: Kysely<Database>): Promise<string[]> {
   const { rows } = await sql<{ tablename: string }>`

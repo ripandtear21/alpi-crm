@@ -89,7 +89,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
   // Права выдаются явно на каждую таблицу: новая таблица без строки здесь недоступна приложению.
   await sql`grant usage on schema public to alpi_app`.execute(db)
-  for (const table of appTables) {
+  // project приложение только читает: на ней нет RLS, и delete или update из withProject(A)
+  // задел бы проект B, а delete — ещё и каскадом все строки B (каскад идёт мимо политик).
+  // Проекты создаёт, меняет и удаляет служебная роль (createProject в src/project.ts).
+  await sql`grant select on project to alpi_app`.execute(db)
+  for (const table of projectTables) {
     await sql`grant select, insert, update, delete on ${sql.table(table)} to alpi_app`.execute(db)
   }
 }

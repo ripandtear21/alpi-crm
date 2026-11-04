@@ -1,5 +1,17 @@
-import { type Kysely, sql, type Transaction } from 'kysely'
-import type { Database } from './schema.ts'
+import { type Insertable, type Kysely, type Selectable, sql, type Transaction } from 'kysely'
+import type { Database, ProjectTable } from './schema.ts'
+
+/**
+ * Создаёт проект. `serviceDb` — подключение служебной ролью (владелец таблиц, под ним идут
+ * миграции): роль приложения alpi_app таблицу project только читает, и под ней вставка
+ * отказывает с `permission denied for table project`.
+ */
+export async function createProject(
+  serviceDb: Kysely<Database>,
+  values: Insertable<ProjectTable>,
+): Promise<Selectable<ProjectTable>> {
+  return serviceDb.insertInto('project').values(values).returningAll().executeTakeFirstOrThrow()
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
