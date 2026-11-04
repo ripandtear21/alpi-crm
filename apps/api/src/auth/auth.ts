@@ -1,5 +1,6 @@
 import type { Database } from '@alpi/db'
 import { betterAuth } from 'better-auth'
+import { createAuthMiddleware } from 'better-auth/api'
 import { admin, twoFactor } from 'better-auth/plugins'
 import type { Kysely } from 'kysely'
 
@@ -25,6 +26,23 @@ export interface AuthConfig {
   baseURL: string
   /** Флаг Secure у cookie: везде, кроме разработки. */
   secureCookies: boolean
+  /**
+   * Адреса и подсети (CIDR) прокси перед API, которым верим в X-Forwarded-For (TRUSTED_PROXIES).
+   * Пусто — верим только заголовку из одного адреса: так его выставляет Caddy.
+   */
+  trustedProxies?: string[]
+}
+
+/**
+ * Пути, на которых Better Auth создаёт сессию только после проверки кода 2FA: завершение
+ * входа и завершение настройки 2FA.
+ */
+const SECOND_FACTOR_PATHS = new Set(['/two-factor/verify-totp', '/two-factor/verify-backup-code'])
+
+/** Сессия запроса, как её кладёт Better Auth в контекст (с нашим полем twoFactorVerified). */
+interface SessionOfRequest {
+  user: { id: string; twoFactorEnabled?: boolean | null }
+  session: { twoFactorVerified?: boolean | null }
 }
 
 /**
@@ -61,6 +79,59 @@ export function createAuth(config: AuthConfig) {
         'userAgent',
         'userId',
       ),
+      // Прошла ли сессия второй фактор. Доступ к API с включённой 2FA — только у таких
+      // (access-guard.ts): сессия, открытая по одному паролю до включения 2FA, его не получает.
+      additionalFields: {
+        twoFactorVerified: {
+          type: 'boolean',
+          required: false,
+          defaultValue: false,
+          input: false,
+          fieldName: 'two_factor_verified',
+        },
+      },
+    },
+    databaseHooks: {
+      session: {
+        create: {
+          // Отметку ставит только код 2FA; сессия, созданная взамен проверенной сессии того же
+          // пользователя (например, при смене пароля), отметку наследует.
+          before: async (session, ctx) => {
+            const current = ctx?.context.session as SessionOfRequest | null | undefined
+            const verified =
+              (ctx?.path !== undefined && SECOND_FACTOR_PATHS.has(ctx.path)) ||
+              (current?.user.id === session.userId && current.session.twoFactorVerified === true)
+            return { data: { ...session, twoFactorVerified: verified } }
+          },
+        },
+      },
+      user: {
+        update: {
+          // 2FA только что включена (в сессии запроса она ещё выключена): все сессии
+          // пользователя, открытые по одному паролю, удаляются. Новую сессию, прошедшую код,
+          // Better Auth создаёт уже после этого обновления.
+          after: async (user, ctx) => {
+            const current = ctx?.context.session as SessionOfRequest | null | undefined
+            if (
+              ctx &&
+              user.twoFactorEnabled === true &&
+              current?.user.id === user.id &&
+              current.user.twoFactorEnabled !== true
+            ) {
+              await ctx.context.internalAdapter.deleteUserSessions(user.id)
+            }
+          },
+        },
+      },
+    },
+    // «Запомнить устройство» (вход без кода с этого браузера) не поддерживаем: такой вход
+    // создаёт сессию без второго фактора.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (SECOND_FACTOR_PATHS.has(ctx.path) && ctx.body?.trustDevice !== undefined) {
+          return { context: { body: { ...ctx.body, trustDevice: false } } }
+        }
+      }),
     },
     account: {
       fields: snakeFields(
@@ -88,8 +159,14 @@ export function createAuth(config: AuthConfig) {
     advanced: {
       useSecureCookies: config.secureCookies,
       defaultCookieAttributes: { httpOnly: true, sameSite: 'lax', secure: config.secureCookies },
-      // Адрес клиента для ограничителя — из X-Forwarded-For, который выставляет Caddy.
-      ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
+      // Адрес клиента для ограничителя — из X-Forwarded-For, который выставляет Caddy. Если перед
+      // Caddy есть ещё прокси, их адреса — в trustedProxies: цепочка разбирается справа налево
+      // до первого недоверенного адреса. Без этого при нескольких адресах в заголовке клиент
+      // не определяется, и у всех один общий счётчик попыток.
+      ipAddress: {
+        ipAddressHeaders: ['x-forwarded-for'],
+        ...(config.trustedProxies?.length ? { trustedProxies: config.trustedProxies } : {}),
+      },
     },
     plugins: [
       twoFactor({

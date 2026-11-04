@@ -41,7 +41,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       ip_address text,
       user_agent text,
       user_id text not null references "user" (id) on delete cascade,
-      impersonated_by text
+      impersonated_by text,
+      -- Сессия прошла второй фактор (код 2FA); ставит apps/api/src/auth/auth.ts.
+      two_factor_verified boolean not null default false
     )
   `.execute(db)
   await sql`create index session_user_id_idx on session (user_id)`.execute(db)

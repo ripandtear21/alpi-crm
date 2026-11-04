@@ -2,6 +2,7 @@ import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
 import type { Database } from './schema.ts'
 
+export { APP_GROUP_ROLE, assertRestrictedRole, ensureAppLoginRole } from './app-role.ts'
 export { createMigrator, migrateToLatest } from './migrate.ts'
 export { createProject, withProject } from './project.ts'
 export type {

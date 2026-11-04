@@ -3,6 +3,7 @@ import type { AuthApi, Session } from './auth-api.ts'
 // Подставной клиент входа для тестов: сессия в памяти, ответы API задаёт тест.
 
 export const SIGNED_IN: Session = {
+  session: { twoFactorVerified: true },
   user: { id: 'user-1', email: 'owner@example.test', name: 'Власник', twoFactorEnabled: true },
 }
 

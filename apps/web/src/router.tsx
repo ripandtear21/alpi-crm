@@ -41,13 +41,15 @@ const twoFactorSetupRoute = createRoute({
   beforeLoad: async ({ context }) => {
     const session = await context.auth.getSession()
     if (!session) throw redirect({ to: '/sign-in' })
+    // Уже включена — на главную; сессию без второго фактора оттуда отправят на вход.
     if (session.user.twoFactorEnabled) throw redirect({ to: '/' })
   },
   component: TwoFactorSetupPage,
 })
 
 // Всё остальное — в каркасе и только после входа с 2FA: без сессии — на экран входа,
-// с сессией без 2FA — на её настройку (API без 2FA всё равно отвечает 403).
+// с сессией без 2FA — на её настройку (API без 2FA всё равно отвечает 403). Сессия, открытая
+// по одному паролю до включения 2FA, — как без входа: API отвечает ей 401.
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'app',
@@ -55,6 +57,7 @@ const appRoute = createRoute({
     const session = await context.auth.getSession()
     if (!session) throw redirect({ to: '/sign-in' })
     if (!session.user.twoFactorEnabled) throw redirect({ to: '/two-factor-setup' })
+    if (!session.session.twoFactorVerified) throw redirect({ to: '/sign-in' })
     return { session }
   },
   component: () => (

@@ -12,6 +12,8 @@ export interface SessionUser {
 }
 
 export interface Session {
+  /** Сессия прошла код 2FA. Без этого при включённой 2FA API отвечает 401. */
+  session: { twoFactorVerified: boolean }
   user: SessionUser
 }
 

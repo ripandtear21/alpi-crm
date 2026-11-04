@@ -8,7 +8,13 @@ import { createAppRouter } from '../../router.tsx'
 import { type AuthApi, createAuthApi, type Session } from './auth-api.ts'
 import { fakeAuthApi, SIGNED_IN } from './fake-auth-api.ts'
 
-const WITHOUT_2FA: Session = { user: { ...SIGNED_IN.user, twoFactorEnabled: false } }
+const WITHOUT_2FA: Session = {
+  session: { twoFactorVerified: false },
+  user: { ...SIGNED_IN.user, twoFactorEnabled: false },
+}
+
+/** 2FA включена, но сессия открыта по одному паролю до этого — API ей отвечает 401. */
+const PASSWORD_ONLY: Session = { ...SIGNED_IN, session: { twoFactorVerified: false } }
 
 function renderAt(path: string, auth: AuthApi, language: Language = 'uk') {
   const router = createAppRouter({ history: createMemoryHistory({ initialEntries: [path] }), auth })
@@ -48,6 +54,35 @@ describe('доступ к интерфейсу', () => {
       'Налаштування двофакторної автентифікації',
     )
     expect(router.state.location.pathname).toBe('/two-factor-setup')
+  })
+
+  it('сессия без второго фактора при включённой 2FA — на экран входа', async () => {
+    const router = renderAt('/deals', fakeAuthApi({ getSession: async () => PASSWORD_ONLY }))
+    expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe('Вхід')
+    expect(router.state.location.pathname).toBe('/sign-in')
+  })
+})
+
+describe('доступ к экрану настройки 2FA', () => {
+  it('без входа — на экран входа', async () => {
+    const router = renderAt('/two-factor-setup', fakeAuthApi({ getSession: async () => null }))
+    expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe('Вхід')
+    expect(router.state.location.pathname).toBe('/sign-in')
+  })
+
+  it('2FA уже включена — на главную', async () => {
+    const router = renderAt('/two-factor-setup', fakeAuthApi())
+    await screen.findByRole('navigation', { name: 'Головне меню' })
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('2FA включена, но сессия без второго фактора — на экран входа', async () => {
+    const router = renderAt(
+      '/two-factor-setup',
+      fakeAuthApi({ getSession: async () => PASSWORD_ONLY }),
+    )
+    expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe('Вхід')
+    expect(router.state.location.pathname).toBe('/sign-in')
   })
 })
 

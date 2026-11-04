@@ -77,6 +77,8 @@ export interface SessionTable {
   user_agent: string | null
   user_id: string
   impersonated_by: string | null
+  /** Сессия прошла второй фактор: только у таких доступ к API при включённой 2FA. */
+  two_factor_verified: Generated<boolean>
 }
 
 export interface AccountTable {

@@ -13,6 +13,8 @@ import { createOwner, OWNER_ROLE } from './owner.ts'
 
 const ORIGIN = 'http://localhost:3000'
 const APP_USER = 'alpi_test_api'
+/** Прокси перед API, которому верим в X-Forwarded-For (как TRUSTED_PROXIES). */
+const TRUSTED_PROXY = '10.255.255.254'
 
 describe('вход и обязательная 2FA', () => {
   let testDb: TestDatabase
@@ -40,6 +42,7 @@ describe('вход и обязательная 2FA', () => {
       secret: randomBytes(32).toString('base64'),
       baseURL: ORIGIN,
       secureCookies: true,
+      trustedProxies: [TRUSTED_PROXY],
     })
     app = createApp({ auth })
   })
@@ -65,13 +68,15 @@ describe('вход и обязательная 2FA', () => {
 
   /**
    * Браузер: хранит cookie между запросами. У каждого браузера свой адрес (X-Forwarded-For),
-   * чтобы ограничитель попыток считал их отдельно; `ip` можно сменить посреди сценария.
+   * чтобы ограничитель попыток считал их отдельно; `ip` можно сменить посреди сценария,
+   * `behindProxy` — запрос пришёл через доверенный прокси (адрес клиента, затем прокси).
    */
   function browser() {
     const jar = new Map<string, string>()
-    const state = { ip: randomIp(), lastSetCookie: [] as string[] }
+    const state = { ip: randomIp(), behindProxy: false, lastSetCookie: [] as string[] }
     async function request(method: 'GET' | 'POST', path: string, body?: unknown) {
-      const headers = new Headers({ origin: ORIGIN, 'x-forwarded-for': state.ip })
+      const forwardedFor = state.behindProxy ? `${state.ip}, ${TRUSTED_PROXY}` : state.ip
+      const headers = new Headers({ origin: ORIGIN, 'x-forwarded-for': forwardedFor })
       if (jar.size > 0) {
         headers.set('cookie', [...jar].map(([name, value]) => `${name}=${value}`).join('; '))
       }
@@ -180,7 +185,9 @@ describe('вход и обязательная 2FA', () => {
 
     it('без сессии — 401 на всё, кроме входа; /health открыт', async () => {
       const b = browser()
-      expect((await b.get('/health')).status).toBe(200)
+      const health = await b.get('/health')
+      expect(health.status).toBe(200)
+      expect(await health.json()).toEqual({ status: 'ok' })
       expect((await b.get('/me')).status).toBe(401)
       expect((await b.get('/auth/list-sessions')).status).toBe(401)
       expect((await b.post('/auth/two-factor/enable', { password: 'x' })).status).toBe(401)
@@ -213,6 +220,87 @@ describe('вход и обязательная 2FA', () => {
       const right = await b.post('/auth/two-factor/verify-totp', { code: totp(secret) })
       expect(right.status).toBe(200)
       expect((await b.get('/me')).status).toBe(200)
+    })
+
+    it('включение 2FA закрывает сессии, открытые по одному паролю до него', async () => {
+      // Сценарий: стартовый пароль знает посторонний и входит до того, как сотрудник
+      // настроил 2FA. После настройки его сессия не должна получить доступ.
+      const user = await newUser()
+      const intruder = browser()
+      expect((await intruder.signIn(user)).status).toBe(200)
+      expect((await intruder.get('/me')).status).toBe(403)
+
+      const employee = browser()
+      await employee.signIn(user)
+      await setUpTwoFactor(employee, user.password)
+      expect((await employee.get('/me')).status).toBe(200)
+
+      expect((await intruder.get('/me')).status).toBe(401)
+      expect(await (await intruder.get('/auth/get-session')).json()).toBeNull()
+      // Сессии по паролю удалены из базы; осталась одна — прошедшая код.
+      const sessions = await owner
+        .selectFrom('session')
+        .select('two_factor_verified')
+        .where('user_id', '=', user.id)
+        .execute()
+      expect(sessions).toEqual([{ two_factor_verified: true }])
+    })
+
+    it('сессия без второго фактора при включённой 2FA — 401, даже если уцелела', async () => {
+      // 2FA включили в обход экрана настройки (например, прямо в базе): сессия по паролю не
+      // удалена, но второй фактор не проходила — доступа нет, нужен новый вход с кодом.
+      const user = await newUser()
+      const b = browser()
+      await b.signIn(user)
+      await owner
+        .updateTable('user')
+        .set({ two_factor_enabled: true })
+        .where('id', '=', user.id)
+        .execute()
+
+      expect((await b.get('/auth/get-session')).status).toBe(200)
+      for (const res of [
+        await b.get('/me'),
+        await b.get('/auth/list-sessions'),
+        await b.post('/auth/two-factor/get-totp-uri', { password: user.password }),
+      ]) {
+        expect(res.status).toBe(401)
+        expect(await res.json()).toEqual({ code: 'SECOND_FACTOR_REQUIRED' })
+      }
+    })
+
+    it('смена пароля с отзывом других сессий не выбрасывает из системы', async () => {
+      const user = await newUser()
+      const b = browser()
+      await b.signIn(user)
+      await setUpTwoFactor(b, user.password)
+
+      const changed = await b.post('/auth/change-password', {
+        currentPassword: user.password,
+        newPassword: randomBytes(18).toString('base64url'),
+        revokeOtherSessions: true,
+      })
+      expect(changed.status).toBe(200)
+      expect((await b.get('/me')).status).toBe(200)
+    })
+
+    it('запоминание устройства не включается: следующий вход снова требует код', async () => {
+      const user = await newUser()
+      const setup = browser()
+      await setup.signIn(user)
+      const { secret } = await setUpTwoFactor(setup, user.password)
+
+      const b = browser()
+      await b.signIn(user)
+      const verified = await b.post('/auth/two-factor/verify-totp', {
+        code: totp(secret),
+        trustDevice: true,
+      })
+      expect(verified.status).toBe(200)
+      expect(b.state.lastSetCookie.some((c) => c.includes('trust_device='))).toBe(false)
+
+      await b.post('/auth/sign-out')
+      expect(await (await b.signIn(user)).json()).toMatchObject({ twoFactorRedirect: true })
     })
 
     it('резервный код заменяет код из приложения, но только один раз', async () => {
@@ -249,8 +337,17 @@ describe('вход и обязательная 2FA', () => {
     it('открытой регистрации нет: ни через API, ни вызовом на сервере', async () => {
       const email = `${randomUUID()}@example.test`
       const password = randomBytes(18).toString('base64url')
-      const res = await browser().post('/auth/sign-up/email', { email, password, name: 'Гість' })
-      expect(res.status).toBeGreaterThanOrEqual(400)
+
+      // Запрос от вошедшего с 2FA пользователя проходит проверку доступа API и доходит до
+      // Better Auth — отказывает он сам (disableSignUp).
+      const member = await newUser()
+      const b = browser()
+      await b.signIn(member)
+      await setUpTwoFactor(b, member.password)
+      const res = await b.post('/auth/sign-up/email', { email, password, name: 'Гість' })
+      expect(res.status).toBe(400)
+      expect(await res.json()).toMatchObject({ code: 'EMAIL_PASSWORD_SIGN_UP_DISABLED' })
+
       await expect(
         auth.api.signUpEmail({ body: { email, password, name: 'Гість' } }),
       ).rejects.toThrow()
@@ -319,6 +416,20 @@ describe('вход и обязательная 2FA', () => {
 
       // С другого адреса тот же пользователь входит.
       expect((await browser().signIn(user)).status).toBe(200)
+    })
+
+    it('за доверенным прокси счётчик ведётся по адресу клиента, а не общий', async () => {
+      const user = await newUser()
+      const b = browser()
+      b.state.behindProxy = true
+      await b.signIn({ email: user.email, password: `wrong-${user.password}` })
+
+      const rows = await owner
+        .selectFrom('rate_limit')
+        .select('key')
+        .where('key', '=', `${b.state.ip}|/sign-in/email`)
+        .execute()
+      expect(rows).toEqual([{ key: `${b.state.ip}|/sign-in/email` }])
     })
   })
 })
