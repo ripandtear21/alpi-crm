@@ -827,8 +827,9 @@ describe('контакты и организации', () => {
           calls.push(`restore ${contactId}`)
           return null
         },
-        async purge(_db, contactId) {
+        async purge(_actor, contactId) {
           calls.push(`purge ${contactId}`)
+          return null
         },
       }
       const app = createApp({ auth: h.auth, db: h.appDb, contactDependents: dependents })

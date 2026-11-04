@@ -21,6 +21,7 @@ import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
 import {
   type ContactDependents,
   type DependentRecord,
+  type DependentRefusal,
   NO_CONTACT_DEPENDENTS,
 } from './dependents.ts'
 import {
@@ -526,6 +527,13 @@ async function trashContact(
   return ok(null)
 }
 
+/** Отказ зависимых записей — ответ API: без прав на них 403, сделка на удалённом этапе 409. */
+function dependentRefusal(refused: DependentRefusal): Result<never> {
+  return refused.code === 'PERMISSION_DENIED'
+    ? refuse(403, 'PERMISSION_DENIED')
+    : refuse(409, refused.code, { dealId: refused.dealId })
+}
+
 /**
  * Восстановление из корзины проверяет совпадения по тем же правилам, что создание
  * (checkKeys): пока контакт лежал в корзине, его телефон или email могли появиться у другого
@@ -544,7 +552,7 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
   if (!keys.ok) return keys
   // Пока контакт в корзине, его отметка deleted_at — та же, что у сделок, удалённых с ним.
   const refused = await ctx.dependents.restore(ctx, id)
-  if (refused) return refuse(409, refused.code, { dealId: refused.dealId })
+  if (refused) return dependentRefusal(refused)
   await ctx.db
     .updateTable('contact')
     .set({
@@ -571,7 +579,8 @@ async function purgeContact(ctx: ContactContext, id: string): Promise<Result<nul
   const found = await writableContact(ctx, id)
   if (!found.ok) return found
   if (found.value.deleted_at === null) return refuse(409, 'NOT_IN_TRASH')
-  await ctx.dependents.purge(ctx, id)
+  const refused = await ctx.dependents.purge(ctx, id)
+  if (refused) return dependentRefusal(refused)
   await purgeFromTrash(ctx, { type: 'contact', id })
   await audit.record(ctx.db, ctx.projectId, {
     action: 'contact.purged',

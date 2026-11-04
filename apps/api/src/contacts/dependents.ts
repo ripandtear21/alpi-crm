@@ -16,11 +16,14 @@ export interface DependentRecord {
   title: string
 }
 
-/** Почему зависимую запись не восстановить: открытая сделка стоит на удалённом этапе. */
-export interface DependentRefusal {
-  code: 'STAGE_DELETED'
-  dealId: string
-}
+/**
+ * Почему с зависимыми записями нельзя сделать то же, что с контактом: открытая сделка стоит
+ * на удалённом этапе (`STAGE_DELETED`) или среди записей есть такие, которые пользователь сам
+ * восстановить или удалить не может (`PERMISSION_DENIED`, без их данных).
+ */
+export type DependentRefusal =
+  | { code: 'STAGE_DELETED'; dealId: string }
+  | { code: 'PERMISSION_DENIED' }
 
 /** Кто удаляет контакт: его права и охват решают, может ли он удалить и зависимые записи. */
 export interface DependentsActor extends ChangeAuthor {
@@ -46,11 +49,15 @@ export interface ContactDependents {
   /**
    * Контакт `contactId` ещё в корзине и сейчас будет восстановлен: восстанавливаются записи,
    * удалённые вместе с ним, — с той же отметкой deleted_at (решение эпика — подтвердить).
-   * Не восстановить запись — отказ без изменений: тогда и контакт остаётся в корзине.
+   * Не восстановить запись (в том числе нет прав или охвата на неё) — отказ без изменений:
+   * тогда и контакт остаётся в корзине.
    */
-  restore(actor: ChangeAuthor, contactId: string): Promise<DependentRefusal | null>
-  /** Контакт сейчас будет удалён окончательно: зависимые записи удаляются раньше него. */
-  purge(actor: ChangeAuthor, contactId: string): Promise<void>
+  restore(actor: DependentsActor, contactId: string): Promise<DependentRefusal | null>
+  /**
+   * Контакт сейчас будет удалён окончательно: зависимые записи удаляются раньше него. Нет
+   * прав или охвата хотя бы на одну — отказ без изменений, контакт остаётся в корзине.
+   */
+  purge(actor: DependentsActor, contactId: string): Promise<DependentRefusal | null>
 }
 
 /** Вместе с контактом удалять нечего: для тестов точки расширения. */
@@ -62,5 +69,7 @@ export const NO_CONTACT_DEPENDENTS: ContactDependents = {
   async restore() {
     return null
   },
-  async purge() {},
+  async purge() {
+    return null
+  },
 }

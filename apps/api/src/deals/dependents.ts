@@ -1,16 +1,50 @@
 import { can } from '@alpi/shared'
 import { sql } from 'kysely'
 import { purgeFromTrash, recordChanges } from '../change-log/record.ts'
-import type { ContactDependents } from '../contacts/dependents.ts'
+import type { ContactDependents, DependentsActor } from '../contacts/dependents.ts'
 import { ownerAllowed } from './scope.ts'
 
 // Сделки, где контакт основной, удаляются вместе с ним (ответ владельца, пункт 35): в корзину
 // — с той же отметкой deleted_at, что у контакта; восстановление контакта возвращает именно
-// их (решено без владельца — подтвердить); окончательное удаление контакта сначала удаляет
-// окончательно все его сделки из корзины, вместе с их историей. Сделки, удалённые в корзину
-// раньше и отдельно, при восстановлении контакта остаются в корзине.
+// их (решено без владельца — подтвердить). Сделки, удалённые в корзину раньше и отдельно, при
+// восстановлении контакта остаются в корзине.
+//
+// С каждой сделкой пользователь делает то же, что сделал бы с ней сам, иначе отказ без
+// изменений (контакт остаётся, где был): удалить в корзину и окончательно — право «сделки:
+// удалять» и сделка в охвате изменения; восстановить — сделка в охвате изменения (право
+// «корзина: изменять» проверил маршрут контакта).
+//
+// Окончательное удаление контакта удаляет окончательно все сделки, где он основной (без
+// основного контакта сделки не бывает), — и удалённые вместе с ним, и удалённые раньше
+// отдельно, вместе с их историей. Из сделок, где он участник, он убирается с записью в их
+// историю (иначе его убрал бы каскад внешнего ключа без следа).
 
 const iso = (value: Date | string) => new Date(value).toISOString()
+
+/** Сделку пользователь меняет сам: ответственный в охвате чтения и изменения (или очередь). */
+function writable(actor: DependentsActor, ownerId: string | null): boolean {
+  const { read, write } = actor.permissions.scopes.deals
+  return ownerAllowed(ownerId, read, actor.viewer) && ownerAllowed(ownerId, write, actor.viewer)
+}
+
+/** Пользователь сам удалил бы каждую из сделок: право «сделки: удалять» и охват изменения. */
+function deletable(actor: DependentsActor, deals: readonly { owner_id: string | null }[]) {
+  return (
+    can(actor.permissions, 'deals', 'delete') && deals.every((d) => writable(actor, d.owner_id))
+  )
+}
+
+/** Участники сделки — как в ответе API (store.ts, dealViews): для истории «было → стало». */
+async function participantsOf(actor: DependentsActor, dealId: string) {
+  const rows = await actor.db
+    .selectFrom('deal_participant')
+    .select(['contact_id', 'role'])
+    .where('deal_id', '=', dealId)
+    .orderBy('created_at')
+    .orderBy('contact_id')
+    .execute()
+  return rows.map((p) => ({ contactId: p.contact_id, role: p.role }))
+}
 
 export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
   async pending(actor, contactId) {
@@ -24,13 +58,7 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
       .forUpdate()
       .execute()
     if (rows.length === 0) return { records: [], forbidden: false }
-    // Удалить сделки может только тот, кто удалил бы каждую из них сам.
-    const forbidden =
-      !can(actor.permissions, 'deals', 'delete') ||
-      rows.some(
-        (r) => !ownerAllowed(r.owner_id, actor.permissions.scopes.deals.write, actor.viewer),
-      )
-    if (forbidden) return { records: [], forbidden: true }
+    if (!deletable(actor, rows)) return { records: [], forbidden: true }
     return {
       records: rows.map((r) => ({ type: 'deal' as const, id: r.id, title: r.title })),
       forbidden: false,
@@ -58,17 +86,22 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
   async restore(actor, contactId) {
     const deals = await actor.db
       .selectFrom('deal')
-      .select(['id', 'deleted_at'])
+      .select(['id', 'deleted_at', 'owner_id'])
       .where('primary_contact_id', '=', contactId)
       .where(
         'deleted_at',
         '=',
         sql<Date>`(select c.deleted_at from contact c where c.id = ${contactId})`,
       )
+      .orderBy('id')
+      .forUpdate()
       .execute()
     if (deals.length === 0) return null
+    if (!deals.every((d) => writable(actor, d.owner_id))) return { code: 'PERMISSION_DENIED' }
     const ids = deals.map((d) => d.id)
-    // Пока сделка лежала в корзине, её этап могли удалить: открытой на нём она не встанет.
+    // Открытая сделка в корзине держит свой этап (pipelines/stage-deals.ts), так что этот
+    // отказ — на случай данных, записанных в обход API: открытой на удалённом этапе сделка
+    // не встанет (триггер deal_stage_live), и лучше 409, чем 500.
     const blocked = await actor.db
       .selectFrom('deal as d')
       .innerJoin('stage as s', 's.id', 'd.stage_id')
@@ -96,11 +129,42 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
   async purge(actor, contactId) {
     const deals = await actor.db
       .selectFrom('deal')
-      .select('id')
+      .select(['id', 'owner_id'])
       .where('primary_contact_id', '=', contactId)
+      .orderBy('id')
+      .forUpdate()
       .execute()
+    if (deals.length > 0 && !deletable(actor, deals)) return { code: 'PERMISSION_DENIED' }
     for (const deal of deals) {
       await purgeFromTrash(actor, { type: 'deal', id: deal.id })
     }
+    // Сделки, где контакт участник: строки сделок блокируются (как при изменении участников в
+    // deals.ts), чтобы «было» в истории не устарело до записи.
+    const involved = await actor.db
+      .selectFrom('deal')
+      .select('id')
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('deal_participant as p')
+            .select('p.id')
+            .whereRef('p.deal_id', '=', 'deal.id')
+            .where('p.contact_id', '=', contactId),
+        ),
+      )
+      .orderBy('id')
+      .forUpdate()
+      .execute()
+    for (const { id } of involved) {
+      const before = await participantsOf(actor, id)
+      await actor.db
+        .deleteFrom('deal_participant')
+        .where('deal_id', '=', id)
+        .where('contact_id', '=', contactId)
+        .execute()
+      const after = await participantsOf(actor, id)
+      await recordChanges(actor, { type: 'deal', id }, [{ field: 'participants', before, after }])
+    }
+    return null
   },
 }
