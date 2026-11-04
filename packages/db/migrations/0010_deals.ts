@@ -17,7 +17,8 @@ import { type Kysely, sql } from 'kysely'
 //   одновременные запросы: второй получает нарушение уникальности, API отвечает 409.
 // - Открытая сделка стоит только на действующем этапе (триггер deal_stage_live): этап
 //   блокируется FOR SHARE, а удаление этапа (apps/api/src/pipelines) — FOR UPDATE и проверка
-//   открытых сделок, так что сделка не встанет на этап, пока его удаляют.
+//   открытых сделок, так что сделка не встанет на этап, пока его удаляют. Открытые сделки в
+//   корзине тоже держат этап: иначе такую сделку было бы не восстановить.
 // - deal_participant — участники сделки с ролью (текст). Основной контакт здесь не дублируется
 //   (проверяет API). Участник уходит вместе со сделкой или контактом при окончательном удалении.
 // - История — change_log (0009_contacts) с entity_type 'deal'; участники пишутся полем
@@ -176,9 +177,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   `.execute(db)
   await sql`create index deal_owner_idx on deal (project_id, owner_id)`.execute(db)
   await sql`create index deal_contact_idx on deal (project_id, primary_contact_id)`.execute(db)
+  // Открытые сделки этапа, в том числе в корзине: проверка удаления этапа
+  // (apps/api/src/pipelines/stage-deals.ts).
   await sql`
-    create index deal_open_stage_idx on deal (project_id, stage_id)
-      where status = 'open' and deleted_at is null
+    create index deal_open_stage_idx on deal (project_id, stage_id) where status = 'open'
   `.execute(db)
   await sql`
     create index deal_organization_idx on deal (project_id, organization_id)
@@ -284,6 +286,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
 export async function down(db: Kysely<unknown>): Promise<void> {
   await sql.raw(purgeFunction(false)).execute(db)
+  // История сделок уходит вместе с ними: без таблицы deal её не удалить через purge_from_trash.
+  await sql`delete from change_log where entity_type = 'deal'`.execute(db)
   for (const table of [...projectTables].reverse()) {
     await sql`drop table ${sql.table(table)}`.execute(db)
   }

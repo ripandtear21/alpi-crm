@@ -43,6 +43,8 @@ import {
 // - Права — часть системы `deals`, охват чтения и изменения отдельно (deals/scope.ts): вне
 //   охвата чтения — 404, как несуществующая; в охвате чтения, но не изменения — 403. Сделку
 //   общей очереди (без ответственного) видит и меняет каждый с правом на сделки.
+// - Контакт привязывается к сделке (основным, участником, в допродаже) только из охвата
+//   изменения контактов: своя сделка сама делает контакт «своим» (contacts/scope.ts).
 // - Ответственный: себя на новую сделку или на сделку очереди («взять в работу») ставит каждый;
 //   любая другая смена ответственного (в том числе в очередь) — право «передача сделок»
 //   (`transfer_deals`), новый ответственный — в охвате изменения пользователя.
@@ -221,29 +223,45 @@ async function liveStage(
 }
 
 /**
- * Контакт проекта не в корзине; `visible` — ещё и в охвате контактов пользователя. Строка
- * блокируется FOR SHARE: удаление контакта (FOR UPDATE) подождёт, а сделка не встанет на
- * контакт, который удаляют.
+ * Что нужно от контакта, кроме «не в корзине». `bind` — его привязывают к сделке (основным
+ * или участником): он должен быть в охвате изменения контактов пользователя. Привязка к
+ * своей сделке сама даёт изменение контакта (охват «свои» по сделкам, contacts/scope.ts),
+ * поэтому привязать можно только то, что пользователь и так может менять. `any` — только
+ * «не в корзине» (восстановление сделки).
+ */
+type ContactUse = 'bind' | 'any'
+
+/**
+ * Контакт проекта не в корзине; при `bind` — вне охвата чтения контактов 404, в охвате
+ * чтения, но не изменения — 403. Строка блокируется FOR SHARE: удаление контакта
+ * (FOR UPDATE) подождёт, а сделка не встанет на контакт, который удаляют.
  */
 async function liveContact(
   ctx: DealContext,
   id: string,
-  visible: boolean,
+  use: ContactUse,
 ): Promise<Result<{ firstName: string; lastName: string | null }>> {
+  const scope = ctx.permissions.scopes.contacts
   let query = ctx.db
     .selectFrom('contact')
     .select(['first_name', 'last_name'])
     .where('id', '=', id)
     .where('deleted_at', 'is', null)
-  if (visible) {
-    query = query.where((eb) =>
-      contactScopePredicate(eb, ctx.permissions.scopes.contacts.read, ctx.viewer),
-    )
+  if (use === 'bind') {
+    query = query.where((eb) => contactScopePredicate(eb, scope.read, ctx.viewer))
   }
   const row = await query.forShare().executeTakeFirst()
-  return row
-    ? ok({ firstName: row.first_name, lastName: row.last_name })
-    : refuse(404, 'CONTACT_NOT_FOUND')
+  if (!row) return refuse(404, 'CONTACT_NOT_FOUND')
+  if (use === 'bind' && scope.write !== scope.read) {
+    const writable = await ctx.db
+      .selectFrom('contact')
+      .select('id')
+      .where('id', '=', id)
+      .where((eb) => contactScopePredicate(eb, scope.write, ctx.viewer))
+      .executeTakeFirst()
+    if (!writable) return refuse(403, 'PERMISSION_DENIED')
+  }
+  return ok({ firstName: row.first_name, lastName: row.last_name })
 }
 
 async function organizationExists(ctx: DealContext, id: string): Promise<boolean> {
@@ -338,8 +356,6 @@ interface NewDeal {
   pipelineId: string
   stageId: string | undefined
   contactId: string
-  /** Проверять, что контакт в охвате контактов пользователя (допродажа — уже из его сделки). */
-  contactMustBeVisible: boolean
   organizationId: string | null
   amount: number
   currency: DealCurrency
@@ -350,7 +366,7 @@ interface NewDeal {
 async function insertDeal(ctx: DealContext, deal: NewDeal): Promise<Result<DealView>> {
   const place = await placement(ctx, deal.pipelineId, deal.stageId)
   if (!place.ok) return place
-  const contact = await liveContact(ctx, deal.contactId, deal.contactMustBeVisible)
+  const contact = await liveContact(ctx, deal.contactId, 'bind')
   if (!contact.ok) return contact
   if (deal.organizationId !== null && !(await organizationExists(ctx, deal.organizationId))) {
     return refuse(404, 'ORGANIZATION_NOT_FOUND')
@@ -431,7 +447,6 @@ async function createDeal(c: Ctx, ctx: DealContext): Promise<Result<DealView>> {
       pipelineId,
       stageId,
       contactId: id,
-      contactMustBeVisible: true,
       organizationId: fields.value.organizationId ?? null,
       amount: fields.value.amount ?? 0,
       currency: fields.value.currency ?? DEFAULT_CURRENCY,
@@ -472,8 +487,13 @@ async function createUpsell(c: Ctx, ctx: DealContext, id: string): Promise<Resul
   const title = body.title === undefined ? undefined : requiredText(body.title, MAX_TITLE_LENGTH)
   if (body.title !== undefined && title === undefined) return invalid('title')
 
+  // Исходная сделка — в охвате изменения (вне охвата чтения — 404, как несуществующая):
+  // допродажа ставит её контакт в новую сделку пользователя, а с ней — в его охват контактов.
   const source = UUID.test(id) ? await findDeal(ctx, id, ctx.scope.read) : undefined
   if (!source || source.deleted_at !== null) return refuse(404, 'DEAL_NOT_FOUND')
+  if (!ownerAllowed(source.owner_id, ctx.scope.write, ctx.viewer)) {
+    return refuse(403, 'PERMISSION_DENIED')
+  }
   if (source.status !== 'won') return refuse(409, 'DEAL_NOT_WON')
   let target = pipelineId
   if (target === undefined) {
@@ -485,7 +505,8 @@ async function createUpsell(c: Ctx, ctx: DealContext, id: string): Promise<Resul
     if (!upsell) return refuse(422, 'UPSELL_PIPELINE_MISSING')
     target = upsell.id
   }
-  const contact = await liveContact(ctx, source.primary_contact_id, false)
+  // Здесь — только имя для названия; охват контактов проверит insertDeal (привязка).
+  const contact = await liveContact(ctx, source.primary_contact_id, 'any')
   if (!contact.ok) return contact
   const name = [contact.value.firstName, contact.value.lastName].filter(Boolean).join(' ')
   return insertDeal(ctx, {
@@ -493,7 +514,6 @@ async function createUpsell(c: Ctx, ctx: DealContext, id: string): Promise<Resul
     pipelineId: target,
     stageId,
     contactId: source.primary_contact_id,
-    contactMustBeVisible: false,
     organizationId: source.organization_id,
     amount: 0,
     currency: DEFAULT_CURRENCY,
@@ -531,7 +551,7 @@ async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<
       set.owner_id = owner.value
     }
     if (input.primaryContactId !== undefined && input.primaryContactId !== row.primary_contact_id) {
-      const contact = await liveContact(ctx, input.primaryContactId, true)
+      const contact = await liveContact(ctx, input.primaryContactId, 'bind')
       if (!contact.ok) return contact
       const participant = await ctx.db
         .selectFrom('deal_participant')
@@ -715,7 +735,7 @@ async function restoreDeal(ctx: DealContext, id: string): Promise<Result<DealVie
   if (!found.ok) return found
   const row = found.value
   if (row.deleted_at === null) return refuse(409, 'NOT_IN_TRASH')
-  const contact = await liveContact(ctx, row.primary_contact_id, false)
+  const contact = await liveContact(ctx, row.primary_contact_id, 'any')
   if (!contact.ok) return refuse(409, 'CONTACT_IN_TRASH')
   const written = await guardedWrite(
     ctx,
@@ -765,7 +785,7 @@ async function addParticipant(c: Ctx, ctx: DealContext, id: string): Promise<Res
   if (role === undefined) return invalid('role')
   return changeParticipants(ctx, id, async (row) => {
     if (row.primary_contact_id === contactId) return refuse(409, 'CONTACT_IS_PRIMARY')
-    const contact = await liveContact(ctx, contactId, true)
+    const contact = await liveContact(ctx, contactId, 'bind')
     if (!contact.ok) return contact
     try {
       await inSavepoint(ctx.db, () =>

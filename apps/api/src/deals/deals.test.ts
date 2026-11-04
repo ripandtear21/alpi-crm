@@ -3,6 +3,7 @@ import { withProject } from '@alpi/db'
 import type { TeamSummary } from '@alpi/shared'
 import { type Kysely, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { down as downDeals } from '../../../../packages/db/migrations/0010_deals.ts'
 import type { ContactView } from '../contacts/contacts.ts'
 import {
   type ApiHarness,
@@ -47,6 +48,14 @@ describe('сделки', () => {
   let noRights: SignedInUser
   /** Сделки видит все, меняет только свои. */
   let readAll: SignedInUser
+  /** Контакты видит все, меняет только свои; сделки — свои. */
+  let contactsReadAll: SignedInUser
+  /** Сделки видит и меняет все, контакты — только свои. */
+  let dealsAll: SignedInUser
+  /** Всё только своё, но может удалять и работать с корзиной. */
+  let trashOwn: SignedInUser
+  /** Контакты — все и корзина; сделки — только свои, без изменения. */
+  let trashKeeper: SignedInUser
 
   /** Каждая проверка — в своей воронке: правила «одной открытой сделки» не мешают соседям. */
   let pipelineCounter = 0
@@ -135,6 +144,10 @@ describe('сделки', () => {
     head = await h.signIn()
     noRights = await h.signIn()
     readAll = await h.signIn()
+    contactsReadAll = await h.signIn()
+    dealsAll = await h.signIn()
+    trashOwn = await h.signIn()
+    trashKeeper = await h.signIn()
     await rename(managerA1, 'Ганна Вигадана')
     await rename(managerA2, 'Остап Тестовий')
     await h.addMember(projectA, managerA1.id, 'manager')
@@ -160,6 +173,45 @@ describe('сделки', () => {
           role_id: await role('Бачить усе', {
             actions: { deals: ['view', 'create', 'edit'], contacts: ['view'] },
             scopes: { deals: { read: 'all', write: 'own' } },
+          }),
+        },
+        {
+          project_id: projectA,
+          user_id: contactsReadAll.id,
+          role_id: await role('Контакти: бачить усі, змінювати свої', {
+            actions: { deals: ['view', 'create', 'edit'], contacts: ['view', 'create', 'edit'] },
+            scopes: { contacts: { read: 'all', write: 'own' } },
+          }),
+        },
+        {
+          project_id: projectA,
+          user_id: dealsAll.id,
+          role_id: await role('Угоди всі, контакти свої', {
+            actions: { deals: ['view', 'create', 'edit'], contacts: ['view', 'create', 'edit'] },
+            scopes: { deals: { read: 'all', write: 'all' } },
+          }),
+        },
+        {
+          project_id: projectA,
+          user_id: trashOwn.id,
+          role_id: await role('Усе своє з кошиком', {
+            actions: {
+              deals: ['view', 'create', 'edit', 'delete'],
+              contacts: ['view', 'create', 'edit', 'delete'],
+              trash: ['view', 'edit', 'delete'],
+            },
+          }),
+        },
+        {
+          project_id: projectA,
+          user_id: trashKeeper.id,
+          role_id: await role('Кошик: контакти всі, угоди свої', {
+            actions: {
+              deals: ['view', 'delete'],
+              contacts: ['view', 'create', 'edit', 'delete'],
+              trash: ['view', 'edit', 'delete'],
+            },
+            scopes: { contacts: { read: 'all', write: 'all' } },
           }),
         },
       ])
@@ -688,6 +740,36 @@ describe('сделки', () => {
   })
 
   describe('одновременные запросы', () => {
+    /**
+     * Держит строку сделки `dealId` заблокированной отдельной транзакцией, запускает запросы
+     * `start` и отпускает строку, только когда `count` из них ждут её блокировку в базе
+     * (pg_stat_activity): так запросы сходятся в базе, а не доходят до неё по очереди.
+     */
+    async function whileDealLocked(
+      dealId: string,
+      count: number,
+      start: () => Promise<Response>[],
+    ): Promise<Response[]> {
+      let requests: Promise<Response>[] = []
+      await h.owner.transaction().execute(async (trx) => {
+        await trx.selectFrom('deal').select('id').where('id', '=', dealId).forUpdate().execute()
+        requests = start()
+        const deadline = Date.now() + 10_000
+        for (;;) {
+          const { rows } = await sql<{ waiting: number }>`
+            select count(*)::int as waiting from pg_stat_activity
+            where datname = current_database()
+              and wait_event_type = 'Lock'
+              and query ilike 'update "deal"%'
+          `.execute(h.owner)
+          if ((rows[0]?.waiting ?? 0) >= count) break
+          if (Date.now() > deadline) throw new Error('запросы не дошли до блокировки строки')
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      })
+      return Promise.all(requests)
+    }
+
     it('10 параллельных созданий открытой сделки одного контакта в воронке — ровно одна', async () => {
       const contact = await createContact(admin, 'Гонка')
       const pipeline = await createPipeline(projectA, ['g1'])
@@ -717,7 +799,8 @@ describe('сделки', () => {
         contactId: contact.id,
         ownerId: null,
       })
-      const [first, second] = await Promise.all([
+      // Оба запроса сходятся в базе: строка сделки заблокирована, пока оба не ждут её.
+      const [first, second] = await whileDealLocked(deal.id, 2, () => [
         act(managerA1, deal.id, 'take'),
         act(managerA2, deal.id, 'take'),
       ])
@@ -954,6 +1037,93 @@ describe('сделки', () => {
     })
   })
 
+  describe('допродажа: права', () => {
+    it('исходная сделка — в охвате изменения, её контакт — в охвате контактов', async () => {
+      const contact = await createContact(managerA1, 'Допродаж-охоплення')
+      const won = await createDeal(managerA1, { pipelineId: dirA.main.id, contactId: contact.id })
+      await expectStatus(await act(managerA1, won.id, 'win'), 200)
+
+      // Видит все сделки, меняет только свои: чужую выигранную видит, но допродать не может.
+      const readOnly = await act(readAll, won.id, 'upsell')
+      expect(readOnly.status).toBe(403)
+      expect(await readOnly.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      // Сделки — все, контакты — свои: контакт сделки коллеги вне охвата контактов.
+      const outOfScope = await act(dealsAll, won.id, 'upsell')
+      expect(outOfScope.status).toBe(404)
+      expect(await outOfScope.json()).toEqual({ code: 'CONTACT_NOT_FOUND' })
+
+      const deals = await h.owner
+        .selectFrom('deal')
+        .select('id')
+        .where('primary_contact_id', '=', contact.id)
+        .execute()
+      expect(deals).toEqual([{ id: won.id }])
+      await expectStatus(await act(managerA1, won.id, 'upsell'), 201)
+    })
+  })
+
+  describe('привязка контакта к сделке', () => {
+    it('только из охвата изменения контактов: на каждом пути 403, контакт не становится «своим»', async () => {
+      const foreign = await createContact(admin, 'Чужий')
+      const own = await createContact(contactsReadAll, 'Свій')
+      const create = await call(contactsReadAll, 'POST', '/v1/deals', {
+        title: 'Угода',
+        pipelineId: dirA.main.id,
+        contactId: foreign.id,
+      })
+      expect(create.status).toBe(403)
+      expect(await create.json()).toEqual({ code: 'PERMISSION_DENIED' })
+
+      const deal = await createDeal(contactsReadAll, {
+        pipelineId: dirA.main.id,
+        contactId: own.id,
+      })
+      await expectStatus(
+        await call(contactsReadAll, 'PUT', `/v1/deals/${deal.id}`, {
+          primaryContactId: foreign.id,
+        }),
+        403,
+      )
+      await expectStatus(
+        await call(contactsReadAll, 'POST', `/v1/deals/${deal.id}/participants`, {
+          contactId: foreign.id,
+        }),
+        403,
+      )
+      const after = await json<DealView>(await call(contactsReadAll, 'GET', `/v1/deals/${deal.id}`))
+      expect(after).toMatchObject({ primaryContactId: own.id, participants: [] })
+      // Чужой контакт так и не стал «своим»: менять и удалять его нельзя.
+      await expectStatus(
+        await call(contactsReadAll, 'PUT', `/v1/contacts/${foreign.id}`, { firstName: 'Інший' }),
+        403,
+      )
+      // Контакт вне охвата чтения — как несуществующий.
+      await expectStatus(
+        await call(managerA1, 'POST', '/v1/deals', {
+          title: 'Угода',
+          pipelineId: dirA.main.id,
+          contactId: foreign.id,
+        }),
+        404,
+      )
+    })
+
+    it('менеджер, взявший сделку общей очереди, меняет её контакт и ставит его в свою сделку', async () => {
+      const contact = await createContact(admin, 'З черги')
+      const queued = await createDeal(admin, {
+        pipelineId: dirA.main.id,
+        contactId: contact.id,
+        ownerId: null,
+      })
+      await expectStatus(await act(managerA2, queued.id, 'take'), 200)
+      await expectStatus(
+        await call(managerA2, 'PUT', `/v1/contacts/${contact.id}`, { firstName: 'Оновлений' }),
+        200,
+      )
+      await createDeal(managerA2, { pipelineId: dirA.other.id, contactId: contact.id })
+    })
+  })
+
   describe('участники', () => {
     it('добавить, сменить роль, убрать — с историей; основной контакт участником не бывает', async () => {
       const contact = await createContact(admin, 'Основний')
@@ -1059,13 +1229,18 @@ describe('сделки', () => {
           ],
         },
       })
-      await expectStatus(await call(admin, 'GET', `/v1/contacts/${contact.id}`), 200)
-      await expectStatus(await call(admin, 'GET', `/v1/deals/${d1.id}`), 200)
+      const nothingDeleted = async () => {
+        await expectStatus(await call(admin, 'GET', `/v1/contacts/${contact.id}`), 200)
+        await expectStatus(await call(admin, 'GET', `/v1/deals/${d1.id}`), 200)
+        await expectStatus(await call(admin, 'GET', `/v1/deals/${d2.id}`), 200)
+      }
+      await nothingDeleted()
       // Подтверждён не тот список — снова вопрос.
       await expectStatus(
         await call(admin, 'DELETE', `/v1/contacts/${contact.id}?confirm=${d1.id}`),
         409,
       )
+      await nothingDeleted()
 
       await expectStatus(
         await call(admin, 'DELETE', `/v1/contacts/${contact.id}?confirm=${d1.id},${d2.id}`),
@@ -1114,6 +1289,114 @@ describe('сделки', () => {
       expect(left).toEqual([])
       expect(await history(deal.id)).toEqual([])
     })
+
+    /** Строка в корзине: отметка deleted_at, прочитанная мимо API. */
+    async function trashedAt(table: 'deal' | 'contact', id: string) {
+      const row = await h.owner
+        .selectFrom(table)
+        .select('deleted_at')
+        .where('id', '=', id)
+        .executeTakeFirst()
+      return row?.deleted_at ?? null
+    }
+
+    it('восстановление и окончательное удаление контакта — 403, если его сделки вне охвата изменения', async () => {
+      const contact = await createContact(admin, 'Чужі угоди')
+      const deal = await createDeal(admin, {
+        pipelineId: dirA.main.id,
+        contactId: contact.id,
+        ownerId: managerA1.id,
+      })
+      await expectStatus(
+        await call(admin, 'DELETE', `/v1/contacts/${contact.id}?confirm=${deal.id}`),
+        204,
+      )
+      // Контакты и корзина — все, сделки — только свои: сделку менеджера не тронуть.
+      const restore = await call(trashKeeper, 'POST', `/v1/contacts/${contact.id}/restore`)
+      expect(restore.status).toBe(403)
+      expect(await restore.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      const purge = await call(trashKeeper, 'DELETE', `/v1/contacts/${contact.id}/permanent`)
+      expect(purge.status).toBe(403)
+      expect(await purge.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await trashedAt('contact', contact.id)).not.toBeNull()
+      expect(await trashedAt('deal', deal.id)).not.toBeNull()
+      expect((await history(deal.id)).map((e) => e.field)).toEqual(['deletedAt'])
+    })
+
+    it('окончательное удаление контакта не стирает чужую сделку, удалённую раньше отдельно', async () => {
+      const contact = await createContact(trashKeeper, 'Мій контакт')
+      const foreign = await createDeal(admin, {
+        pipelineId: dirA.main.id,
+        contactId: contact.id,
+        ownerId: managerA1.id,
+      })
+      await expectStatus(await call(admin, 'DELETE', `/v1/deals/${foreign.id}`), 204)
+      // Живых сделок у контакта нет — уходит в корзину без вопроса.
+      await expectStatus(await call(trashKeeper, 'DELETE', `/v1/contacts/${contact.id}`), 204)
+      await expectStatus(
+        await call(trashKeeper, 'DELETE', `/v1/contacts/${contact.id}/permanent`),
+        403,
+      )
+      expect(await trashedAt('deal', foreign.id)).not.toBeNull()
+      expect(await trashedAt('contact', contact.id)).not.toBeNull()
+      // Тот, кто может удалить и сделку, удаляет контакт окончательно вместе с ней.
+      await expectStatus(await call(admin, 'DELETE', `/v1/contacts/${contact.id}/permanent`), 204)
+      const left = await h.owner
+        .selectFrom('deal')
+        .select('id')
+        .where('id', '=', foreign.id)
+        .execute()
+      expect(left).toEqual([])
+    })
+
+    it('контакт, видимый только через свою сделку, после удаления вместе с ней восстанавливается', async () => {
+      const contact = await createContact(admin, 'Через угоду')
+      const deal = await createDeal(admin, {
+        pipelineId: dirA.main.id,
+        contactId: contact.id,
+        ownerId: trashOwn.id,
+      })
+      await expectStatus(
+        await call(trashOwn, 'DELETE', `/v1/contacts/${contact.id}?confirm=${deal.id}`),
+        204,
+      )
+      await expectStatus(await call(trashOwn, 'POST', `/v1/contacts/${contact.id}/restore`), 200)
+      await expectStatus(await call(trashOwn, 'GET', `/v1/deals/${deal.id}`), 200)
+
+      // Сделка, удалённая в корзину отдельно, контакт «своим» не делает.
+      const other = await createContact(admin, 'Окрема угода')
+      const separate = await createDeal(admin, {
+        pipelineId: dirA.main.id,
+        contactId: other.id,
+        ownerId: trashOwn.id,
+      })
+      await expectStatus(await call(trashOwn, 'GET', `/v1/contacts/${other.id}`), 200)
+      await expectStatus(await call(trashOwn, 'DELETE', `/v1/deals/${separate.id}`), 204)
+      await expectStatus(await call(trashOwn, 'GET', `/v1/contacts/${other.id}`), 404)
+    })
+
+    it('окончательное удаление контакта-участника убирает его из сделок с записью в историю', async () => {
+      const primary = await createContact(admin, 'Основний')
+      const guest = await createContact(admin, 'Учасник')
+      const deal = await createDeal(admin, { pipelineId: dirA.main.id, contactId: primary.id })
+      await expectStatus(
+        await call(admin, 'POST', `/v1/deals/${deal.id}/participants`, {
+          contactId: guest.id,
+          role: 'колега',
+        }),
+        201,
+      )
+      await expectStatus(await call(admin, 'DELETE', `/v1/contacts/${guest.id}`), 204)
+      await expectStatus(await call(admin, 'DELETE', `/v1/contacts/${guest.id}/permanent`), 204)
+      const view = await json<DealView>(await call(admin, 'GET', `/v1/deals/${deal.id}`))
+      expect(view.participants).toEqual([])
+      expect((await history(deal.id)).at(-1)).toEqual({
+        field: 'participants',
+        before: [{ contactId: guest.id, role: 'колега' }],
+        after: [],
+        actor_id: admin.id,
+      })
+    })
   })
 
   describe('этап с открытыми сделками', () => {
@@ -1138,6 +1421,51 @@ describe('сделки', () => {
       // Сначала — на действующий этап, потом открыть.
       await expectStatus(await act(admin, deal.id, 'stage', { stageId: pipeline.stages[1] }), 200)
       await expectStatus(await act(admin, deal.id, 'reopen'), 200)
+    })
+
+    it('открытая сделка в корзине держит этап: удалить нельзя, сделка восстанавливается на него', async () => {
+      const pipeline = await createPipeline(projectA, ['k1', 'k2'])
+      const contact = await createContact(admin, 'Кошик')
+      const deal = await createDeal(admin, { pipelineId: pipeline.id, contactId: contact.id })
+      const stagePath = `/v1/pipelines/${pipeline.id}/stages/${deal.stageId}`
+
+      await expectStatus(await call(admin, 'DELETE', `/v1/deals/${deal.id}`), 204)
+      const refused = await call(admin, 'DELETE', stagePath)
+      expect(refused.status).toBe(409)
+      expect(await refused.json()).toEqual({ code: 'STAGE_HAS_OPEN_DEALS' })
+      await expectStatus(await act(admin, deal.id, 'restore'), 200)
+
+      // Удалённая вместе с контактом — так же.
+      await expectStatus(
+        await call(admin, 'DELETE', `/v1/contacts/${contact.id}?confirm=${deal.id}`),
+        204,
+      )
+      await expectStatus(await call(admin, 'DELETE', stagePath), 409)
+      await expectStatus(await call(admin, 'POST', `/v1/contacts/${contact.id}/restore`), 200)
+      const restored = await json<DealView>(await call(admin, 'GET', `/v1/deals/${deal.id}`))
+      expect(restored).toMatchObject({ stageId: deal.stageId, status: 'open', deletedAt: null })
+    })
+  })
+
+  describe('откат миграции 0010_deals', () => {
+    it('убирает и историю сделок', async () => {
+      const contact = await createContact(admin, 'Відкат')
+      const deal = await createDeal(admin, { pipelineId: dirA.other.id, contactId: contact.id })
+      await expectStatus(await act(admin, deal.id, 'win'), 200)
+      // Откат — в транзакции, которая потом откатывается: схема остальных тестов не меняется.
+      await expect(
+        h.owner.transaction().execute(async (trx) => {
+          await downDeals(trx as unknown as Kysely<unknown>)
+          const left = await trx
+            .selectFrom('change_log')
+            .select('id')
+            .where('entity_type', '=', 'deal')
+            .execute()
+          expect(left).toEqual([])
+          throw new Error('откат проверки')
+        }),
+      ).rejects.toThrow('откат проверки')
+      expect(await history(deal.id)).not.toEqual([])
     })
   })
 })
