@@ -396,13 +396,14 @@ describe('контакты и организации', () => {
       expect((await json<ContactView>(moved)).organizationId).toBe(second.id)
 
       // В базе связь — один столбец contact.organization_id (своя организация есть ещё только у
-      // сделки) и никакой таблицы связей «контакт — организация».
+      // сделки, а заметка и файл ссылаются на организацию сами) и никакой таблицы связей
+      // «контакт — организация».
       const columns = await sql<{ table_name: string }>`
         select table_name from information_schema.columns
         where table_schema = 'public' and column_name = 'organization_id'
         order by table_name
       `.execute(h.owner)
-      expect(columns.rows.map((r) => r.table_name)).toEqual(['contact', 'deal'])
+      expect(columns.rows.map((r) => r.table_name)).toEqual(['contact', 'deal', 'file', 'note'])
     })
 
     it('организация другого проекта или из корзины — 404', async () => {

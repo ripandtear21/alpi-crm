@@ -20,6 +20,8 @@ FROM node:24-slim
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out ./
+# Каталог файлов пользователей (STORAGE_DIR в docker-compose): новый том берёт владельца отсюда.
+RUN mkdir -p /data/files && chown node:node /data/files
 USER node
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

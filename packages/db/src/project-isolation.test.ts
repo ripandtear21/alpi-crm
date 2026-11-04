@@ -25,6 +25,7 @@ const migrationNames = [
   '0009_contacts',
   '0010_deals',
   '0011_products',
+  '0012_notes_files',
 ]
 
 const tablesOfMigration = [
@@ -65,6 +66,9 @@ const tablesOfMigration = [
   // 0011_products
   'product',
   'deal_product',
+  // 0012_notes_files
+  'note',
+  'file',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -317,8 +321,10 @@ describe('схема и изоляция проектов', () => {
         { table: 'deal_participant', rls: true, policies: 1 },
         { table: 'deal_product', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
+        { table: 'file', rls: true, policies: 1 },
         { table: 'lost_reason', rls: true, policies: 1 },
         { table: 'lost_reason_group', rls: true, policies: 1 },
+        { table: 'note', rls: true, policies: 1 },
         { table: 'organization', rls: true, policies: 1 },
         { table: 'pipeline', rls: true, policies: 1 },
         { table: 'product', rls: true, policies: 1 },

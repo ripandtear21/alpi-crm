@@ -11,6 +11,7 @@ import { contactsRoutes } from './contacts/contacts.ts'
 import type { ContactDependents } from './contacts/dependents.ts'
 import { dealsRoutes } from './deals/deals.ts'
 import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
+import { isFileUpload } from './files/files.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
 import { NO_OPEN_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
@@ -22,12 +23,14 @@ import { OPEN_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deal
 import { productsRoutes } from './products/products.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
 import { rolesRoutes } from './roles/roles.ts'
+import { type FileStorage, NO_FILE_STORAGE } from './storage/storage.ts'
 import { teamsRoutes } from './teams/teams.ts'
+import { entityRecordsRoutes } from './timeline/timeline.ts'
 
 /**
  * Наибольшее тело запроса. JSON API (роли, вход) — единицы килобайт; большие тела не должны
- * доходить до разбора JSON и до транзакции проекта. Загрузка файлов, когда появится, получит
- * свой предел на своём маршруте.
+ * доходить до разбора JSON и до транзакции проекта. Загрузка файлов (files/files.ts) идёт мимо
+ * этого предела: у неё свой, 25 МБ, на своём маршруте.
  */
 export const MAX_BODY_BYTES = 100 * 1024
 
@@ -52,6 +55,8 @@ export interface AppDeps {
   stageDeals?: StageDealsChecker
   /** Что удаляется вместе с контактом; по умолчанию — сделки, где он основной. */
   contactDependents?: ContactDependents
+  /** Хранилище содержимого файлов (storage/storage.ts); без него файлов нет. */
+  storage?: FileStorage
 }
 
 /**
@@ -62,17 +67,25 @@ export interface AppDeps {
 function v1Routes({
   stageDeals,
   contactDependents,
+  storage,
 }: {
   stageDeals: StageDealsChecker
   contactDependents: ContactDependents
+  storage: FileStorage
 }) {
-  return new Hono<PermissionsEnv>()
-    .route('/deals', dealsRoutes())
-    .route('/pipelines', pipelinesRoutes({ stageDeals }))
-    .route('/lost-reasons', lostReasonsRoutes())
-    .route('/contacts', contactsRoutes({ dependents: contactDependents }))
-    .route('/organizations', organizationsRoutes())
-    .route('/products', productsRoutes())
+  return (
+    new Hono<PermissionsEnv>()
+      .route('/deals', dealsRoutes())
+      .route('/pipelines', pipelinesRoutes({ stageDeals }))
+      .route('/lost-reasons', lostReasonsRoutes())
+      .route('/contacts', contactsRoutes({ dependents: contactDependents }))
+      .route('/organizations', organizationsRoutes())
+      .route('/products', productsRoutes())
+      // Заметки, файлы и лента записи: /v1/deals/:id/notes, …/files, …/timeline.
+      .route('/deals', entityRecordsRoutes('deal', storage))
+      .route('/contacts', entityRecordsRoutes('contact', storage))
+      .route('/organizations', entityRecordsRoutes('organization', storage))
+  )
 }
 
 /**
@@ -89,18 +102,19 @@ export function createApp({
   bulk = NO_BULK,
   stageDeals = OPEN_STAGE_DEALS,
   contactDependents = DEAL_CONTACT_DEPENDENTS,
+  storage = NO_FILE_STORAGE,
 }: AppDeps) {
+  const jsonBodyLimit = bodyLimit({
+    maxSize: MAX_BODY_BYTES,
+    onError: (c) => c.json({ code: 'PAYLOAD_TOO_LARGE' }, 413),
+  })
   return (
     new Hono<AccessEnv>()
       .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
       // До входа и до контекста проекта: большое тело отклоняется, не дойдя ни до Better Auth,
       // ни до базы.
-      .use(
-        '*',
-        bodyLimit({
-          maxSize: MAX_BODY_BYTES,
-          onError: (c) => c.json({ code: 'PAYLOAD_TOO_LARGE' }, 413),
-        }),
+      .use('*', (c, next) =>
+        isFileUpload(c.req.method, c.req.path) ? next() : jsonBodyLimit(c, next),
       )
       .use('*', accessGuard(auth))
       .on(['GET', 'POST'], `${AUTH_BASE_PATH}/*`, (c) => auth.handler(c.req.raw))
@@ -123,7 +137,7 @@ export function createApp({
       .route('/audit', auditRoutes())
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
-      .route('/v1', v1Routes({ stageDeals, contactDependents }))
+      .route('/v1', v1Routes({ stageDeals, contactDependents, storage }))
   )
 }
 
