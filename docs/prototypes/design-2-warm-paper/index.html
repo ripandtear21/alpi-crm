@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="uk" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ПРОТОТИП · Alpi CRM — напрям 2 «Тепла папір»</title>
+<!--
+  PROTOTYPE — throwaway, не production-код.
+  Вопрос: как выглядят экраны CRM в направлении 2 «Тёплая бумага»
+  (docs/research/crm-design-directions.md, раздел «Направление 2»).
+  Без сборки. Сеть — только https: шрифты Google Fonts, значки Phosphor Light с unpkg.
+  Данные выдуманы, живут в памяти; перезагрузка = сброс.
+  Параметры адреса: ?screen=kanban|deal|list|roles|signin &state=normal|loading|empty|error|403|validation|toast|confirm|drag
+                    &theme=light|dark &lang=uk|ru &proj=alpi|fr &bar=0 (спрятать панель прототипа)
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/light/style.css">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="root"></div>
+<div id="layer"></div>
+<div id="proto"></div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

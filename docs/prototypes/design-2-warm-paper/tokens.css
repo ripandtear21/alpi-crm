@@ -1,0 +1,93 @@
+/* ПРОТОТИП — напрям 2 «Тепла папір / Тёплая бумага».
+   Токены взяты из docs/research/crm-design-directions.md, раздел «Направление 2».
+   Нейтральные — Radix Sand, сепия — Radix Brown, исходы — Grass / Red / Amber / Indigo. */
+
+:root {
+  color-scheme: light;
+  /* Цвет: светлая тема */
+  --bg: #F9F9F8;            /* Sand 2 — страница, боковая панель */
+  --surface: #FDFDFC;       /* Sand 1 — содержимое */
+  --hover: #F1F0EF;         /* Sand 3 */
+  --selected: #E9E8E6;      /* Sand 4 */
+  --line: #DAD9D6;          /* Sand 6 — декоративная линия */
+  --line-control: #8D8D86;  /* Sand 9 — граница поля, 3:1 */
+  --ink: #21201C;           /* Sand 12 */
+  --ink-2: #63635E;         /* Sand 11 */
+  --ink-3: #6C6B66;         /* meta */
+  --primary: #21201C;
+  --on-primary: #FDFDFC;
+  --accent-text: #815E46;   /* Brown 11 — ссылки, выбранный пункт */
+  --accent-wash: #F6EEE7;   /* Brown 3 — выделение */
+  --focus: #AD7F58;         /* Brown 9 — кольцо фокуса и линия текущего этапа */
+  --won: #297A39;
+  --lost: #CC2C31;
+  --warn: #9C5B00;
+  --info: #3A5BC7;
+  --shadow-pop: 0 8px 24px rgb(33 32 28 / .12);
+  --scrim: rgb(33 32 28 / .28);
+
+  /* Шрифты */
+  --serif: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+  --sans: "Source Sans 3", "Source Sans Pro", system-ui, sans-serif;
+
+  /* Шкала (размер / строка) */
+  --fs-page: 28px;  --lh-page: 34px;   /* Serif 600 — заголовок страницы */
+  --fs-deal: 22px;  --lh-deal: 28px;   /* Serif 600 — название сделки */
+  --fs-sec: 17px;   --lh-sec: 24px;    /* Serif 600 — заголовок секции */
+  --fs-body: 15px;  --lh-body: 22px;   /* Sans 400 — основной текст, лента */
+  --fs-table: 14px; --lh-table: 20px;  /* Sans 400 — таблица, карточка канбана */
+  --fs-meta: 13px;  --lh-meta: 18px;   /* Sans 400 — подписи */
+  --fs-label: 12px; --lh-label: 16px;  /* Sans 600 — метка над полем */
+
+  /* Отступы: шаг 4 px */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px; --s12: 48px;
+
+  /* Радиусы */
+  --r-control: 6px;  /* поля и кнопки */
+  --r-card: 8px;     /* карточки канбана, всплывающие меню */
+  --r-dialog: 12px;  /* диалоги */
+
+  /* Движение: Atlassian, ease-out bold */
+  --ease: cubic-bezier(0, 0.4, 0, 1);
+  --t-hover: 120ms;
+  --t-open: 200ms;
+  --t-fade: 150ms;
+  --shift: 4px;
+
+  /* Плотность */
+  --row: 40px;
+  --col-w: 300px;
+  --icon: 18px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110;            /* Sand dark 1 */
+  --surface: #191918;       /* Sand dark 2 */
+  --hover: #222221;
+  --selected: #2A2A28;
+  --line: #3B3A37;
+  --line-control: #6F6D66;
+  --ink: #EEEEEC;
+  --ink-2: #B5B3AD;
+  --ink-3: #9A9891;
+  --primary: #EEEEEC;
+  --on-primary: #191918;
+  --accent-text: #DBB594;
+  --accent-wash: #28211D;
+  --focus: #AD7F58;
+  --won: #71D083;
+  --lost: #FF9592;
+  --warn: #FFCA16;
+  --info: #9EB1FF;
+  --shadow-pop: 0 8px 24px rgb(0 0 0 / .45);
+  --scrim: rgb(0 0 0 / .5);
+}
+
+@media (pointer: coarse) {
+  :root { --row: 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-hover: 0ms; --t-open: 0ms; --t-fade: 0ms; --shift: 0px; }
+}
