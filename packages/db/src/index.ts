@@ -5,6 +5,15 @@ import type { Database } from './schema.ts'
 export { APP_GROUP_ROLE, assertRestrictedRole, ensureAppLoginRole } from './app-role.ts'
 export { FAILED_SIGN_IN_RETENTION_DAYS, purgeExpiredFailedSignIns } from './audit.ts'
 export { createMigrator, migrateToLatest } from './migrate.ts'
+export {
+  applyProjectPreset,
+  isPresetKey,
+  PRESET_KEYS,
+  PROJECT_PRESETS,
+  type PresetKey,
+  type PresetResult,
+  type ProjectPreset,
+} from './presets/project-preset.ts'
 export { createProject, withProject } from './project.ts'
 export type {
   AccountTable,
@@ -14,11 +23,15 @@ export type {
   BulkJobTable,
   Database,
   ExternalLinkTable,
+  LostReasonGroupTable,
+  LostReasonTable,
+  PipelineTable,
   ProjectMemberTable,
   ProjectTable,
   RateLimitTable,
   RoleTable,
   SessionTable,
+  StageTable,
   SystemAuditLogTable,
   TeamTable,
   TwoFactorTable,

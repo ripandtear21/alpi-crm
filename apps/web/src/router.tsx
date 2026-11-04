@@ -19,8 +19,11 @@ import { TwoFactorPage } from './routes/auth/two-factor-page.tsx'
 import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
 import { AuditPage } from './routes/settings/audit-page.tsx'
+import { LostReasonsPage } from './routes/settings/lost-reasons-page.tsx'
 import { createMembersApi, type MembersApi } from './routes/settings/members-api.ts'
 import { MembersPage } from './routes/settings/members-page.tsx'
+import { createPipelinesApi, type PipelinesApi } from './routes/settings/pipelines-api.ts'
+import { PipelinesPage } from './routes/settings/pipelines-page.tsx'
 import { createRolesApi, type RolesApi } from './routes/settings/roles-api.ts'
 import { RolesPage } from './routes/settings/roles-page.tsx'
 import { SettingsPage } from './routes/settings/settings-page.tsx'
@@ -32,6 +35,7 @@ export interface RouterContext {
   roles: RolesApi
   audit: AuditApi
   members: MembersApi
+  pipelines: PipelinesApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -185,6 +189,24 @@ const teamsRoute = createRoute({
   },
 })
 
+const pipelinesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/pipelines',
+  component: function PipelinesRoute() {
+    const { pipelines } = pipelinesRoute.useRouteContext()
+    return <PipelinesPage api={pipelines} />
+  },
+})
+
+const lostReasonsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/lost-reasons',
+  component: function LostReasonsRoute() {
+    const { pipelines } = lostReasonsRoute.useRouteContext()
+    return <LostReasonsPage api={pipelines} />
+  },
+})
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   twoFactorRoute,
@@ -201,6 +223,8 @@ const routeTree = rootRoute.addChildren([
     auditRoute,
     membersRoute,
     teamsRoute,
+    pipelinesRoute,
+    lostReasonsRoute,
   ]),
 ])
 
@@ -217,6 +241,8 @@ export interface AppRouterOptions {
   audit?: AuditApi
   /** Только в тестах: подставной клиент участников и команд. В браузере — запросы к API. */
   members?: MembersApi
+  /** Только в тестах: подставной клиент воронок и причин проигрыша. В браузере — запросы к API. */
+  pipelines?: PipelinesApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -228,9 +254,18 @@ export function createAppRouter({
   roles = createRolesApi(),
   audit = createAuditApi(),
   members = createMembersApi(),
+  pipelines = createPipelinesApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
-  const context: RouterContext = { auth, projects, roles, audit, members, queryClient }
+  const context: RouterContext = {
+    auth,
+    projects,
+    roles,
+    audit,
+    members,
+    pipelines,
+    queryClient,
+  }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })
 }
 

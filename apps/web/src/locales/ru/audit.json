@@ -44,6 +44,30 @@
     },
     "bulk": {
       "started": "Запущена массовая операция"
+    },
+    "pipeline": {
+      "created": "Создана воронка",
+      "updated": "Изменена воронка",
+      "reordered": "Изменён порядок воронок"
+    },
+    "stage": {
+      "created": "Создан этап",
+      "updated": "Переименован этап",
+      "deleted": "Удалён этап",
+      "reordered": "Изменён порядок этапов"
+    },
+    "lost_reason_group": {
+      "created": "Создана группа причин проигрыша",
+      "updated": "Изменена группа причин проигрыша",
+      "reordered": "Изменён порядок групп причин"
+    },
+    "lost_reason": {
+      "created": "Создана причина проигрыша",
+      "updated": "Изменена причина проигрыша",
+      "reordered": "Изменён порядок причин"
+    },
+    "project": {
+      "preset_applied": "Применена стартовая настройка"
     }
   },
   "summary": {
@@ -53,6 +77,14 @@
     "teamChanged": "{{user}}: {{before}} → {{after}}",
     "noTeam": "без команды",
     "teamCreated": "{{team}}, тимлид {{lead}}",
-    "leadAssigned": "{{team}}: {{before}} → {{after}}"
+    "leadAssigned": "{{team}}: {{before}} → {{after}}",
+    "inside": "{{parent}}: {{name}}",
+    "codeChanged": "код {{before}} → {{after}}",
+    "upsellOn": "отмечена как воронка допродаж",
+    "upsellOff": "снята отметка воронки допродаж",
+    "archived": "в архиве",
+    "restored": "возвращено из архива",
+    "reordered": "новый порядок",
+    "presetApplied": "настройка {{preset}}"
   }
 }

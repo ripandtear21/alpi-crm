@@ -21,6 +21,7 @@ const migrationNames = [
   '0005_audit',
   '0006_teams',
   '0007_jobs_bulk',
+  '0008_pipelines',
 ]
 
 const tablesOfMigration = [
@@ -44,6 +45,11 @@ const tablesOfMigration = [
   // 0007_jobs_bulk (таблицы pg-boss — в своей схеме pgboss, не здесь)
   'bulk_job',
   'bulk_job_error',
+  // 0008_pipelines
+  'pipeline',
+  'stage',
+  'lost_reason_group',
+  'lost_reason',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -289,8 +295,12 @@ describe('схема и изоляция проектов', () => {
         { table: 'bulk_job', rls: true, policies: 1 },
         { table: 'bulk_job_error', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
+        { table: 'lost_reason', rls: true, policies: 1 },
+        { table: 'lost_reason_group', rls: true, policies: 1 },
+        { table: 'pipeline', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },
+        { table: 'stage', rls: true, policies: 1 },
         { table: 'team', rls: true, policies: 1 },
       ])
     })
