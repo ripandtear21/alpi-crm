@@ -1,8 +1,8 @@
 # Staging на Railway и выкладка
 
 Type: task
-Status: blocked 2026-11-04T12:20Z
-Blocked reason: Нужен проект Railway (окружение staging, регион ЕС) и токен проекта в секретах GitHub — хостинг сменён на Railway, ADR 0002
+Status: blocked 2026-11-04T12:38Z
+Blocked reason: Отложено владельцем 2026-11-04: до готовности MVP работаем локально, выкладка на Railway — после MVP
 Waits: owner
 Blocked by: 09
 Source: .scratch/crm-mvp/spec.md, раздел 12, эпик 1

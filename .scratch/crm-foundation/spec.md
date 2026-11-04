@@ -9,7 +9,7 @@
 - Стек — по рекомендации исследования (spec.md, раздел 10): pnpm-монорепозиторий, Node 22+, TypeScript strict, Hono (API), React + Vite + TanStack Router/Query (клиент), PostgreSQL, Kysely + kysely-codegen, Better Auth, pg-boss, i18next.
 - Линтер и форматирование — Biome; тесты — Vitest; e2e — Playwright (позже).
 - На машине разработки нет Docker и PostgreSQL: тесты с базой поднимают настоящий PostgreSQL через npm-пакет `embedded-postgres` (без Docker). `docker-compose.yml` нужен для сервера.
-- Staging и выкладка требуют проекта Railway владельца (ADR 0002, хостинг сменён с Hetzner) — тикет 10, ждёт владельца.
+- Staging и выкладка на Railway (ADR 0002) отложены владельцем 2026-11-04 до готовности MVP: до тех пор работаем локально. Тикет 10 ждёт владельца.
 
 ## Волны
 
