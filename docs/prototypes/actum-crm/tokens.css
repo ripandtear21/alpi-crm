@@ -33,17 +33,19 @@
   --ff-meta: "Actum Num", "Fixel Text", system-ui, sans-serif;
   --ff-mono: "Martian Mono", "Martian Mono Cyr", ui-monospace, monospace;
 
-  --fs-h1: 52px;   --lh-h1: 1.02;  --tr-h1: -0.045em;
-  --fs-h2: 24px;   --lh-h2: 1.15;  --tr-h2: -0.025em;
-  --fs-h3: 20px;   --lh-h3: 1.2;   --tr-h3: -0.02em;
-  --fs-logo: 21px; --tr-logo: -0.035em;
-  --fs-body: 15px; --lh-body: 1.55;
+  --fs-h1: 52px;   --lh-h1: 1.02;  --tr-h1: -0.05em;
+  --fs-h2: 24px;   --lh-h2: 1.15;  --tr-h2: -0.03em;
+  --fs-h3: 20px;   --lh-h3: 1.2;   --tr-h3: -0.025em;
+  --fs-logo: 21px; --tr-logo: -0.04em;
+  --fs-body: 15px; --lh-body: 1.55; --tr-body: -0.01em;
   --fs-ui: 14px;
   --fs-small: 13.5px;
   --fs-meta: 13px; --lh-meta: 1.4;
   --fs-chip: 12.5px;
   --fs-label: 11px;
-  --fs-num-xl: 64px; --tr-num-xl: -0.07em;
+  /* tracking: text -0.01em; numbers/mono (Martian Mono digits are wide) tighter; code inputs only lightly open */
+  --tr-num: -0.025em; --tr-mono: -0.03em; --tr-code: .04em;
+  --fs-num-xl: 64px; --tr-num-xl: -0.075em;
 
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-7: 28px; --s-8: 40px; --s-9: 56px; --s-10: 90px;
 
@@ -74,6 +76,7 @@
   --accent-wash: rgb(201 184 255 / .11); --accent-line: rgb(201 184 255 / .55); --accent-solid: #C9B8FF;
   --ask: #FFB45C; --ask-wash: rgb(255 180 92 / .08); --ask-line: rgb(255 180 92 / .55);
   --danger: #FF7A7A; --danger-wash: rgb(255 122 122 / .09);
+  --danger-ink: #1A0606; --win: #5CCB8F; --win-ink: #04130A; --win-wash: rgb(92 203 143 / .11); --win-line: rgb(92 203 143 / .5);
   --nav-on: var(--hover); --nav-on-ink: var(--ink); --nav-on-meta: var(--ink-3);
   --grid: rgb(255 255 255 / .035);
   --glow: var(--accent-wash);
@@ -91,6 +94,7 @@
   --accent-wash: rgb(150 120 255 / .14); --accent-line: #7E62E0; --accent-solid: #7E62E0;
   --ask: #B45309; --ask-wash: rgb(245 158 11 / .09); --ask-line: rgb(180 83 9 / .6);
   --danger: #B42318; --danger-wash: rgb(180 35 24 / .07);
+  --danger-ink: #FFFFFF; --win: #17804A; --win-ink: #FFFFFF; --win-wash: rgb(23 128 74 / .08); --win-line: rgb(23 128 74 / .55);
   --nav-on: #E4DAFF; --nav-on-ink: #5537C2; --nav-on-meta: #5537C2;
   --grid: rgb(10 12 16 / .025);
   --glow: var(--accent-wash);
@@ -105,7 +109,7 @@
 html { background: var(--bg); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   margin: 0; min-height: 100vh; color: var(--ink);
-  font: 400 var(--fs-body)/var(--lh-body) var(--ff-text);
+  font: 400 var(--fs-body)/var(--lh-body) var(--ff-text); letter-spacing: var(--tr-body);
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
   background:
     linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
@@ -132,14 +136,14 @@ h1, h2, h3, h4, p, ul, ol, dl, dd, figure { margin: 0; }
 a:focus-visible { border-radius: 4px; }
 :is(h1, h2, h3, [data-focus-target])[tabindex="-1"]:focus { outline: none; }
 
-.meta { font: 400 var(--fs-meta)/var(--lh-meta) var(--ff-meta); color: var(--ink-3); }
+.meta { font: 400 var(--fs-meta)/var(--lh-meta) var(--ff-meta); color: var(--ink-3); letter-spacing: var(--tr-num); }
 .meta b { font-weight: 500; color: var(--ink-2); }
-.meta-prose { font: 400 var(--fs-meta)/var(--lh-meta) var(--ff-text); color: var(--ink-3); }
+.meta-prose { font: 400 var(--fs-meta)/var(--lh-meta) var(--ff-text); color: var(--ink-3); letter-spacing: -0.005em; }
 kbd {
   font: 500 var(--fs-label) var(--ff-meta); padding: 2px 6px; border-radius: var(--r-tag);
-  box-shadow: 0 0 0 1px var(--line-2); color: var(--ink-2); white-space: nowrap;
+  box-shadow: 0 0 0 1px var(--line-2); color: var(--ink-2); white-space: nowrap; letter-spacing: var(--tr-num);
 }
-.num { font-family: var(--ff-meta); }
+.num { font-family: var(--ff-meta); letter-spacing: var(--tr-num); }
 .vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .skip {
   position: fixed; left: var(--gutter); top: 12px; z-index: var(--z-toast);

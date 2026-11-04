@@ -41,6 +41,13 @@ const IC = {
   off: '<path d="M2 6a9 9 0 0 1 3-1.8M14 6a9 9 0 0 0-5.5-2.2M4.5 8.6a5.5 5.5 0 0 1 2-1M11.5 8.6a5.4 5.4 0 0 0-1.4-.9M8 12.2h.01M2.5 2.5l11 11"/>',
   merge: '<path d="M4 2.5v3a4 4 0 0 0 4 4h0a4 4 0 0 1 4 4v0M12 2.5v3a4 4 0 0 1-4 4"/>',
   user: '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5a5 5 0 0 1 10 0"/>',
+  pen: '<path d="M10.5 3l2.5 2.5L6 12.5l-3.2.7.7-3.2z"/><path d="M9 4.5L11.5 7"/>',
+  file: '<path d="M4 1.5h5.5l3 3v10H4z"/><path d="M9.5 1.5v3h3"/>',
+  clip: '<path d="M12.5 7.5l-4.8 4.8a3 3 0 0 1-4.2-4.2l5.2-5.2a2 2 0 0 1 2.8 2.8L6.4 10.8a1 1 0 0 1-1.4-1.4l4.5-4.5"/>',
+  edit: '<path d="M2.5 13.5h11"/><path d="M9.5 3l2 2L6 10.5H4v-2z"/>',
+  trash: '<path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 9h6.6l.7-9"/>',
+  upsell: '<path d="M8 13V4M4.5 7.5L8 4l3.5 3.5M3 2.5h10"/>',
+  org: '<rect x="3" y="2" width="10" height="12" rx="1"/><path d="M6 5h1M9 5h1M6 8h1M9 8h1M7 14v-3h2v3"/>',
 };
 const ic = (n, s = 16) => `<svg class="i" width="${s}" height="${s}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${IC[n]}</svg>`;
 
@@ -389,13 +396,13 @@ function lostDialog(title) {
 }
 ACT['lost-ok'] = () => {
   if (!$('input[name="lr"]:checked')) { $('#lr-err').textContent = 'Оберіть причину програшу.'; $('.dlg .choices').style.outline = 'none'; return; }
-  closeDialogs(); toast('Угоду позначено програною. Подію «угоду програно» надіслано автоматизації.');
+  closeDialogs(); if (S.screen === 'deal') go('deal', 'lost'); toast('Угоду позначено програною. Подію «угоду програно» надіслано автоматизації.');
 };
 function wonDialog(title) {
   openDialog(`${dlgHead('Позначити угоду виграною?', `«${esc(title)}»`)}<div class="dlg-b"><p class="ink2" style="font-size:14px">Угода зникне з канбана й потрапить у звіти як виграна. Відкрити її знову можна з картки угоди. CRM нічого не робить сама: задачу після виграшу поставить ваша автоматизація, якщо вона налаштована.</p></div>
     <div class="dlg-f"><button class="btn quiet sm" data-close>Скасувати</button><button class="btn primary sm" data-act="won-ok">Так, виграна</button></div>`);
 }
-ACT['won-ok'] = () => { closeDialogs(); toast('Угоду виграно. Подію «угоду виграно» надіслано.'); };
+ACT['won-ok'] = () => { closeDialogs(); if (S.screen === 'deal') go('deal', 'won'); toast('Угоду виграно. Подію «угоду виграно» надіслано.'); };
 function requiredDialog(title, stage, done, showErr = false) {
   const E = showErr ? 'aria-invalid="true"' : '', T = showErr ? 'Заповніть це поле.' : '';
   const d = openDialog(`${dlgHead('Заповніть обов’язкові поля', `На етапі «${stage.name}» ці поля обов’язкові. Угода «${esc(title)}».`)}
