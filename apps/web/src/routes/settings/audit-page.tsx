@@ -90,6 +90,8 @@ function useSummary() {
           before: text(before.leadName),
           after: text(after.leadName),
         })
+      case 'bulk.started':
+        return text(entry.details.action)
     }
   }
 }

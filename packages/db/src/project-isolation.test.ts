@@ -20,6 +20,7 @@ const migrationNames = [
   '0004_roles',
   '0005_audit',
   '0006_teams',
+  '0009_jobs_bulk',
 ]
 
 const tablesOfMigration = [
@@ -40,6 +41,9 @@ const tablesOfMigration = [
   'system_audit_log',
   // 0006_teams
   'team',
+  // 0009_jobs_bulk (таблицы pg-boss — в своей схеме pgboss, не здесь)
+  'bulk_job',
+  'bulk_job_error',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -152,6 +156,7 @@ describe('схема и изоляция проектов', () => {
       try {
         await migrateToLatest(scratch)
         expect(await existingTables(scratch)).toEqual([...tablesOfMigration].sort())
+        expect(await pgBossVersion(scratch)).toBeGreaterThan(0)
 
         const down = await createMigrator(scratch).migrateTo(NO_MIGRATIONS)
         expect(down.error).toBeUndefined()
@@ -159,12 +164,14 @@ describe('схема и изоляция проектов', () => {
           [...migrationNames].reverse().map((name) => [name, 'Down', 'Success']),
         )
         expect(await existingTables(scratch)).toEqual([])
+        expect(await pgBossVersion(scratch)).toBeNull()
 
         const again = await migrateToLatest(scratch)
         expect(again.map((r) => [r.migrationName, r.status])).toEqual(
           migrationNames.map((name) => [name, 'Success']),
         )
         expect(await existingTables(scratch)).toEqual([...tablesOfMigration].sort())
+        expect(await pgBossVersion(scratch)).toBeGreaterThan(0)
       } finally {
         await scratch.destroy()
       }
@@ -279,6 +286,8 @@ describe('схема и изоляция проектов', () => {
       `.execute(owner)
       expect(rows).toEqual([
         { table: 'audit_log', rls: true, policies: 1 },
+        { table: 'bulk_job', rls: true, policies: 1 },
+        { table: 'bulk_job_error', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },
@@ -308,6 +317,31 @@ describe('схема и изоляция проектов', () => {
       `.execute(owner)
       expect(owners.rows.length).toBeGreaterThanOrEqual(tablesOfMigration.length)
       expect(owners.rows.filter((r) => r.owned_by_app)).toEqual([])
+    })
+
+    it('схема pg-boss: роль приложения пользуется очередью, но ничем в схеме не владеет', async () => {
+      const objects = await sql<{ kind: string; name: string; owned_by_app: boolean }>`
+        select 'schema' as kind, n.nspname as name,
+          pg_has_role(${APP_USER}, n.nspowner, 'MEMBER') as owned_by_app
+        from pg_namespace n where n.nspname = 'pgboss'
+        union all
+        select 'table', c.relname, pg_has_role(${APP_USER}, c.relowner, 'MEMBER')
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'pgboss' and c.relkind in ('r', 'p')
+      `.execute(owner)
+      expect(objects.rows.some((r) => r.kind === 'table' && r.name === 'job')).toBe(true)
+      expect(objects.rows.filter((r) => r.owned_by_app)).toEqual([])
+
+      // Права очереди есть: читать и писать строки, звать функции pg-boss.
+      const queues = await sql<{ n: number }>`select count(*)::int as n from pgboss.queue`.execute(
+        app,
+      )
+      expect(queues.rows[0]?.n).toBeGreaterThanOrEqual(0)
+      // Менять схему — нет.
+      await expect(sql`create table pgboss.intruder (id int)`.execute(app)).rejects.toThrow(
+        /permission denied/,
+      )
+      await expect(sql`drop table pgboss.job`.execute(app)).rejects.toThrow(/must be owner/)
     })
 
     it('не может отключить RLS ни на таблице, ни для своей сессии', async () => {
@@ -423,6 +457,16 @@ async function rowsOfProject(
       (select count(*)::int from project_member where project_id = ${projectId}) as project_member
   `.execute(db)
   return rows[0] ?? { project: 0, external_link: 0, project_member: 0 }
+}
+
+/** Версия схемы pg-boss в базе; null — схемы нет. */
+async function pgBossVersion(db: Kysely<Database>): Promise<number | null> {
+  const { rows } = await sql<{ exists: boolean }>`
+    select to_regclass('pgboss.version') is not null as exists
+  `.execute(db)
+  if (!rows[0]?.exists) return null
+  const version = await sql<{ version: string }>`select version from pgboss.version`.execute(db)
+  return Number(version.rows[0]?.version ?? 0)
 }
 
 async function existingTables(db: Kysely<Database>): Promise<string[]> {

@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts и 0006_teams.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts, 0006_teams.ts и 0009_jobs_bulk.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -205,6 +205,49 @@ export interface SystemAuditLogTable extends AuditColumns {
   attempted_email: string | null
 }
 
+/** Состояние массовой операции: в очереди, идёт, закончена, остановлена целиком. */
+export type BulkJobStatus = 'queued' | 'running' | 'done' | 'failed'
+
+/**
+ * Массовая операция (migrations/0009_jobs_bulk.ts). Видна только в контексте своего проекта;
+ * роль приложения строки не удаляет.
+ */
+export interface BulkJobTable {
+  id: Generated<string>
+  project_id: string
+  /** Кто запустил (`user.id`). */
+  initiator_id: string
+  /** Код действия из реестра массовых действий. */
+  action: string
+  /** `{ ids: [...] }` или `{ filter: {...} }`. Читается объектом, пишется строкой JSON. */
+  selection: ColumnType<Record<string, unknown>, string, never>
+  params: ColumnType<Record<string, unknown>, string | undefined, never>
+  /** Записи в порядке обработки; null — выбор ещё не развёрнут. */
+  record_ids: string[] | null
+  status: ColumnType<BulkJobStatus, BulkJobStatus | undefined, BulkJobStatus>
+  total: number | null
+  /** Обработано записей, с ошибкой — тоже. */
+  processed: Generated<number>
+  /** Записей с ошибкой. */
+  failed: Generated<number>
+  /** Почему операция остановилась целиком (`status = 'failed'`). */
+  failure: string | null
+  created_at: Timestamp
+  started_at: Date | string | null
+  finished_at: Date | string | null
+}
+
+/** Ошибка массовой операции по одной записи: запись не изменена. */
+export interface BulkJobErrorTable {
+  project_id: string
+  bulk_job_id: string
+  /** Место записи в `bulk_job.record_ids`. */
+  position: number
+  record_id: string
+  code: string
+  message: string | null
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -220,4 +263,6 @@ export interface Database {
   rate_limit: RateLimitTable
   audit_log: AuditLogTable
   system_audit_log: SystemAuditLogTable
+  bulk_job: BulkJobTable
+  bulk_job_error: BulkJobErrorTable
 }

@@ -9,6 +9,9 @@ export { createProject, withProject } from './project.ts'
 export type {
   AccountTable,
   AuditLogTable,
+  BulkJobErrorTable,
+  BulkJobStatus,
+  BulkJobTable,
   Database,
   ExternalLinkTable,
   ProjectMemberTable,

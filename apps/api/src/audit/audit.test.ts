@@ -400,8 +400,8 @@ describe('журнал действий', () => {
           await sql`rollback to savepoint s`.execute(trx)
         }
       })
-      // Служебная функция очистки под ролью приложения тоже не работает.
-      await expect(purgeExpiredFailedSignIns(h.appDb)).rejects.toThrow(/permission denied/)
+      // Удалять записи роль приложения может только через служебную функцию очистки, а та
+      // удаляет одни неудачные входы старше 90 дней (тест ниже).
     })
 
     it('очистка удаляет только неудачные входы старше 90 дней', async () => {
@@ -416,7 +416,8 @@ describe('журнал действий', () => {
         ])
         .execute()
 
-      expect(await purgeExpiredFailedSignIns(h.owner)).toBeGreaterThanOrEqual(1)
+      // Под ролью приложения — так её зовёт ежедневная задача (apps/api/src/jobs/jobs.ts).
+      expect(await purgeExpiredFailedSignIns(h.appDb)).toBeGreaterThanOrEqual(1)
       const left = await h.owner
         .selectFrom('system_audit_log')
         .select(['action', sql<number>`extract(day from now() - occurred_at)::int`.as('age')])
