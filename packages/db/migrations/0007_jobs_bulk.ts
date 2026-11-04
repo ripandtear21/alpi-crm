@@ -10,7 +10,7 @@ import { type Kysely, sql } from 'kysely'
 //    проверяет, что версия схемы совпадает со своей (apps/api/src/jobs/jobs.ts).
 //    Роль приложения получает то, что нужно очереди: читать и писать строки таблиц pgboss и звать
 //    её функции. Менять схему (создавать, удалять таблицы) она не может.
-//    SQL установки заморожен текстом в 0009_jobs_bulk.pgboss-v46.sql (pg-boss 12.38.0, схема
+//    SQL установки заморожен текстом в 0007_jobs_bulk.pgboss-v46.sql (pg-boss 12.38.0, схема
 //    версии 46), а не берётся из установленного пакета: иначе результат уже написанной миграции
 //    менялся бы вместе с версией пакета. Обновление pg-boss до версии с другой схемой — новая
 //    миграция с getMigrationPlans и теми же правами для alpi_app; тест
@@ -38,7 +38,7 @@ const FAILED_SIGN_IN_RETENTION_DAYS = 90
  * COMMIT: миграция Kysely уже идёт в транзакции, и COMMIT из середины зафиксировал бы её раньше
  * времени.
  */
-const PGBOSS_INSTALL = new URL('./0009_jobs_bulk.pgboss-v46.sql', import.meta.url)
+const PGBOSS_INSTALL = new URL('./0007_jobs_bulk.pgboss-v46.sql', import.meta.url)
 
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql.raw(readFileSync(PGBOSS_INSTALL, 'utf8')).execute(db)

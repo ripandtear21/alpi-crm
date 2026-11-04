@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely'
 
-// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts, 0006_teams.ts и 0009_jobs_bulk.ts; меняются вместе с
+// Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts, 0006_teams.ts и 0007_jobs_bulk.ts; меняются вместе с
 // миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -209,7 +209,7 @@ export interface SystemAuditLogTable extends AuditColumns {
 export type BulkJobStatus = 'queued' | 'running' | 'done' | 'failed'
 
 /**
- * Массовая операция (migrations/0009_jobs_bulk.ts). Видна только в контексте своего проекта;
+ * Массовая операция (migrations/0007_jobs_bulk.ts). Видна только в контексте своего проекта;
  * роль приложения строки не удаляет.
  */
 export interface BulkJobTable {

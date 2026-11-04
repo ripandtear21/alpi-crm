@@ -20,7 +20,7 @@ const migrationNames = [
   '0004_roles',
   '0005_audit',
   '0006_teams',
-  '0009_jobs_bulk',
+  '0007_jobs_bulk',
 ]
 
 const tablesOfMigration = [
@@ -41,7 +41,7 @@ const tablesOfMigration = [
   'system_audit_log',
   // 0006_teams
   'team',
-  // 0009_jobs_bulk (таблицы pg-boss — в своей схеме pgboss, не здесь)
+  // 0007_jobs_bulk (таблицы pg-boss — в своей схеме pgboss, не здесь)
   'bulk_job',
   'bulk_job_error',
 ]

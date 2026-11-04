@@ -7,7 +7,7 @@ import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
 
 // Фоновые задачи на pg-boss (тикет crm-deals/04). Обработчик работает в процессе API (решено без
 // владельца, подтвердить; отдельный процесс — эпик эксплуатации) и ходит в базу той же ролью
-// приложения, что и API: схему pgboss и её права создаёт миграция 0009_jobs_bulk под служебной
+// приложения, что и API: схему pgboss и её права создаёт миграция 0007_jobs_bulk под служебной
 // ролью, поэтому pg-boss запускается с migrate: false и только сверяет версию схемы.
 //
 // Задачи:
@@ -19,7 +19,7 @@ import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
 // Задачи по расписанию трогают только корзину и журнал входов и никогда не меняют сделки
 // (ADR 0003).
 
-/** Схема таблиц pg-boss; та же константа — в packages/db/migrations/0009_jobs_bulk.ts. */
+/** Схема таблиц pg-boss; та же константа — в packages/db/migrations/0007_jobs_bulk.ts. */
 export const PGBOSS_SCHEMA = 'pgboss'
 
 export const QUEUES = {
