@@ -1,6 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from '../../ui/button.tsx'
 import { AuthScreen, errorKey, FormError, useAuthApi } from './auth-screen.tsx'
 
 // Второй шаг входа: код из приложения аутентификации или резервный код.
@@ -35,16 +36,23 @@ export function TwoFactorPage() {
   return (
     <AuthScreen title={t('twoFactor.title')}>
       <form className="auth-form" onSubmit={onSubmit} key={useBackup ? 'backup' : 'totp'}>
-        <p className="auth-hint">{t(useBackup ? 'twoFactor.backupHint' : 'twoFactor.totpHint')}</p>
+        <p className="auth-lead">{t(useBackup ? 'twoFactor.backupHint' : 'twoFactor.totpHint')}</p>
         {useBackup ? (
-          <label>
+          <label className="ui-field__label">
             {t('twoFactor.backupLabel')}
-            <input name="code" autoComplete="off" spellCheck={false} required />
+            <input
+              className="ui-input"
+              name="code"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
           </label>
         ) : (
-          <label>
+          <label className="ui-field__label">
             {t('twoFactor.codeLabel')}
             <input
+              className="ui-input ui-input--code"
               name="code"
               inputMode="numeric"
               autoComplete="one-time-code"
@@ -55,13 +63,13 @@ export function TwoFactorPage() {
           </label>
         )}
         <FormError message={error} />
-        <button type="submit" className="auth-primary" disabled={pending}>
+        <Button type="submit" variant="primary" busy={pending}>
           {t('twoFactor.submit')}
-        </button>
+        </Button>
       </form>
       <div className="auth-links">
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           className="auth-link"
           onClick={() => {
             setUseBackup((value) => !value)
@@ -69,7 +77,7 @@ export function TwoFactorPage() {
           }}
         >
           {t(useBackup ? 'twoFactor.useTotp' : 'twoFactor.useBackup')}
-        </button>
+        </Button>
         <Link to="/sign-in" className="auth-link">
           {t('twoFactor.restart')}
         </Link>

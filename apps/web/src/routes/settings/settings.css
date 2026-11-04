@@ -1,0 +1,92 @@
+/*
+ * Общее для экранов настроек в стиле Actum: панели-карточки, подписи рядом с полями,
+ * пояснения и метки. Только токены из styles/tokens.css.
+ */
+
+/* Оглавление настроек: плитки-ссылки. */
+.settings-index {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: var(--s-3);
+  max-width: var(--content-w);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-index a {
+  display: block;
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-block);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color var(--dur-fast);
+}
+
+.settings-index a:hover {
+  background: var(--hover);
+}
+
+/* Панель: карточка группы полей или элемента справочника. */
+.settings-panel,
+.directory__card,
+.members__add,
+.members__team,
+.members__password {
+  position: relative;
+  min-width: 0;
+  padding: var(--s-5);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+/* Подпись рядом с полем: текст слева, поле справа; на узком экране переносится. */
+:is(.directory, .members, .roles, .audit) label:not(.ui-check) {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-ui);
+}
+
+:is(.directory, .members, .roles, .audit) label :is(.ui-input, .ui-select) {
+  width: auto;
+  max-width: 100%;
+}
+
+:is(.directory, .members, .roles, .audit) fieldset {
+  display: grid;
+  gap: var(--s-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+:is(.directory, .members, .roles, .audit) legend {
+  margin-bottom: var(--s-2);
+  padding: 0;
+  font: 500 var(--fs-h3) / var(--lh-h3) var(--ff-display);
+  letter-spacing: var(--tr-h3);
+}
+
+.directory__hint,
+.members__hint,
+.roles__hint,
+.roles__note,
+.roles__count {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+
+.directory__mark {
+  color: var(--ink-3);
+  font: 400 var(--fs-meta) / var(--lh-meta) var(--ff-text);
+}

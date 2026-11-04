@@ -23,6 +23,8 @@ import {
 } from '../../components/project-switcher/current-project.tsx'
 import { type RoleInput, type RolesApi, RolesApiError } from './roles-api.ts'
 import './roles.css'
+import './settings.css'
+import { Button } from '../../ui/button.tsx'
 
 // Настройки → роли: список ролей проекта и редактор прав роли — таблица «часть системы ×
 // действие», охват для частей с ответственным, отдельные права. Роль «администратор» —
@@ -192,7 +194,9 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
     return (
       <section>
         <h1>{t('roles.title')}</h1>
-        <p role="alert">{denied ? t('roles.noAccess') : t('roles.errors.unknown')}</p>
+        <p className="ui-notice" role="alert">
+          {denied ? t('roles.noAccess') : t('roles.errors.unknown')}
+        </p>
       </section>
     )
   }
@@ -218,7 +222,8 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
           <ul aria-label={t('roles.listLabel')}>
             {list.map((role) => (
               <li key={role.id}>
-                <button
+                <Button
+                  size="sm"
                   type="button"
                   aria-pressed={shown?.id === role.id}
                   onClick={() => select(role)}
@@ -227,11 +232,12 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
                   <span className="roles__count">
                     {t('roles.members', { count: role.memberCount })}
                   </span>
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
-          <button
+          <Button
+            size="sm"
             type="button"
             onClick={() => {
               setDraft(newDraft('', emptyPermissions()))
@@ -239,7 +245,7 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
             }}
           >
             {t('roles.new')}
-          </button>
+          </Button>
         </div>
 
         {shown && (
@@ -255,6 +261,7 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
             <label>
               {t('roles.name')}{' '}
               <input
+                className="ui-input ui-input--sm"
                 value={shown.name}
                 readOnly={readOnly}
                 maxLength={60}
@@ -266,39 +273,41 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
               />
             </label>
 
-            <table className="roles__matrix">
-              <caption>{t('roles.matrixCaption')}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">{t('roles.resource')}</th>
-                  {ACTIONS.map((action) => (
-                    <th key={action} scope="col">
-                      {actionLabel(action)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {RESOURCES.map((resource) => (
-                  <tr key={resource}>
-                    <th scope="row">{resourceLabel(resource)}</th>
+            <div className="ui-table-wrap">
+              <table className="ui-table roles__matrix">
+                <caption>{t('roles.matrixCaption')}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('roles.resource')}</th>
                     {ACTIONS.map((action) => (
-                      <td key={action}>
-                        <input
-                          type="checkbox"
-                          aria-label={`${resourceLabel(resource)}: ${actionLabel(action)}`}
-                          checked={shown.permissions.actions[resource].includes(action)}
-                          disabled={readOnly}
-                          onChange={(event) =>
-                            edit((p) => toggleAction(p, resource, action, event.target.checked))
-                          }
-                        />
-                      </td>
+                      <th key={action} scope="col">
+                        {actionLabel(action)}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {RESOURCES.map((resource) => (
+                    <tr key={resource}>
+                      <th scope="row">{resourceLabel(resource)}</th>
+                      {ACTIONS.map((action) => (
+                        <td key={action}>
+                          <input
+                            type="checkbox"
+                            aria-label={`${resourceLabel(resource)}: ${actionLabel(action)}`}
+                            checked={shown.permissions.actions[resource].includes(action)}
+                            disabled={readOnly}
+                            onChange={(event) =>
+                              edit((p) => toggleAction(p, resource, action, event.target.checked))
+                            }
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             <fieldset>
               <legend>{t('roles.scopeTitle')}</legend>
@@ -310,6 +319,7 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
                     <label key={kind}>
                       {t(`roles.scopeKind.${kind}`)}{' '}
                       <select
+                        className="ui-select ui-select--sm"
                         aria-label={`${resourceLabel(resource)}: ${t(`roles.scopeKind.${kind}`)}`}
                         value={shown.permissions.scopes[resource][kind]}
                         disabled={readOnly}
@@ -348,13 +358,14 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
 
             <div className="roles__actions">
               {!readOnly && (
-                <button type="submit" disabled={save.isPending}>
+                <Button size="sm" type="submit" variant="primary" busy={save.isPending}>
                   {t('roles.save')}
-                </button>
+                </Button>
               )}
               {/* Копия любой роли, и администратора тоже, — новая своя роль. */}
               {shown.id !== null && (
-                <button
+                <Button
+                  size="sm"
                   type="button"
                   onClick={() => {
                     setDraft(newDraft(t('roles.copyName', { name: shown.name }), shown.permissions))
@@ -362,19 +373,25 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
                   }}
                 >
                   {t('roles.copy')}
-                </button>
+                </Button>
               )}
               {!readOnly && shown.id !== null && (
-                <button
+                <Button
+                  size="sm"
+                  variant="danger"
                   type="button"
                   disabled={remove.isPending}
                   onClick={() => shown.id !== null && remove.mutate(shown.id)}
                 >
                   {t('roles.delete')}
-                </button>
+                </Button>
               )}
             </div>
-            {message && <p role="status">{message}</p>}
+            {message && (
+              <p className="ui-notice" role="status">
+                {message}
+              </p>
+            )}
           </form>
         )}
       </div>

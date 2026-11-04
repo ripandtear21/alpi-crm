@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from '../../ui/button.tsx'
 import type { TwoFactorSetup } from './auth-api.ts'
 import { AuthScreen, errorKey, FormError, useAuthApi } from './auth-screen.tsx'
 import { QrCode } from './qr-code.tsx'
@@ -58,25 +59,31 @@ export function TwoFactorSetupPage() {
     <AuthScreen title={t('setup.title')}>
       {setup === null ? (
         <form className="auth-form" onSubmit={onStart}>
-          <p className="auth-hint">{t('setup.intro')}</p>
-          <label>
+          <p className="auth-lead">{t('setup.intro')}</p>
+          <label className="ui-field__label">
             {t('password')}
-            <input name="password" type="password" autoComplete="current-password" required />
+            <input
+              className="ui-input"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
           </label>
           <FormError message={error} />
-          <button type="submit" className="auth-primary" disabled={pending}>
+          <Button type="submit" variant="primary" busy={pending}>
             {t('setup.start')}
-          </button>
+          </Button>
         </form>
       ) : (
         <form className="auth-form" onSubmit={onVerify}>
-          <p className="auth-hint">{t('setup.scan')}</p>
+          <p className="auth-lead">{t('setup.scan')}</p>
           <QrCode value={setup.totpURI} label={t('setup.qrLabel')} />
-          <p className="auth-hint">
+          <p className="auth-lead">
             {t('setup.manual')} <code className="auth-secret">{setup.secret}</code>
           </p>
           <h2>{t('setup.backupTitle')}</h2>
-          <p className="auth-hint">{t('setup.backupHint')}</p>
+          <p className="auth-lead">{t('setup.backupHint')}</p>
           <ul className="auth-backup-codes" aria-label={t('setup.backupTitle')}>
             {setup.backupCodes.map((code) => (
               <li key={code}>
@@ -84,10 +91,11 @@ export function TwoFactorSetupPage() {
               </li>
             ))}
           </ul>
-          <p className="auth-hint">{t('setup.verifyHint')}</p>
-          <label>
+          <p className="auth-lead">{t('setup.verifyHint')}</p>
+          <label className="ui-field__label">
             {t('twoFactor.codeLabel')}
             <input
+              className="ui-input ui-input--code"
               name="code"
               inputMode="numeric"
               autoComplete="one-time-code"
@@ -97,15 +105,15 @@ export function TwoFactorSetupPage() {
             />
           </label>
           <FormError message={error} />
-          <button type="submit" className="auth-primary" disabled={pending}>
+          <Button type="submit" variant="primary" busy={pending}>
             {t('setup.submit')}
-          </button>
+          </Button>
         </form>
       )}
       <div className="auth-links">
-        <button type="button" className="auth-link" onClick={onSignOut} disabled={pending}>
+        <Button variant="quiet" className="auth-link" onClick={onSignOut} disabled={pending}>
           {t('setup.signOut')}
-        </button>
+        </Button>
       </div>
     </AuthScreen>
   )

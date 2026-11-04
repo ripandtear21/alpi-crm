@@ -2,24 +2,31 @@ import { useRouteContext } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LanguageSwitcher } from '../../layout/language-switcher.tsx'
+import { ThemeSwitcher } from '../../layout/theme-switcher.tsx'
 import type { AuthApi, AuthError } from './auth-api.ts'
-// Общие цвета и шрифт — из каркаса интерфейса.
-import '../../layout/app-layout.css'
 import './auth.css'
 
-/** Рамка экранов входа: карточка по центру, название системы и переключатель языка. */
+/** Рамка экранов входа: название системы, язык и тема сверху, панель с формой по центру. */
 export function AuthScreen({ title, children }: { title: string; children: ReactNode }) {
   const { t } = useTranslation()
   return (
     <div className="auth-screen">
-      <section className="auth-card" aria-labelledby="auth-title">
-        <div className="auth-card__top">
-          <span className="auth-card__brand">{t('appName')}</span>
+      <div className="auth-screen__top">
+        <span className="auth-screen__brand">
+          <span className="ui-mark" aria-hidden="true" />
+          {t('appName')}
+        </span>
+        <div className="auth-screen__prefs">
           <LanguageSwitcher />
+          <ThemeSwitcher />
         </div>
-        <h1 id="auth-title">{title}</h1>
-        {children}
-      </section>
+      </div>
+      <main className="auth-screen__main">
+        <section className="auth-card" aria-labelledby="auth-title">
+          <h1 id="auth-title">{title}</h1>
+          {children}
+        </section>
+      </main>
     </div>
   )
 }
@@ -27,7 +34,7 @@ export function AuthScreen({ title, children }: { title: string; children: React
 /** Сообщение об ошибке формы; читалка экрана объявляет его сразу. */
 export function FormError({ message }: { message: string | null }) {
   return message ? (
-    <p className="auth-error" role="alert">
+    <p className="ui-notice" role="alert">
       {message}
     </p>
   ) : null

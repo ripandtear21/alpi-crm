@@ -1,10 +1,18 @@
+// Общие стили — первыми: стили экранов, которые подключает маршрутизатор, идут после них и уточняют их.
+import './styles/tokens.css'
+import './styles/base.css'
+import './ui/ui.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { I18nextProvider } from 'react-i18next'
 import { createI18n } from './i18n/index.ts'
+import { applyTheme, readStoredTheme } from './layout/theme.ts'
 import { createAppRouter } from './router.tsx'
+
+// Тема ставится до первой отрисовки, чтобы экран не мигнул чужой темой.
+applyTheme(readStoredTheme())
 
 const queryClient = new QueryClient()
 const i18n = createI18n()

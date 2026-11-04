@@ -13,6 +13,8 @@ import {
 } from '../../components/project-switcher/current-project.tsx'
 import { type AuditApi, AuditApiError } from './audit-api.ts'
 import './audit.css'
+import './settings.css'
+import { Button } from '../../ui/button.tsx'
 
 // Настройки → журнал: опасные действия в текущем проекте, новые сверху, с фильтром по
 // действию и пользователю; следующая страница — кнопкой «Показати ще». Право — «доступ до
@@ -173,7 +175,9 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
     return (
       <section>
         <h1>{t('title')}</h1>
-        <p role="alert">{denied ? t('noAccess') : t('error')}</p>
+        <p className="ui-notice" role="alert">
+          {denied ? t('noAccess') : t('error')}
+        </p>
       </section>
     )
   }
@@ -187,6 +191,7 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
         <label>
           {t('filter.action')}
           <select
+            className="ui-select ui-select--sm"
             value={action}
             onChange={(e) => setAction(isProjectAuditAction(e.target.value) ? e.target.value : '')}
           >
@@ -200,7 +205,11 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
         </label>
         <label>
           {t('filter.actor')}
-          <select value={actor} onChange={(e) => setActor(e.target.value)}>
+          <select
+            className="ui-select ui-select--sm"
+            value={actor}
+            onChange={(e) => setActor(e.target.value)}
+          >
             <option value="">{t('filter.anyActor')}</option>
             {(actors.data ?? []).map((a) => (
               <option key={a.id} value={a.id}>
@@ -216,8 +225,8 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
       ) : entries.length === 0 ? (
         <p>{t('empty')}</p>
       ) : (
-        <div className="audit__scroll">
-          <table className="audit__table">
+        <div className="ui-table-wrap">
+          <table className="ui-table audit__table">
             <caption>{t('tableCaption')}</caption>
             <thead>
               <tr>
@@ -247,9 +256,14 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
         </div>
       )}
       {log.hasNextPage && (
-        <button type="button" onClick={() => log.fetchNextPage()} disabled={log.isFetchingNextPage}>
+        <Button
+          size="sm"
+          type="button"
+          onClick={() => log.fetchNextPage()}
+          disabled={log.isFetchingNextPage}
+        >
           {t('more')}
-        </button>
+        </Button>
       )}
     </section>
   )

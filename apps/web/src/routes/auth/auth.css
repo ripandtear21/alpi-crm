@@ -1,120 +1,134 @@
-/* Экраны входа: карточка по центру на фоне каркаса. Цвета — переменные из app-layout.css. */
+/*
+ * Экраны входа в стиле Actum (прототип docs/prototypes/actum-crm, раздел «auth»):
+ * название и настройки вида сверху, панель с формой по центру. Только токены.
+ */
 .auth-screen {
   min-height: 100vh;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 48px 16px;
 }
 
-.auth-card {
-  width: 100%;
-  max-width: 380px;
-  padding: 20px 24px 24px;
-  background: #fff;
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-}
-
-.auth-card__top {
+.auth-screen__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--gutter);
 }
 
-.auth-card__brand {
-  font-weight: 700;
-  color: var(--color-accent);
+.auth-screen__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font: 700 var(--fs-logo) / 1 var(--ff-display);
+  letter-spacing: var(--tr-logo);
+}
+
+.auth-screen__prefs {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.auth-screen__main {
+  display: grid;
+  justify-items: center;
+  padding: 8vh var(--gutter) var(--s-10);
+}
+
+.auth-card {
+  position: relative;
+  display: grid;
+  gap: var(--s-5);
+  width: 100%;
+  max-width: var(--form-w);
+  padding: var(--s-7) var(--s-7) var(--s-6);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: actum-rise var(--dur-rise) var(--ease) both;
 }
 
 .auth-card h1 {
-  margin: 16px 0 12px;
-  font-size: 18px;
+  font: 500 var(--fs-page-h1) / 1.05 var(--ff-display);
+  letter-spacing: var(--tr-h1);
+  overflow-wrap: anywhere;
 }
 
 .auth-card h2 {
-  margin: 8px 0 0;
-  font-size: 14px;
+  font: 500 var(--fs-h3) / var(--lh-h3) var(--ff-display);
+  letter-spacing: var(--tr-h3);
+}
+
+.auth-card > p,
+.auth-lead {
+  color: var(--ink-2);
 }
 
 .auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  gap: var(--s-4);
+  min-width: 0;
 }
 
-.auth-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--color-muted);
-}
-
-.auth-form input {
-  padding: 8px 10px;
-  color: var(--color-text);
-}
-
-.auth-hint {
-  margin: 0;
-  color: var(--color-muted);
-}
-
-.auth-error {
-  margin: 0;
-  color: #b91c1c;
-}
-
-.auth-primary {
-  padding: 8px 10px;
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.auth-primary:disabled {
-  opacity: 0.6;
-  cursor: default;
+.auth-form > .ui-button--primary {
+  justify-self: stretch;
 }
 
 .auth-links {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
-  margin-top: 14px;
+  gap: var(--s-2);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
 }
 
-.auth-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--color-accent);
+.auth-links .auth-link {
+  padding: var(--s-1) 0;
+  white-space: normal;
+  text-align: left;
+  color: var(--accent-text);
+  font-size: var(--fs-ui);
+  text-decoration: none;
+}
+
+.auth-links .auth-link:hover {
   text-decoration: underline;
-  cursor: pointer;
 }
 
+/* QR для приложения аутентификации всегда чёрным по белому — так его читают камеры. */
 .qr-code {
-  width: 200px;
-  height: 200px;
-  align-self: center;
+  justify-self: center;
+  width: var(--qr-size);
+  height: var(--qr-size);
+  padding: var(--s-2);
+  border-radius: var(--r-block);
+  background: var(--on-solid);
+  box-shadow: 0 0 0 1px var(--line-2);
 }
 
 .auth-secret {
-  word-break: break-all;
-  color: var(--color-text);
+  overflow-wrap: anywhere;
+  color: var(--ink);
 }
 
 .auth-backup-codes {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2) var(--s-4);
   margin: 0;
-  padding: 8px 12px;
+  padding: var(--s-3) var(--s-4);
   list-style: none;
-  background: var(--color-bg);
-  border-radius: 6px;
+  border-radius: var(--r-chip);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.auth-backup-codes code {
+  font-size: var(--fs-small);
+}
+
+@media (max-width: 640px) {
+  .auth-card {
+    padding: var(--s-6) var(--s-4) var(--s-5);
+  }
 }

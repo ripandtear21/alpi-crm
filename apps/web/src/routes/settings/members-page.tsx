@@ -11,6 +11,8 @@ import { type RolesApi, RolesApiError } from './roles-api.ts'
 import { useRoleName } from './roles-page.tsx'
 import { TransferDealsDialog } from './transfer-deals-dialog.tsx'
 import './members.css'
+import './settings.css'
+import { Button } from '../../ui/button.tsx'
 
 // Настройки → пользователи: участники проекта с ролью, командой, приёмом новых сделок и
 // отключением; передача открытых сделок перед отключением (тикет crm-deals/09, диалог
@@ -108,7 +110,9 @@ function MembersEditor({
     return (
       <section>
         <h1>{t('members.title')}</h1>
-        <p role="alert">{denied ? t('roles.noAccess') : t('roles.errors.unknown')}</p>
+        <p className="ui-notice" role="alert">
+          {denied ? t('roles.noAccess') : t('roles.errors.unknown')}
+        </p>
       </section>
     )
   }
@@ -130,8 +134,8 @@ function MembersEditor({
         />
       )}
 
-      <div className="members__table">
-        <table>
+      <div className="ui-table-wrap">
+        <table className="ui-table members__table">
           <caption>{t('members.listLabel')}</caption>
           <thead>
             <tr>
@@ -172,7 +176,11 @@ function MembersEditor({
           </tbody>
         </table>
       </div>
-      {message && <p role="status">{message}</p>}
+      {message && (
+        <p className="ui-notice" role="status">
+          {message}
+        </p>
+      )}
 
       {transferOf && (
         <TransferDealsDialog
@@ -258,6 +266,7 @@ function MemberRow({
       </th>
       <td>
         <select
+          className="ui-select ui-select--sm"
           aria-label={t('members.roleOf', { name: who })}
           value={member.roleId}
           disabled={pending}
@@ -272,6 +281,7 @@ function MemberRow({
       </td>
       <td>
         <select
+          className="ui-select ui-select--sm"
           aria-label={t('members.teamOf', { name: who })}
           value={member.teamId ?? ''}
           disabled={pending}
@@ -296,17 +306,17 @@ function MemberRow({
       </td>
       <td>
         {member.disabled ? t('members.disabled') : t('members.active')}{' '}
-        <button type="button" disabled={pending} onClick={onToggle}>
+        <Button size="sm" type="button" disabled={pending} onClick={onToggle}>
           {member.disabled
             ? t('members.enable', { name: who })
             : t('members.disable', { name: who })}
-        </button>
+        </Button>
         {!member.disabled && (
           <>
             {' '}
-            <button type="button" disabled={pending} onClick={onTransfer}>
+            <Button size="sm" type="button" disabled={pending} onClick={onTransfer}>
               {t('members.transfer.open', { name: who })}
-            </button>
+            </Button>
           </>
         )}
       </td>
@@ -368,16 +378,24 @@ function AddMemberForm({
       </label>
       <p className="members__hint">{isNew ? t('members.createHint') : t('members.addHint')}</p>
       <label>
-        {t('members.email')} <input name="email" type="email" required maxLength={254} />
+        {t('members.email')}{' '}
+        <input
+          className="ui-input ui-input--sm"
+          name="email"
+          type="email"
+          required
+          maxLength={254}
+        />
       </label>
       {isNew && (
         <label>
-          {t('members.name')} <input name="name" required maxLength={100} />
+          {t('members.name')}{' '}
+          <input className="ui-input ui-input--sm" name="name" required maxLength={100} />
         </label>
       )}
       <label>
         {t('members.role')}{' '}
-        <select name="roleId" defaultValue={defaultRole?.id}>
+        <select className="ui-select ui-select--sm" name="roleId" defaultValue={defaultRole?.id}>
           {roles.map((role) => (
             <option key={role.id} value={role.id}>
               {roleName(role)}
@@ -387,7 +405,7 @@ function AddMemberForm({
       </label>
       <label>
         {t('members.team')}{' '}
-        <select name="teamId" defaultValue="">
+        <select className="ui-select ui-select--sm" name="teamId" defaultValue="">
           <option value="">{t('members.noTeam')}</option>
           {teams.map((team) => (
             <option key={team.id} value={team.id}>
@@ -396,9 +414,9 @@ function AddMemberForm({
           ))}
         </select>
       </label>
-      <button type="submit" disabled={pending}>
+      <Button size="sm" type="submit" variant="primary" disabled={pending}>
         {isNew ? t('members.createSubmit') : t('members.addSubmit')}
-      </button>
+      </Button>
     </form>
   )
 }
@@ -419,7 +437,8 @@ function TemporaryPassword({
     <section className="members__password" aria-label={t('members.passwordLabel')}>
       <p>{t('members.passwordHint', { email })}</p>
       <code>{password}</code>{' '}
-      <button
+      <Button
+        size="sm"
         type="button"
         onClick={async () => {
           // Без доступа к буферу (не HTTPS, запрет браузера) пароль остаётся на экране — его
@@ -433,10 +452,10 @@ function TemporaryPassword({
         }}
       >
         {copied ? t('members.copied') : t('members.copy')}
-      </button>{' '}
-      <button type="button" onClick={onDone}>
+      </Button>{' '}
+      <Button size="sm" type="button" onClick={onDone}>
         {t('members.passwordDone')}
-      </button>
+      </Button>
     </section>
   )
 }

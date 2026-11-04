@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import './settings.css'
 
 // Настройки проекта: роли, пользователи, команды, журнал действий, воронки, причины проигрыша и товары; остальные подразделы придут
 // со своими тикетами.
@@ -11,7 +12,7 @@ export function SettingsPage() {
     <section>
       <h1>{t('title')}</h1>
       <nav aria-label={t('sectionsLabel')}>
-        <ul>
+        <ul className="settings-index">
           <li>
             <Link to="/settings/roles">{t('roles.title')}</Link>
           </li>

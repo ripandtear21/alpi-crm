@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from '../../ui/button.tsx'
 import { AuthScreen, errorKey, FormError, useAuthApi } from './auth-screen.tsx'
 
 // Первый шаг входа: email и пароль. Дальше — код 2FA или, если 2FA ещё нет, её настройка
@@ -34,18 +35,24 @@ export function SignInPage() {
   return (
     <AuthScreen title={t('signIn.title')}>
       <form className="auth-form" onSubmit={onSubmit}>
-        <label>
+        <label className="ui-field__label">
           {t('email')}
-          <input name="email" type="email" autoComplete="username" required />
+          <input className="ui-input" name="email" type="email" autoComplete="username" required />
         </label>
-        <label>
+        <label className="ui-field__label">
           {t('password')}
-          <input name="password" type="password" autoComplete="current-password" required />
+          <input
+            className="ui-input"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
         </label>
         <FormError message={error} />
-        <button type="submit" className="auth-primary" disabled={pending}>
+        <Button type="submit" variant="primary" busy={pending}>
           {t('signIn.submit')}
-        </button>
+        </Button>
       </form>
     </AuthScreen>
   )

@@ -3,34 +3,27 @@
 .directory {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 960px;
+  gap: var(--s-4);
+  max-width: var(--content-w);
+}
+
+.directory > h1 {
+  margin-bottom: 0;
 }
 
 .directory__card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--color-line);
-  border-radius: 6px;
-  min-width: 0;
+  gap: var(--s-4);
 }
 
 .directory__card h2 {
-  margin: 0;
-  font-size: 1.15em;
   overflow-wrap: anywhere;
 }
 
-.directory__card--archived {
-  color: var(--color-muted);
-}
-
-.directory__mark {
-  color: var(--color-muted);
-  font-weight: normal;
-  font-size: 0.9em;
+.directory__card--archived > h2,
+li.directory__card--archived {
+  color: var(--ink-3);
 }
 
 .directory__row,
@@ -38,46 +31,61 @@
 .directory__settings {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--s-2);
   align-items: center;
   min-width: 0;
 }
 
-.directory__rename input,
-.directory__settings input:not([type="checkbox"]) {
+.directory__rename .ui-input,
+.directory__settings .ui-input {
   flex: 1 1 12rem;
   min-width: 0;
+}
+
+/* Поле с кнопкой в строке списка занимает остаток строки. */
+.directory__list li .directory__rename {
+  flex: 1 1 16rem;
+}
+
+/* Форма новой воронки или группы: заголовок своей строкой, поля и кнопка — в ряд с переносом. */
+.directory__card.directory__settings {
+  flex-direction: row;
+  align-items: flex-end;
+}
+
+.directory__card.directory__settings > h2 {
+  flex-basis: 100%;
 }
 
 .directory__list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   margin: 0;
-  padding-left: 1.5em;
+  padding: 0;
+  list-style: none;
+  counter-reset: item;
+  border-top: 1px solid var(--line);
 }
 
 .directory__list li {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--s-2);
   align-items: center;
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--line);
+  counter-increment: item;
 }
 
-.directory__list li .directory__rename {
-  flex: 1 1 16rem;
+.directory__list li::before {
+  content: counter(item);
+  min-width: var(--s-5);
+  color: var(--ink-3);
+  font: 400 var(--fs-meta) / var(--lh-meta) var(--ff-meta);
+  letter-spacing: var(--tr-num);
 }
 
 .directory__order {
   display: inline-flex;
-  gap: 4px;
-}
-
-.directory__order button {
-  min-width: 2.25em;
-}
-
-.directory__hint {
-  color: var(--color-muted);
-  margin: 0;
+  gap: var(--s-1);
 }

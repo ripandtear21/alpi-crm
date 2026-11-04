@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from '../../ui/button.tsx'
 import { AuthScreen, errorKey, FormError, useAuthApi } from './auth-screen.tsx'
 
 /** Минимальная длина пароля — как на сервере (apps/api/src/auth/auth.ts). */
@@ -52,22 +53,40 @@ export function ChangePasswordPage() {
     <AuthScreen title={t('changePassword.title')}>
       <p>{t('changePassword.intro')}</p>
       <form className="auth-form" onSubmit={onSubmit}>
-        <label>
+        <label className="ui-field__label">
           {t('changePassword.current')}
-          <input name="current" type="password" autoComplete="current-password" required />
+          <input
+            className="ui-input"
+            name="current"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
         </label>
-        <label>
+        <label className="ui-field__label">
           {t('changePassword.next')}
-          <input name="next" type="password" autoComplete="new-password" required />
+          <input
+            className="ui-input"
+            name="next"
+            type="password"
+            autoComplete="new-password"
+            required
+          />
         </label>
-        <label>
+        <label className="ui-field__label">
           {t('changePassword.confirm')}
-          <input name="confirm" type="password" autoComplete="new-password" required />
+          <input
+            className="ui-input"
+            name="confirm"
+            type="password"
+            autoComplete="new-password"
+            required
+          />
         </label>
         <FormError message={error} />
-        <button type="submit" className="auth-primary" disabled={pending}>
+        <Button type="submit" variant="primary" busy={pending}>
           {t('changePassword.submit')}
-        </button>
+        </Button>
       </form>
     </AuthScreen>
   )
