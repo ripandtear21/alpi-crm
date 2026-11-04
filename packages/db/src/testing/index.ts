@@ -61,7 +61,11 @@ export async function startTestDatabase(
     connectionString: `postgres://${user}:${password}@127.0.0.1:${port}/postgres`,
     async stop() {
       await pg.stop()
-      await removeDir(root)
+      // Неудалённая временная папка — не провал тестов: на Windows под нагрузкой файлы базы
+      // бывают заняты дольше, чем ждут повторы removeDir, и verify падал при зелёных тестах.
+      await removeDir(root).catch((rmError: unknown) => {
+        console.warn(`Не удалось удалить временную папку ${root}: ${String(rmError)}`)
+      })
     },
   }
 }
