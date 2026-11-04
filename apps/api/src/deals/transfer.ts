@@ -1,0 +1,128 @@
+import type { Database } from '@alpi/db'
+import { type Kysely, sql } from 'kysely'
+import type { BulkAction } from '../bulk/registry.ts'
+import { BulkRecordError } from '../bulk/registry.ts'
+import { recordChanges } from '../change-log/record.ts'
+import { dealInScope, ownerAllowed } from './scope.ts'
+
+// Передача открытых сделок участника одному менеджеру или в общую очередь (тикет crm-deals/09;
+// spec.md MVP, раздел 4, «Уход сотрудника»). Действие массовой операции тикета 04: каркас
+// (bulk/runner.ts) режет сделки на порции и на каждой порции заново проверяет права
+// инициатора; запускает его маршрут POST /v1/members/:userId/transfer-deals
+// (members/transfer.ts). Каждая переданная сделка получает запись «ответственный: было →
+// стало» в истории. Сделки передаются только по команде человека (ADR 0003): ни событий, ни
+// раздачи по команде.
+
+/** Код действия в реестре массовых операций. */
+export const TRANSFER_DEALS_ACTION = 'deals.transfer'
+
+/** Параметры операции: чьи сделки и кому; `toUserId: null` — в общую очередь. */
+export interface TransferParams {
+  fromUserId: string
+  toUserId: string | null
+}
+
+/** Наибольшая длина id пользователя в параметрах (id Better Auth — 32 символа). */
+const MAX_USER_ID = 100
+
+const isUserId = (value: unknown): value is string =>
+  typeof value === 'string' && value !== '' && value.length <= MAX_USER_ID
+
+/** Параметры из запроса; null — не годятся. */
+export function readTransferParams(params: Record<string, unknown>): TransferParams | null {
+  const { fromUserId, toUserId } = params
+  if (!isUserId(fromUserId)) return null
+  if (toUserId !== null && !isUserId(toUserId)) return null
+  if (toUserId === fromUserId) return null
+  return { fromUserId, toUserId }
+}
+
+/**
+ * Открытые сделки ответственного `ownerId` в текущем проекте (`db` — транзакция проекта):
+ * статус open, в том числе архивные (архив — отметка, а не статус), без удалённых в корзину.
+ */
+export function openDealsOf(db: Kysely<Database>, ownerId: string) {
+  return db
+    .selectFrom('deal')
+    .where('owner_id', '=', ownerId)
+    .where('status', '=', 'open')
+    .where('deleted_at', 'is', null)
+}
+
+function params(ctx: { params: Record<string, unknown> }): TransferParams {
+  const read = readTransferParams(ctx.params)
+  // Параметры проверены при запуске; сюда неверные попадают, только если строку bulk_job
+  // меняли в обход API.
+  if (!read) throw new Error('массовая операция передачи сделок: неверные параметры')
+  return read
+}
+
+export const transferDeals: BulkAction = {
+  requires: { resource: 'deals', action: 'edit' },
+  // У тимлида нет «массовых операций», а сделки своей команды он передаёт: см. registry.ts.
+  standalone: 'transfer_deals',
+
+  validate({ params }) {
+    return readTransferParams(params)
+      ? null
+      : 'ожидается fromUserId — участник и toUserId — другой участник или null'
+  },
+
+  async select(trx, _filter, ctx) {
+    const rows = await openDealsOf(trx, params(ctx).fromUserId).select('id').orderBy('id').execute()
+    return rows.map((r) => r.id)
+  },
+
+  async inScope(trx, ids, ctx) {
+    const { toUserId } = params(ctx)
+    const scope = ctx.access.permissions.scopes.deals.write
+    // Получатель — тоже в охвате изменения: тимлид передаёт только внутри своей команды.
+    if (!ownerAllowed(toUserId, scope, ctx.viewer)) return new Set()
+    const rows = await trx
+      .selectFrom('deal')
+      .select('id')
+      .where('id', 'in', [...ids])
+      .where(dealInScope(sql.ref('deal.owner_id'), scope, ctx.viewer))
+      .execute()
+    return new Set(rows.map((r) => r.id))
+  },
+
+  async apply(trx, id, ctx) {
+    const { fromUserId, toUserId } = params(ctx)
+    const deal = await trx
+      .selectFrom('deal')
+      .select(['project_id', 'owner_id', 'status', 'deleted_at'])
+      .where('id', '=', id)
+      .forUpdate()
+      .executeTakeFirst()
+    // Пока операция шла, сделку закрыли, удалили или уже передали другому: у участника её
+    // больше нет — делать нечего, чужую передачу не перебиваем.
+    if (deal?.status !== 'open' || deal.deleted_at !== null || deal.owner_id !== fromUserId) {
+      return
+    }
+    if (toUserId !== null) {
+      // FOR SHARE: отключение получателя (FOR UPDATE его участия) ждёт конца порции и потом
+      // увидит переданные ему сделки; уже отключённый — ошибка этой записи.
+      const recipient = await trx
+        .selectFrom('project_member')
+        .select('user_id')
+        .where('user_id', '=', toUserId)
+        .where('disabled_at', 'is', null)
+        .forShare()
+        .executeTakeFirst()
+      if (!recipient) {
+        throw new BulkRecordError('OWNER_NOT_MEMBER', 'получатель не участник проекта')
+      }
+    }
+    await trx
+      .updateTable('deal')
+      .set({ owner_id: toUserId, updated_at: sql`now()` })
+      .where('id', '=', id)
+      .execute()
+    await recordChanges(
+      { db: trx, projectId: deal.project_id, actorId: ctx.initiatorId },
+      { type: 'deal', id },
+      [{ field: 'ownerId', before: fromUserId, after: toUserId }],
+    )
+  },
+}

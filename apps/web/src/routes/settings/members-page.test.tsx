@@ -107,6 +107,69 @@ describe('экран пользователей', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Отключить Олена' }))
     expect(await screen.findByRole('button', { name: 'Включить Олена' })).toBeTruthy()
   })
+
+  it('отключение с открытыми сделками — отказ с их числом (ru)', async () => {
+    const api = fakeMembersApi()
+    api.openDeals['user-2'] = 2
+    await renderAt('/settings/users', 'ru', api)
+    fireEvent.click(await screen.findByRole('button', { name: 'Отключить Олена' }))
+    expect((await screen.findByRole('status')).textContent).toBe(
+      'Открытых сделок у пользователя: 2. Сначала передайте их — кнопка «Передать сделки».',
+    )
+  })
+
+  it('передача сделок менеджеру: прогресс, затем отключение (ru)', async () => {
+    const api = fakeMembersApi()
+    api.openDeals['user-2'] = 3
+    await renderAt('/settings/users', 'ru', api)
+    fireEvent.click(await screen.findByRole('button', { name: 'Передать сделки Олена' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Передать сделки: Олена' })
+    // Получатели — действующие участники, кроме самого пользователя; первым — общая очередь.
+    const to = within(dialog).getByRole('combobox', { name: 'Кому' }) as HTMLSelectElement
+    expect([...to.options].map((o) => o.text)).toEqual([
+      'В общую очередь (без ответственного)',
+      'Власник',
+    ])
+    fireEvent.change(to, { target: { value: 'user-1' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Передать' }))
+    expect(await within(dialog).findByText('Готово: передано 3 из 3.')).toBeTruthy()
+    expect(api.calls.find((c) => c.method === 'transferDeals')?.args).toEqual([
+      'user-2',
+      { toUserId: 'user-1' },
+    ])
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Отключить Олена' }))
+    expect(await screen.findByRole('button', { name: 'Включить Олена' })).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('в общую очередь; новые сделки за время передачи — отказ отключения с числом (uk)', async () => {
+    const api = fakeMembersApi()
+    api.openDeals['user-2'] = 2
+    await renderAt('/settings/users', 'uk', api)
+    fireEvent.click(await screen.findByRole('button', { name: 'Передати угоди Олена' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Передати угоди: Олена' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Передати' }))
+    expect(await within(dialog).findByText('Готово: передано 2 з 2.')).toBeTruthy()
+    expect(api.calls.find((c) => c.method === 'transferDeals')?.args).toEqual([
+      'user-2',
+      { toUserId: null },
+    ])
+
+    // Поки йшла передача, користувачу дали ще одну угоду.
+    api.openDeals['user-2'] = 1
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Вимкнути Олена' }))
+    expect(
+      await within(dialog).findByText(
+        "Поки йшла передача, у користувача з'явилися нові відкриті угоди: 1. Передайте їх і вимкніть знову.",
+      ),
+    ).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: 'Передати' })).toBeTruthy()
+    expect(api.members.find((m) => m.userId === 'user-2')?.disabled).toBe(false)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Закрити' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
 })
 
 describe('экран команд', () => {

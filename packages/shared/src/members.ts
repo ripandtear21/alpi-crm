@@ -50,3 +50,27 @@ export type MembersErrorCode =
   | 'LEADS_OTHER_TEAM'
   /** Тимлидом назначен отключённый участник. */
   | 'TEAM_LEAD_DISABLED'
+  /** Получатель сделок не участник проекта или его участие отключено (тикет crm-deals/09). */
+  | 'OWNER_NOT_MEMBER'
+
+/** Тело `POST /v1/members/:userId/transfer-deals`: кому передать; null — в общую очередь. */
+export interface TransferDealsRequest {
+  toUserId: string | null
+}
+
+/**
+ * Ход массовой операции — часть ответа `GET /v1/bulk-jobs/:id` и запуска передачи сделок
+ * (apps/api/src/bulk/routes.ts, BulkJobSummary), которую показывает диалог передачи.
+ */
+export interface BulkJobProgress {
+  id: string
+  status: 'queued' | 'running' | 'done' | 'failed'
+  /** Сделок всего; null — выбор ещё не развёрнут. */
+  total: number | null
+  /** Обработано, с ошибкой — тоже. */
+  processed: number
+  /** С ошибкой: эти сделки не переданы. */
+  failed: number
+  /** Почему операция остановилась целиком. */
+  failure: string | null
+}

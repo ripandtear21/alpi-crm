@@ -1,5 +1,5 @@
 import type { Database } from '@alpi/db'
-import type { Action, Resource } from '@alpi/shared'
+import type { Action, Resource, StandalonePermission } from '@alpi/shared'
 import type { Transaction } from 'kysely'
 import type { MemberAccess } from '../roles/access.ts'
 import type { Viewer } from '../roles/scope.ts'
@@ -36,6 +36,13 @@ export class BulkRecordError extends Error {
 export interface BulkAction {
   /** Право части системы, без которого действие не запускается и не продолжается. */
   requires: { resource: Resource; action: Action }
+  /**
+   * Отдельное право вместо «массовых операций» (`bulk_operations`) — при запуске и на каждой
+   * порции. Передаче сделок участника хватает «передачи сделок» (тикет 09): у тимлида нет
+   * массовых операций, а передавать сделки своей команды он может. Решено без владельца —
+   * подтвердить.
+   */
+  standalone?: StandalonePermission
   /** Проверка параметров и фильтра при запуске: текст ошибки — 400, null — годится. */
   validate?(input: {
     params: Record<string, unknown>
@@ -60,5 +67,8 @@ export interface BulkAction {
 /** Код действия («раздел.действие») → действие. */
 export type BulkActionRegistry = ReadonlyMap<string, BulkAction>
 
-/** Действий пока нет: их добавляют тикеты 09 и 12 эпика crm-deals. */
+/**
+ * Пустой реестр — для приложения без очереди (NO_BULK). Действия API собирает index.ts:
+ * передача сделок (тикет 09), остальные добавляет тикет 12 эпика crm-deals.
+ */
 export const NO_BULK_ACTIONS: BulkActionRegistry = new Map()

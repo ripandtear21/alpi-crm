@@ -1,5 +1,5 @@
-import type { MemberSummary, TeamSummary } from '@alpi/shared'
-import type { MembersApi } from './members-api.ts'
+import type { BulkJobProgress, MemberSummary, TeamSummary } from '@alpi/shared'
+import { type MembersApi, MembersApiError } from './members-api.ts'
 import { RolesApiError } from './roles-api.ts'
 
 // Подставной клиент участников и команд для тестов: данные в памяти, вызовы записываются.
@@ -15,6 +15,10 @@ export interface FakeMembersApi extends MembersApi {
   failNextWith: string | null
   members: MemberSummary[]
   teams: TeamSummary[]
+  /** Открытые сделки участников: отключение с ними — 409 HAS_OPEN_DEALS с числом. */
+  openDeals: Record<string, number>
+  /** Массовые операции передачи: id → ход, который вернёт bulkJob (сразу законченный). */
+  jobs: Map<string, BulkJobProgress>
 }
 
 export function fakeMembersApi(): FakeMembersApi {
@@ -43,6 +47,8 @@ export function fakeMembersApi(): FakeMembersApi {
       },
     ],
     teams: [],
+    openDeals: {},
+    jobs: new Map(),
     async list() {
       return structuredClone(api.members)
     },
@@ -82,8 +88,36 @@ export function fakeMembersApi(): FakeMembersApi {
     },
     setAcceptsNewDeals: (_p, userId, value) =>
       change('setAcceptsNewDeals', userId, { acceptsNewDeals: value }),
-    disable: (_p, userId) => change('disable', userId, { disabled: true }),
+    async disable(_p, userId) {
+      const count = api.openDeals[userId] ?? 0
+      if (count > 0) {
+        record('disable', userId)
+        throw new MembersApiError(409, 'HAS_OPEN_DEALS', { count })
+      }
+      return change('disable', userId, { disabled: true })
+    },
     enable: (_p, userId) => change('enable', userId, { disabled: false }),
+    async transferDeals(_projectId, userId, input) {
+      record('transferDeals', userId, input)
+      const total = api.openDeals[userId] ?? 0
+      api.openDeals[userId] = 0
+      const id = `job-${nextId++}`
+      const started: BulkJobProgress = {
+        id,
+        status: 'queued',
+        total: null,
+        processed: 0,
+        failed: 0,
+        failure: null,
+      }
+      api.jobs.set(id, { ...started, status: 'done', total, processed: total })
+      return structuredClone(started)
+    },
+    async bulkJob(_projectId, jobId) {
+      const job = api.jobs.get(jobId)
+      if (!job) throw new RolesApiError(404, 'BULK_JOB_NOT_FOUND')
+      return structuredClone(job)
+    },
     async listTeams() {
       return structuredClone(api.teams)
     },

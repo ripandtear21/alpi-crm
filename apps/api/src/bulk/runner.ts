@@ -251,7 +251,7 @@ async function isBanned(trx: Transaction<Database>, userId: string): Promise<boo
 
 function allowed(access: MemberAccess, action: BulkAction): boolean {
   return (
-    hasStandalone(access.permissions, 'bulk_operations') &&
+    hasStandalone(access.permissions, action.standalone ?? 'bulk_operations') &&
     can(access.permissions, action.requires.resource, action.requires.action)
   )
 }

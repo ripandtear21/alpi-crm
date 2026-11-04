@@ -20,7 +20,7 @@ import {
 } from '../testing/api-harness.ts'
 import { totp } from '../testing/totp.ts'
 import { membersRoutes } from './members.ts'
-import { NO_OPEN_DEALS, type OpenDealsChecker } from './open-deals.ts'
+import type { OpenDealsChecker } from './open-deals.ts'
 
 // Участники проекта: список, добавление существующего и нового пользователя, назначение роли и
 // команды, отключение участия — на настоящем PostgreSQL, API ходит ролью приложения.
@@ -401,13 +401,13 @@ describe('участники проекта', () => {
 
   describe('отключение участия', () => {
     let calls: string[]
-    let openDeals: boolean
+    let openDeals: number
     // Приложение с подставной проверкой открытых сделок: те же слои, что в createApp.
     let withStub: Target
 
     beforeAll(() => {
       const stub: OpenDealsChecker = {
-        async hasOpenDeals(_db, userId) {
+        async countOpenDeals(_db, userId) {
           calls.push(userId)
           return openDeals
         },
@@ -424,24 +424,20 @@ describe('участники проекта', () => {
     it('вызывает проверку открытых сделок и отказывает, если они есть', async () => {
       const user = await newMember()
       calls = []
-      openDeals = true
+      openDeals = 2
       expect(await body(await disable(user.id))).toEqual({
         status: 409,
-        body: { code: 'HAS_OPEN_DEALS' },
+        body: { code: 'HAS_OPEN_DEALS', details: { count: 2 } },
       })
       expect(calls).toEqual([user.id])
       expect((await member(user.id))?.disabled_at).toBeNull()
       expect((await user.api('GET', '/project', { project: projectId })).status).toBe(200)
 
-      openDeals = false
+      openDeals = 0
       const res = await disable(user.id)
       expect(res.status).toBe(200)
       expect(((await res.json()) as MemberSummary).disabled).toBe(true)
       expect(calls).toEqual([user.id, user.id])
-    })
-
-    it('заглушка по умолчанию — «открытых сделок нет»', async () => {
-      expect(await NO_OPEN_DEALS.hasOpenDeals(h.appDb, 'anyone')).toBe(false)
     })
 
     it('отключённый не входит в проект (403) и не видит его в списке; включение возвращает', async () => {

@@ -2,8 +2,9 @@ import { assertRestrictedRole, createDb } from '@alpi/db'
 import { serve } from '@hono/node-server'
 import { createApp } from './app.ts'
 import { createAuth } from './auth/auth.ts'
-import { NO_BULK_ACTIONS } from './bulk/registry.ts'
+import type { BulkActionRegistry } from './bulk/registry.ts'
 import { readApiEnv } from './config.ts'
+import { TRANSFER_DEALS_ACTION, transferDeals } from './deals/transfer.ts'
 import { startJobs } from './jobs/jobs.ts'
 import { localDiskStorage } from './storage/storage.ts'
 import { NO_TRASH_PURGERS } from './trash/purge.ts'
@@ -23,7 +24,8 @@ const auth = createAuth({
   trustedProxies: env.trustedProxies,
 })
 // Фоновые задачи — в процессе API, той же ролью приложения (apps/api/src/jobs/jobs.ts).
-const bulkActions = NO_BULK_ACTIONS
+// Реестр массовых действий (bulk/registry.ts): код «раздел.действие» → действие.
+const bulkActions: BulkActionRegistry = new Map([[TRANSFER_DEALS_ACTION, transferDeals]])
 const jobs = await startJobs({
   connectionString: env.databaseUrl,
   db,
