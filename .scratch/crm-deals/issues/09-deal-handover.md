@@ -24,12 +24,18 @@ apps/api/src/members/open-deals.ts, apps/api/src/members/**, apps/api/src/deals/
 ## Done when
 
 - [ ] Тест: отключение участника с открытой сделкой — отказ; с одной только архивной открытой сделкой — отказ; с выигранными, проигранными и удалёнными — разрешено.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
 - [ ] Тест: передача 300 открытых сделок менеджеру идёт массовой операцией с прогрессом; у всех новый ответственный и запись в истории; после неё отключение проходит.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
 - [ ] Тест: передача в общую очередь снимает ответственного; сделки видны менеджеру с охватом «свои».
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
 - [ ] Тест прав: без права «передача сделок» — 403; тимлид не передаёт сделки участнику другой команды и не передаёт сделки вне своего охвата; получатель из другого проекта или отключённый — 422.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
 - [ ] Тест изоляции: проверка и передача в проекте A не видят и не трогают сделок того же пользователя в проекте B.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
 - [ ] Диалог проверен в браузере на 1280 и 375 px.
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
 
 ## Результат
 
