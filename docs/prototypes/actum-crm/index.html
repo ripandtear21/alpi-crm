@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="uk" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07080A" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F6F7F8" media="(prefers-color-scheme: light)">
+<title>ПРОТОТИП · Alpi CRM у стилі Actum — усі екрани</title>
+<!--
+  PROTOTYPE — throwaway, не production-код.
+  Вопрос: как выглядят все экраны MVP Alpi CRM в дизайн-системе Actum (docs/design/actum-design-system.md),
+  с состояниями и движением. Без сборки и без Node: открыть файл в браузере.
+  Сеть: только https (шрифты Fixel с jsDelivr из репозитория MacPaw, Martian Mono с Google Fonts).
+  Все данные выдуманы и живут в памяти; перезагрузка = сброс.
+  Адрес состояния: index.html?theme=light&w=390#/kanban/drag
+-->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="has-proto">
+<div id="proto"></div>
+<div id="root" class="app"></div>
+<div id="toasts" class="toasts" aria-live="polite" aria-relevant="additions"></div>
+<div id="live" role="status" aria-live="polite" aria-atomic="true" class="vh"></div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script src="screens.js"></script>
+<script src="screens2.js"></script>
+<script>boot();</script>
+</body>
+</html>
