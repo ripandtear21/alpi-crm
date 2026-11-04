@@ -46,8 +46,17 @@ afterEach(() => {
 
 describe('смена временного пароля', () => {
   it('любой раздел и настройка 2FA ведут на смену пароля', async () => {
-    for (const path of ['/deals', '/two-factor-setup']) {
-      const router = renderAt(path, fakeAuthApi({ getSession: async () => TEMPORARY }))
+    // С включённой 2FA (пароль сброшен позже) — тоже: смена пароля проверяется первой.
+    const withTwoFactor: Session = {
+      session: { twoFactorVerified: true },
+      user: { ...SIGNED_IN.user, mustChangePassword: true },
+    }
+    for (const [path, session] of [
+      ['/deals', TEMPORARY],
+      ['/two-factor-setup', TEMPORARY],
+      ['/deals', withTwoFactor],
+    ] as const) {
+      const router = renderAt(path, fakeAuthApi({ getSession: async () => session }))
       expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe(
         'Зміна тимчасового пароля',
       )

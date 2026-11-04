@@ -142,6 +142,18 @@ describe('команды проекта', () => {
       ).toEqual({ status: 409, body: { code: 'LEADS_OTHER_TEAM' } })
     })
 
+    it('база: второй команды с тем же тимлидом не записать — отказ сразу', async () => {
+      const lead = await newMember('teamlead')
+      await createTeam('Сигма', lead)
+      await expect(
+        inProject((trx) =>
+          sql`insert into team (project_id, name, lead_user_id) values (${projectId}, 'Тау', ${lead})`.execute(
+            trx,
+          ),
+        ),
+      ).rejects.toMatchObject({ code: '23505', constraint: 'team_project_id_lead_user_id_key' })
+    })
+
     it('тимлида не вывести из его команды и не отключить — 409', async () => {
       const lead = await newMember('teamlead')
       const team = await createTeam('Тета', lead)
