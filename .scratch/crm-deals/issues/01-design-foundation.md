@@ -32,12 +32,16 @@ apps/web/src/styles/**, apps/web/src/ui/** (базовые компоненты)
   - evidence: commit pass · crm-deals/01: тикет взят, ссылка на выбор направления дизайна · - - · dc7d284
 - [ ] Токены и шрифты подключены; в коде экранов нет цветов и размеров мимо токенов (проверка поиском по `#[0-9a-f]{3,6}` и `px` в CSS экранов, исключения перечислены).
   - evidence: test-run pass · `grep -inE "#[0-9a-f]{3,6}\b"` по CSS экранов (layout, auth, settings) exit 1, совпадений нет; px только в исключениях: волосяные линии 1-2px, точки перелома @media, 1px визуально скрытой подписи; цвета QR-кода в qr-code.tsx · windows - · 939a7c7
+  - evidence: test-run pass · `grep -rinE "#[0-9a-f]{3,6}\b"` по CSS экранов (layout, auth, settings, project-switcher) exit 1; px только в исключениях из раздела «Отступления от образца Actum», включая зазор 2px списков навигации; контраст --win и --ask на подложке не ниже AA: `pnpm vitest run apps/web/src/styles` exit 0 · windows - · cd4c984606ab7ea7b2ef74f192b83c0cd454fba3
 - [ ] Тесты компонентов: диалог закрывается по Esc и возвращает фокус; меню управляется стрелками; таблица и вкладки работают с клавиатуры.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/ui` exit 0 · windows - · 939a7c7
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/ui apps/web/src/styles apps/web/src/layout` exit 0; Esc во вложенном меню и подсказках не закрывает диалог, щелчок закрывает только по затемнению вне рамки, уведомления внутри открытого диалога; 16 мутантов доработки убиты · windows - · cd4c984606ab7ea7b2ef74f192b83c0cd454fba3
 - [ ] Экраны фундамента в новом стиле проверены в настоящем браузере на 1280 и 375 px (снимки экрана приложены к отчёту), существующие тесты экранов зелёные.
   - evidence: test-run pass · `vite build` и снимки Playwright headless Chromium 1280 и 375 px, светлая и тёмная тема, без горизонтальной прокрутки и внешних запросов exit 0; экранные тесты в `pnpm verify` exit 0 · windows - · 939a7c7
+  - evidence: test-run pass · `vite build` и Playwright headless Chromium: экран «Пользователи» 375 и 1280 px, светлая и тёмная тема — выбранное значение списков «Роль» и «Команда» помещается (без правки на 375 места 0px), без горизонтальной прокрутки страницы и внешних запросов exit 0; уведомление внутри модального диалога щёлкается, вне его неактивно · windows - · cd4c984606ab7ea7b2ef74f192b83c0cd454fba3
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 939a7c7
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · cd4c984606ab7ea7b2ef74f192b83c0cd454fba3
 
 ## Решение владельца
 
