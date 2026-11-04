@@ -67,9 +67,14 @@ function LostReasonsEditor({ api, projectId }: { api: PipelinesApi; projectId: s
     )
   }
 
-  const run = (action: () => Promise<unknown>) => {
+  /** Выполняет изменение; true — API принял его (формы создания очищаются только тогда). */
+  const run = (action: () => Promise<unknown>): Promise<boolean> => {
     setNotice(null)
-    change.mutate(action)
+    return change.mutateAsync(action).then(
+      () => true,
+      // Отказ уже показан сообщением (onError).
+      () => false,
+    )
   }
   const ids = groups.data.map((g) => g.id)
 
@@ -122,7 +127,7 @@ function GroupCard({
   pending: boolean
   onMove: (delta: -1 | 1) => void
   onChange: (change: DirectoryChange) => void
-  onAddReason: (name: string) => void
+  onAddReason: (name: string) => Promise<boolean>
   onChangeReason: (reasonId: string, change: DirectoryChange) => void
   onReorderReasons: (ids: string[]) => void
 }) {
@@ -233,20 +238,19 @@ function CreateGroupForm({
   onCreate,
 }: {
   pending: boolean
-  onCreate: (name: string) => void
+  onCreate: (name: string) => Promise<boolean>
 }) {
   const { t } = useTranslation('settings')
   return (
     <form
       className="directory__card directory__settings"
       aria-label={t('lostReasons.newGroup')}
-      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      onSubmit={async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
-        const name = String(new FormData(event.currentTarget).get('name') ?? '').trim()
-        if (name !== '') {
-          onCreate(name)
-          event.currentTarget.reset()
-        }
+        const element = event.currentTarget
+        const name = String(new FormData(element).get('name') ?? '').trim()
+        // Очищается только после ответа API: при отказе введённое остаётся.
+        if (name !== '' && (await onCreate(name))) element.reset()
       }}
     >
       <h2>{t('lostReasons.newGroup')}</h2>
