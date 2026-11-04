@@ -47,6 +47,10 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # Файлы пользователей — на своём томе: переживают пересборку образа.
+      STORAGE_DIR: /data/files
+    volumes:
+      - files:/data/files
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -69,5 +73,6 @@ services:
 
 volumes:
   pgdata:
+  files:
   caddy_data:
   caddy_config:

@@ -1,5 +1,7 @@
 // Настройки API из переменных окружения (образец — .env.example в корне репозитория).
 import { isIP } from 'node:net'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export interface ApiEnv {
   databaseUrl: string
@@ -9,13 +11,21 @@ export interface ApiEnv {
   secureCookies: boolean
   /** Доверенные прокси перед API (TRUSTED_PROXIES): адреса и подсети CIDR через запятую. */
   trustedProxies: string[]
+  /** Каталог файлов на локальном диске (STORAGE_DIR): абсолютный путь вне каталога приложения. */
+  storageDir: string
 }
 
 /** Короче ключ подписи cookie и шифрования секретов 2FA не принимаем. */
 const MIN_SECRET_LENGTH = 32
 
+/**
+ * Каталог приложения: apps/api при запуске из исходников, /app в образе (код — в dist). Его
+ * заменяет каждая сборка и выкладка — файлы пользователей там не хранятся.
+ */
+const APP_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+
 /** Читает и проверяет окружение; при ошибке бросает исключение с перечнем проблем. */
-export function readApiEnv(env: NodeJS.ProcessEnv = process.env): ApiEnv {
+export function readApiEnv(env: NodeJS.ProcessEnv = process.env, appDir = APP_DIR): ApiEnv {
   const problems: string[] = []
   const databaseUrl = env.DATABASE_URL ?? ''
   const authSecret = env.BETTER_AUTH_SECRET ?? ''
@@ -33,6 +43,12 @@ export function readApiEnv(env: NodeJS.ProcessEnv = process.env): ApiEnv {
   if (badProxies.length > 0) {
     problems.push(`TRUSTED_PROXIES: не адрес и не подсеть CIDR: ${badProxies.join(', ')}`)
   }
+  const storageDir = env.STORAGE_DIR ?? ''
+  if (!path.isAbsolute(storageDir)) {
+    problems.push('STORAGE_DIR не задана или не абсолютный путь')
+  } else if (isInside(storageDir, appDir)) {
+    problems.push(`STORAGE_DIR внутри каталога приложения ${appDir}: его заменяет каждая сборка`)
+  }
   if (problems.length > 0) {
     throw new Error(`Окружение API не настроено: ${problems.join('; ')}`)
   }
@@ -42,7 +58,14 @@ export function readApiEnv(env: NodeJS.ProcessEnv = process.env): ApiEnv {
     authUrl,
     secureCookies: env.NODE_ENV !== 'development',
     trustedProxies,
+    storageDir: path.resolve(storageDir),
   }
+}
+
+/** `target` — сам каталог `dir` или внутри него. */
+function isInside(target: string, dir: string): boolean {
+  const relative = path.relative(path.resolve(dir), path.resolve(target))
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
 /** «10.0.0.1», «10.0.0.0/8», «2001:db8::/32». */

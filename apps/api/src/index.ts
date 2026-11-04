@@ -5,6 +5,7 @@ import { createAuth } from './auth/auth.ts'
 import { NO_BULK_ACTIONS } from './bulk/registry.ts'
 import { readApiEnv } from './config.ts'
 import { startJobs } from './jobs/jobs.ts'
+import { localDiskStorage } from './storage/storage.ts'
 import { NO_TRASH_PURGERS } from './trash/purge.ts'
 
 const env = readApiEnv()
@@ -29,7 +30,12 @@ const jobs = await startJobs({
   bulkActions,
   trashPurgers: NO_TRASH_PURGERS,
 })
-const app = createApp({ auth, db, bulk: { actions: bulkActions, enqueue: jobs.enqueueBulk } })
+const app = createApp({
+  auth,
+  db,
+  bulk: { actions: bulkActions, enqueue: jobs.enqueueBulk },
+  storage: localDiskStorage(env.storageDir),
+})
 
 const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`API слушает порт ${info.port}`)

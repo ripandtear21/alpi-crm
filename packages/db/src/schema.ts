@@ -454,6 +454,39 @@ export interface DealProductTable {
   created_by: string | null
 }
 
+/** Заметка к сделке, контакту или организации (migrations/0012_notes_files.ts): ровно одна ссылка. */
+export interface NoteTable {
+  id: Generated<string>
+  project_id: string
+  deal_id: string | null
+  contact_id: string | null
+  organization_id: string | null
+  text: string
+  author_id: string
+  created_at: Timestamp
+  updated_at: Timestamp
+}
+
+/**
+ * Файл к сделке, контакту или организации: строка о файле, содержимое — объект в хранилище
+ * (apps/api/src/storage) по ключу `storage_key`. Содержимое не меняется.
+ */
+export interface FileTable {
+  /** Задаёт API: id входит в ключ объекта, который пишется до строки. */
+  id: string
+  project_id: string
+  deal_id: string | null
+  contact_id: string | null
+  organization_id: string | null
+  name: string
+  content_type: string
+  /** bigint: читается строкой. */
+  size: ColumnType<string, number, never>
+  storage_key: string
+  author_id: string
+  created_at: Timestamp
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -484,4 +517,6 @@ export interface Database {
   deal_participant: DealParticipantTable
   product: ProductTable
   deal_product: DealProductTable
+  note: NoteTable
+  file: FileTable
 }
