@@ -32,8 +32,29 @@ export interface SystemAuditEvent extends AuditEvent<SystemAuditAction> {
   attemptedEmail?: string | null
 }
 
-/** Наибольшая длина email попытки входа (RFC 5321); длиннее — обрезается. */
-const MAX_EMAIL_LENGTH = 320
+/** Наибольшая длина адреса email (RFC 5321, путь письма): длиннее — не email. */
+const MAX_EMAIL_LENGTH = 254
+
+/**
+ * Проверка email — то же выражение, что у z.email() из zod 4, которым Better Auth проверяет
+ * поле email входа (INVALID_EMAIL). Своя копия: zod не зависимость API.
+ */
+const EMAIL =
+  /^(?:[A-Za-z0-9_'+-]+\.)*[A-Za-z0-9_'+-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9-]*\.)+[A-Za-z]{2,}$/
+
+/**
+ * Email попытки входа, который можно хранить. В поле email по ошибке вводят и пароль: строка,
+ * не похожая на email, в журнал не попадает, вместо неё — причина отказа.
+ */
+export function storableEmail(
+  value: string | null | undefined,
+): { email: string } | { email: null; rejected: 'not_an_email' | 'too_long' | null } {
+  const email = value?.trim() ?? ''
+  if (email === '') return { email: null, rejected: null }
+  if (email.length > MAX_EMAIL_LENGTH) return { email: null, rejected: 'too_long' }
+  if (!EMAIL.test(email)) return { email: null, rejected: 'not_an_email' }
+  return { email }
+}
 
 /** Адрес клиента или null, если строка — не IP-адрес (столбец inet не примет мусор). */
 export function normalizeIp(ip: string | null | undefined): string | null {
@@ -69,10 +90,14 @@ export const audit = {
 
   /** Событие вне проекта: системный журнал, его читает только владелец системы. */
   async recordSystem(db: Kysely<Database>, event: SystemAuditEvent): Promise<void> {
-    const email = event.attemptedEmail?.trim().slice(0, MAX_EMAIL_LENGTH)
+    const stored = storableEmail(event.attemptedEmail)
+    const details =
+      stored.email === null && stored.rejected !== null
+        ? { ...event.details, attemptedEmailRejected: stored.rejected }
+        : (event.details ?? {})
     await db
       .insertInto('system_audit_log')
-      .values({ ...columns(event), attempted_email: email ? email : null })
+      .values({ ...columns({ ...event, details }), attempted_email: stored.email })
       .execute()
   },
 }

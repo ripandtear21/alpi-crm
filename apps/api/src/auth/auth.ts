@@ -57,10 +57,17 @@ function snakeFields<const K extends string>(...names: K[]): Record<K, string> {
 }
 
 /**
- * Вход под чужой учётной записью (плагин admin) выключен (решение владельца): эндпоинты
- * отвечают 404, даже владельцу системы. Владелец получает в проекте только права своей роли.
+ * Выключенные эндпоинты плагина admin (решения владельца) — отвечают 404, даже владельцу
+ * системы:
+ * - вход под чужой учётной записью: владелец получает в проекте только права своей роли;
+ * - удаление пользователя: пользователей не удаляют, а банят, и автор записи в журнале всегда
+ *   остаётся ссылкой на учётную запись.
  */
-export const IMPERSONATION_PATHS = ['/admin/impersonate-user', '/admin/stop-impersonating']
+export const DISABLED_AUTH_PATHS = [
+  '/admin/impersonate-user',
+  '/admin/stop-impersonating',
+  '/admin/remove-user',
+]
 
 export function createAuth(config: AuthConfig) {
   // Журнал входов и 2FA (тикет crm-foundation/07).
@@ -72,7 +79,7 @@ export function createAuth(config: AuthConfig) {
     basePath: AUTH_BASE_PATH,
     database: { db: config.db, type: 'postgres', transaction: true },
     telemetry: { enabled: false },
-    disabledPaths: IMPERSONATION_PATHS,
+    disabledPaths: DISABLED_AUTH_PATHS,
     // Открытой регистрации нет: учётные записи заводит администратор (плагин admin) или CLI.
     emailAndPassword: {
       enabled: true,
@@ -114,7 +121,6 @@ export function createAuth(config: AuthConfig) {
             return { data: { ...session, twoFactorVerified: verified } }
           },
         },
-        delete: { after: auditHooks.sessionDeleted },
       },
       user: {
         update: {
@@ -139,6 +145,8 @@ export function createAuth(config: AuthConfig) {
     // создаёт сессию без второго фактора.
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // Журнал: выход пишется до удаления сессии (audit/auth-events.ts).
+        await auditHooks.before(ctx)
         if (SECOND_FACTOR_PATHS.has(ctx.path) && ctx.body?.trustDevice !== undefined) {
           return { context: { body: { ...ctx.body, trustDevice: false } } }
         }

@@ -25,6 +25,12 @@ import { type Kysely, sql } from 'kysely'
 /** Роль владельца системы в плагине admin Better Auth (apps/api/src/auth/owner.ts). */
 const OWNER_ROLE = 'admin'
 
+/**
+ * Общий потолок записей о неудачном входе за минуту, после которого email попытки не
+ * пишется (триггер system_audit_log_flood_guard). Снимок на момент миграции.
+ */
+const FAILED_SIGN_IN_FLOOD = 100
+
 /** Столбцы, общие для обеих таблиц. */
 const COLUMNS = `
   id uuid primary key default gen_random_uuid(),
@@ -68,7 +74,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       create table system_audit_log (
         ${COLUMNS},
         -- Email, который вводили при неудачном входе (в том числе несуществующий).
-        attempted_email text check (char_length(attempted_email) <= 320)
+        attempted_email text check (char_length(attempted_email) <= 254)
       )
     `)
     .execute(db)
@@ -82,10 +88,50 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   // Только INSERT: ни SELECT, ни RLS-политики не нужно — читать таблицу роль приложения не может.
   await sql`grant insert on system_audit_log to alpi_app`.execute(db)
 
+  // Общий потолок неудачных входов (не по адресу клиента): ограничитель Better Auth считает
+  // попытки с одного адреса, и с тысячи адресов email попыток лились бы в журнал без границы.
+  // Если за последнюю минуту уже FAILED_SIGN_IN_FLOOD записей о неудачном входе, новая запись
+  // всё равно пишется (попытка считается: время, адрес, причина), но без email — пометка
+  // attemptedEmailRejected = 'flood'. Триггер в базе, а не в API: роль приложения не читает
+  // таблицу и не может сама посчитать записи; SECURITY DEFINER — только ради этого подсчёта.
+  // Строки без email короткие, и записи о неудачных входах удаляются через 90 дней.
+  await sql
+    .raw(`
+      create function public.system_audit_log_flood_guard()
+        returns trigger
+        language plpgsql
+        security definer
+        set search_path = pg_catalog, pg_temp
+      as $$
+      begin
+        if new.action = 'auth.sign_in_failed' and new.attempted_email is not null and (
+          select count(*) from public.system_audit_log l
+          where l.action = 'auth.sign_in_failed' and l.occurred_at > now() - interval '1 minute'
+        ) >= ${FAILED_SIGN_IN_FLOOD} then
+          new.attempted_email := null;
+          new.details := new.details || '{"attemptedEmailRejected": "flood"}'::jsonb;
+        end if;
+        return new;
+      end
+      $$
+    `)
+    .execute(db)
+  await sql`
+    revoke all on function public.system_audit_log_flood_guard() from public
+  `.execute(db)
+  await sql`
+    create trigger system_audit_log_flood_guard before insert on system_audit_log
+      for each row execute function public.system_audit_log_flood_guard()
+  `.execute(db)
+
   // Страница системного журнала для владельца системы: новые сверху, до курсора
   // (p_before_at, p_before_id), с фильтром по действию и пользователю. Владельца функция
-  // проверяет сама по таблице "user" (не заблокирован, роль admin): ошибка в коде API не
-  // откроет журнал обычному пользователю. Правила SECURITY DEFINER — как в 0003_projects.
+  // проверяет сама по таблице "user" (не заблокирован, роль admin). Граница доверия — та же,
+  // что у create_project из 0003_projects: id спрашивающего (p_viewer_id) передаёт API из
+  // сессии, и функция ему верит. Это защищает от ошибки логики API (маршрут без проверки
+  // владельца не откроет журнал обычному пользователю), но не от скомпрометированной роли
+  // приложения: тот, кто выполняет SQL от её имени, подставит id владельца. Правила
+  // SECURITY DEFINER — как в 0003_projects.
   await sql`
     create function public.system_audit_events(
       p_viewer_id text,
@@ -140,5 +186,6 @@ export async function down(db: Kysely<unknown>): Promise<void> {
     drop function public.system_audit_events(text, timestamptz, uuid, text, text, integer)
   `.execute(db)
   await sql`drop table system_audit_log`.execute(db)
+  await sql`drop function public.system_audit_log_flood_guard()`.execute(db)
   await sql`drop table audit_log`.execute(db)
 }

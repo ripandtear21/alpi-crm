@@ -26,6 +26,13 @@ export const SYSTEM_AUDIT_ACTIONS = [
   'auth.two_factor_enabled',
   'auth.two_factor_disabled',
   'auth.backup_codes_regenerated',
+  /** Действия владельца системы с учётными записями (плагин admin). */
+  'admin.user_created',
+  'admin.role_set',
+  'admin.user_banned',
+  'admin.user_unbanned',
+  'admin.session_revoked',
+  'admin.sessions_revoked',
 ] as const
 export type SystemAuditAction = (typeof SYSTEM_AUDIT_ACTIONS)[number]
 

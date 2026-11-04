@@ -171,6 +171,29 @@ describe('журнал действий', () => {
       ])
     })
 
+    it('в поле email не email (например, пароль) — в журнал не попадает', async () => {
+      const browser = anonymous()
+      for (const [value, rejected] of [
+        ['Tr0ub4dor&3-секрет', 'not_an_email'],
+        [`${'a'.repeat(250)}@example.test`, 'too_long'],
+      ] as const) {
+        const res = await browser.post('/auth/sign-in/email', { email: value, password: 'x' })
+        expect(res.status).toBeGreaterThanOrEqual(400)
+        const [event] = (await systemEvents({ ip: browser.ip })).slice(-1)
+        expect(event).toMatchObject({
+          action: 'auth.sign_in_failed',
+          attempted_email: null,
+          details: { stage: 'password', attemptedEmailRejected: rejected },
+        })
+      }
+      const all = await h.owner
+        .selectFrom('system_audit_log')
+        .select('id')
+        .where(sql<boolean>`details::text like '%Tr0ub4dor%'`)
+        .execute()
+      expect(all).toEqual([])
+    })
+
     it('неверный код 2FA при входе — неудачный вход второго шага', async () => {
       const user = await h.signIn()
       const browser = anonymous()
@@ -453,6 +476,185 @@ describe('журнал действий', () => {
         .where('impersonated_by', 'is not', null)
         .execute()
       expect(impersonated).toEqual([])
+    })
+  })
+
+  describe('действия владельца системы с учётными записями', () => {
+    it('создание, бан, снятие бана и отзыв сессий пишутся; удаление выключено', async () => {
+      const email = `${randomUUID()}@example.test`
+      const created = await systemOwner.api('POST', '/auth/admin/create-user', {
+        body: { email, password: randomBytes(18).toString('base64url'), name: 'Новий' },
+      })
+      expect(created.status).toBe(200)
+      const { user } = (await created.json()) as { user: { id: string } }
+      for (const path of ['ban-user', 'unban-user', 'revoke-user-sessions']) {
+        const res = await systemOwner.api('POST', `/auth/admin/${path}`, {
+          body: { userId: user.id, ...(path === 'ban-user' ? { banReason: 'тест' } : {}) },
+        })
+        expect(res.status, path).toBe(200)
+      }
+      const removed = await systemOwner.api('POST', '/auth/admin/remove-user', {
+        body: { userId: user.id },
+      })
+      expect(removed.status).toBe(404)
+      expect(
+        await h.owner.selectFrom('user').select('id').where('id', '=', user.id).execute(),
+      ).toHaveLength(1)
+
+      const events = await h.owner
+        .selectFrom('system_audit_log')
+        .select(['action', 'actor_id', 'details'])
+        .where('entity_id', '=', user.id)
+        .orderBy('occurred_at')
+        .orderBy(sql`ctid`)
+        .execute()
+      expect(events).toEqual([
+        { action: 'admin.user_created', actor_id: systemOwner.id, details: { role: null } },
+        {
+          action: 'admin.user_banned',
+          actor_id: systemOwner.id,
+          details: { reason: 'тест', expiresIn: null },
+        },
+        { action: 'admin.user_unbanned', actor_id: systemOwner.id, details: {} },
+        { action: 'admin.sessions_revoked', actor_id: systemOwner.id, details: {} },
+      ])
+    })
+  })
+
+  describe('сбой записи в журнал', () => {
+    /** Пока выполняется `fn`, любая вставка в `table` падает с ошибкой. */
+    async function withBrokenJournal(table: 'audit_log' | 'system_audit_log', fn: () => unknown) {
+      await sql`
+        create function public.test_broken_journal() returns trigger language plpgsql
+        as $$ begin raise exception 'журнал недоступен'; end $$
+      `.execute(h.owner)
+      await sql`
+        create trigger test_broken_journal before insert on ${sql.table(table)}
+          for each row execute function public.test_broken_journal()
+      `.execute(h.owner)
+      try {
+        await fn()
+      } finally {
+        await sql`drop trigger test_broken_journal on ${sql.table(table)}`.execute(h.owner)
+        await sql`drop function public.test_broken_journal()`.execute(h.owner)
+      }
+    }
+
+    async function sessionsOf(userId: string) {
+      const rows = await h.owner
+        .selectFrom('session')
+        .select('id')
+        .where('user_id', '=', userId)
+        .execute()
+      return rows.map((r) => r.id).sort()
+    }
+
+    it('вход не состоялся: ответ 500, созданная сессия удалена', async () => {
+      const user = await h.signIn()
+      const before = await sessionsOf(user.id)
+      const browser = anonymous()
+      // Пароль принят при рабочем журнале; код — уже при сломанном.
+      const password = await browser.post('/auth/sign-in/email', {
+        email: user.email,
+        password: user.password,
+      })
+      expect(password.status).toBe(200)
+      await withBrokenJournal('system_audit_log', async () => {
+        const code = await browser.post('/auth/two-factor/verify-totp', {
+          code: totp(user.totpSecret),
+        })
+        expect(code.status).toBe(500)
+        // И шаг пароля при сломанном журнале не оставляет сессии.
+        const again = await anonymous().post('/auth/sign-in/email', {
+          email: user.email,
+          password: user.password,
+        })
+        expect(again.status).toBe(500)
+      })
+      expect(await sessionsOf(user.id)).toEqual(before)
+    })
+
+    it('выход не состоялся: ответ 500, сессия жива; с рабочим журналом выход пишется', async () => {
+      const user = await h.signIn()
+      await withBrokenJournal('system_audit_log', async () => {
+        expect((await user.api('POST', '/auth/sign-out', { body: {} })).status).toBe(500)
+      })
+      expect((await user.api('GET', '/me')).status).toBe(200)
+      expect((await user.api('POST', '/auth/sign-out', { body: {} })).status).toBe(200)
+      expect((await user.api('GET', '/me')).status).toBe(401)
+      const actions = (await systemEvents({ actorId: user.id })).map((e) => e.action)
+      expect(actions.filter((a) => a === 'auth.sign_out')).toHaveLength(1)
+    })
+
+    it('смена роли и создание роли откатываются вместе с записью', async () => {
+      const project = await h.createProject(systemOwner, 'Відкат')
+      const member = await h.signIn()
+      await h.addMember(project.id, member.id, 'manager')
+      const managerRole = await roleIdOf(project.id, 'manager')
+      const headRole = await roleIdOf(project.id, 'head')
+
+      await withBrokenJournal('audit_log', async () => {
+        const assigned = await systemOwner.api('PUT', `/members/${member.id}/role`, {
+          project: project.id,
+          body: { roleId: headRole },
+        })
+        expect(assigned.status).toBe(500)
+        const created = await systemOwner.api('POST', '/roles', {
+          project: project.id,
+          body: { name: 'Без сліду', permissions: MANAGER },
+        })
+        expect(created.status).toBe(500)
+      })
+
+      const stored = await h.owner
+        .selectFrom('project_member')
+        .select('role_id')
+        .where('project_id', '=', project.id)
+        .where('user_id', '=', member.id)
+        .executeTakeFirstOrThrow()
+      expect(stored.role_id).toBe(managerRole)
+      const roles = await h.owner
+        .selectFrom('role')
+        .select('id')
+        .where('project_id', '=', project.id)
+        .where('name', '=', 'Без сліду')
+        .execute()
+      expect(roles).toEqual([])
+    })
+  })
+
+  describe('общий потолок неудачных входов', () => {
+    it('за минуту больше 100 неудачных входов — email попытки не пишется, попытка пишется', async () => {
+      const marker = randomIp()
+      await h.owner
+        .insertInto('system_audit_log')
+        .values(
+          Array.from({ length: 100 }, () => ({
+            action: 'auth.sign_in_failed',
+            ip: marker,
+            attempted_email: 'flood@example.test',
+          })),
+        )
+        .execute()
+      try {
+        const browser = anonymous()
+        const email = `${randomUUID()}@flood.test`
+        const res = await browser.post('/auth/sign-in/email', { email, password: 'хибний-пароль' })
+        expect(res.status).toBe(401)
+        expect(await systemEvents({ ip: browser.ip })).toEqual([
+          expect.objectContaining({
+            action: 'auth.sign_in_failed',
+            attempted_email: null,
+            details: {
+              stage: 'password',
+              reason: 'INVALID_EMAIL_OR_PASSWORD',
+              attemptedEmailRejected: 'flood',
+            },
+          }),
+        ])
+      } finally {
+        await h.owner.deleteFrom('system_audit_log').where(sql`host(ip)`, '=', marker).execute()
+      }
     })
   })
 })
