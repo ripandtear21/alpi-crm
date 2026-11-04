@@ -16,26 +16,24 @@ describe('startTestDatabase при сбое запуска PostgreSQL', () => {
     }
   })
 
-  it('на занятом порту быстро отклоняется, отдаёт журнал запуска и удаляет временную папку', {
-    timeout: 30_000,
+  // Без ограничения ожидания pg.stop() вызов висел бы бесконечно, и тест падал бы по таймауту.
+  // Время не сравниваем с порогом: под нагрузкой одна только initdb занимает больше 20 с.
+  it('на занятом порту отклоняется, а не висит, отдаёт журнал запуска и удаляет временную папку', {
+    timeout: 120_000,
   }, async () => {
     parentDir = await mkdtemp(path.join(tmpdir(), 'alpi-start-failure-'))
     const port = await occupyPort(servers)
 
-    const startedAt = Date.now()
     const error = await startTestDatabase({ port, parentDir }).then(
       () => undefined,
       (e: unknown) => e,
     )
-    const elapsedMs = Date.now() - startedAt
 
     expect(error).toBeInstanceOf(Error)
     const message = (error as Error).message
     expect(message).toContain('embedded PostgreSQL не запустился')
     // В журнале сервера есть строка о порте, который не удалось занять.
     expect(message).toContain(String(port))
-    // Без ограничения ожидания pg.stop() тест висел бы до таймаута.
-    expect(elapsedMs).toBeLessThan(20_000)
     expect(await readdir(parentDir)).toEqual([])
   })
 })
