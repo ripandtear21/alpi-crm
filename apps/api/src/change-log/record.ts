@@ -12,7 +12,7 @@ import { type Kysely, sql } from 'kysely'
 // окончательное удаление), здесь — история значений полей записи для её карточки.
 
 /** Чья история: тип сущности в change_log.entity_type. */
-export type ChangeLogEntity = 'contact' | 'organization'
+export type ChangeLogEntity = 'contact' | 'organization' | 'deal'
 
 /** Изменение одного поля; значения — то, что API отдаёт в ответе (JSON). */
 export interface FieldChange {

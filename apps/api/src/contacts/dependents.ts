@@ -1,31 +1,66 @@
-import type { Database } from '@alpi/db'
-import type { Kysely } from 'kysely'
+import type { RolePermissions } from '@alpi/shared'
+import type { ChangeAuthor } from '../change-log/record.ts'
+import type { Viewer } from '../roles/scope.ts'
 
 // Что ещё удаляется вместе с контактом (ответ владельца, пункт 35): контакт, который основной
-// в сделках, удаляется только вместе с ними. Сделок ещё нет — правило подключит тикет 05,
-// реализовав этот интерфейс и передав его в createApp({ contactDependents }).
+// в сделках, удаляется только вместе с ними и только после подтверждения их списка.
+// Реализация — apps/api/src/deals/dependents.ts, передаётся в createApp({ contactDependents }).
 //
-// Каждая функция вызывается в транзакции проекта того же запроса, после изменения самого
-// контакта: ошибка откатывает и удаление контакта (ответ 500).
+// Каждая функция вызывается в транзакции проекта того же запроса (`actor.db`): ошибка
+// откатывает и действие с самим контактом (ответ 500).
+
+/** Запись, которая уйдёт в корзину вместе с контактом. */
+export interface DependentRecord {
+  type: 'deal'
+  id: string
+  title: string
+}
+
+/** Почему зависимую запись не восстановить: открытая сделка стоит на удалённом этапе. */
+export interface DependentRefusal {
+  code: 'STAGE_DELETED'
+  dealId: string
+}
+
+/** Кто удаляет контакт: его права и охват решают, может ли он удалить и зависимые записи. */
+export interface DependentsActor extends ChangeAuthor {
+  permissions: RolePermissions
+  viewer: Viewer
+}
 
 export interface ContactDependents {
+  /**
+   * Записи, которые уйдут в корзину вместе с контактом `contactId`. `forbidden` — среди них
+   * есть такие, которые пользователь удалить не может (нет права или вне охвата): тогда
+   * список не отдаётся, а удаление контакта запрещено.
+   */
+  pending(
+    actor: DependentsActor,
+    contactId: string,
+  ): Promise<{ records: DependentRecord[]; forbidden: boolean }>
   /**
    * Контакт `contactId` только что ушёл в корзину с отметкой `deletedAt`. Зависимые записи
    * уходят в корзину с той же отметкой — по ней restore найдёт их.
    */
-  trash(db: Kysely<Database>, contactId: string, deletedAt: Date): Promise<void>
+  trash(actor: ChangeAuthor, contactId: string, deletedAt: Date): Promise<void>
   /**
-   * Контакт восстановлен из корзины; `deletedAt` — отметка, с которой он был удалён.
-   * Восстанавливаются записи, удалённые вместе с ним (решение эпика — подтвердить).
+   * Контакт `contactId` ещё в корзине и сейчас будет восстановлен: восстанавливаются записи,
+   * удалённые вместе с ним, — с той же отметкой deleted_at (решение эпика — подтвердить).
+   * Не восстановить запись — отказ без изменений: тогда и контакт остаётся в корзине.
    */
-  restore(db: Kysely<Database>, contactId: string, deletedAt: Date): Promise<void>
+  restore(actor: ChangeAuthor, contactId: string): Promise<DependentRefusal | null>
   /** Контакт сейчас будет удалён окончательно: зависимые записи удаляются раньше него. */
-  purge(db: Kysely<Database>, contactId: string): Promise<void>
+  purge(actor: ChangeAuthor, contactId: string): Promise<void>
 }
 
-/** До эпика сделок: вместе с контактом удалять нечего. */
+/** Вместе с контактом удалять нечего: для тестов точки расширения. */
 export const NO_CONTACT_DEPENDENTS: ContactDependents = {
+  async pending() {
+    return { records: [], forbidden: false }
+  },
   async trash() {},
-  async restore() {},
+  async restore() {
+    return null
+  },
   async purge() {},
 }

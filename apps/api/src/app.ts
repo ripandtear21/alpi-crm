@@ -8,7 +8,9 @@ import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { type BulkDeps, bulkRoutes, NO_BULK } from './bulk/routes.ts'
 import { contactsRoutes } from './contacts/contacts.ts'
-import { type ContactDependents, NO_CONTACT_DEPENDENTS } from './contacts/dependents.ts'
+import type { ContactDependents } from './contacts/dependents.ts'
+import { dealsRoutes } from './deals/deals.ts'
+import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
 import { NO_OPEN_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
@@ -16,7 +18,7 @@ import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
 import { organizationsRoutes } from './organizations/organizations.ts'
 import { pipelinesRoutes } from './pipelines/pipelines.ts'
-import { NO_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deals.ts'
+import { OPEN_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deals.ts'
 import { currentProjectRoutes, projectsRoutes } from './projects/projects.ts'
 import { rolesRoutes } from './roles/roles.ts'
 import { teamsRoutes } from './teams/teams.ts'
@@ -45,9 +47,9 @@ export interface AppDeps {
   openDeals?: OpenDealsChecker
   /** Массовые действия и очередь pg-boss (apps/api/src/jobs/jobs.ts); без них действий нет. */
   bulk?: BulkDeps
-  /** Открытые сделки на этапе — для удаления этапа; до сделок (тикет crm-deals/05) — заглушка «нет». */
+  /** Открытые сделки на этапе — для удаления этапа; по умолчанию — по таблице deal. */
   stageDeals?: StageDealsChecker
-  /** Что удаляется вместе с контактом; до эпика сделок — ничего. */
+  /** Что удаляется вместе с контактом; по умолчанию — сделки, где он основной. */
   contactDependents?: ContactDependents
 }
 
@@ -64,6 +66,7 @@ function v1Routes({
   contactDependents: ContactDependents
 }) {
   return new Hono<PermissionsEnv>()
+    .route('/deals', dealsRoutes())
     .route('/pipelines', pipelinesRoutes({ stageDeals }))
     .route('/lost-reasons', lostReasonsRoutes())
     .route('/contacts', contactsRoutes({ dependents: contactDependents }))
@@ -82,8 +85,8 @@ export function createApp({
   db,
   openDeals = NO_OPEN_DEALS,
   bulk = NO_BULK,
-  stageDeals = NO_STAGE_DEALS,
-  contactDependents = NO_CONTACT_DEPENDENTS,
+  stageDeals = OPEN_STAGE_DEALS,
+  contactDependents = DEAL_CONTACT_DEPENDENTS,
 }: AppDeps) {
   return (
     new Hono<AccessEnv>()

@@ -26,6 +26,8 @@ export type {
   ContactPhoneTable,
   ContactTable,
   Database,
+  DealParticipantTable,
+  DealTable,
   ExternalLinkTable,
   LostReasonGroupTable,
   LostReasonTable,
