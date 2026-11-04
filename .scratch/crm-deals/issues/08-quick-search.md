@@ -27,16 +27,22 @@ packages/db/migrations/**, apps/api/src/search/**, apps/api/src/app.ts.
 
 - [ ] Тест: контакт с номером `+380671234567` находится по `0671234567`, `067 123 45 67`, `(067) 123-45-67`, `+38 067 123 4567`; по email в другом регистре; по части фамилии с опечаткой в одну букву (триграммы).
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
 - [ ] Тест изоляции: контакт проекта B с тем же телефоном не находится в проекте A.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts packages/db/src/project-isolation.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
 - [ ] Тест охвата: менеджер «свои» не находит сделку и контакт коллеги, находит сделку общей очереди; счётчик «есть ещё» не учитывает скрытое.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
 - [ ] Тест: архивная сделка находится с пометкой; сделка в корзине — нет.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
 - [ ] Тест: `EXPLAIN` поиска по телефону и по имени на 10 000 сгенерированных контактах использует индекс, а не полный просмотр таблицы.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
 
 ## Результат
 
