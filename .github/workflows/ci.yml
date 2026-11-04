@@ -1,0 +1,77 @@
+name: CI
+
+# Push в любую ветку — чтобы ветка тикета проверялась до слияния в main.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Новый push в ту же ветку отменяет устаревший запуск; в main запуски доходят до конца.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify и build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      # Версию pnpm берёт из поля packageManager корневого package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      # Сборочный скрипт embedded-postgres разрешён в pnpm-workspace.yaml (allowBuilds).
+      - run: pnpm install --frozen-lockfile
+      # Тесты с базой поднимают настоящий PostgreSQL через embedded-postgres;
+      # раннер работает не от root, поэтому initdb запускается.
+      - run: pnpm verify
+      - run: pnpm build
+
+  docker:
+    name: образ ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, web]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      # Только сборка: образы никуда не публикуются.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          tags: alpi-${{ matrix.app }}:ci
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  # Единственная проверка, которую нужно требовать в защите ветки: она зелёная,
+  # только когда зелёны все задания выше (пропуск или отмена считаются провалом).
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [verify, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Все задания зелёные
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Результаты заданий: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::Есть незелёное задание: $result"
+              exit 1
+            fi
+          done

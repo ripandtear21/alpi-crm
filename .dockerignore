@@ -1,0 +1,16 @@
+# Контекст сборки образов — корень репозитория (docker build -f apps/<app>/Dockerfile .).
+# В образ не должны попасть зависимости и сборки с машины разработчика, секреты и документы.
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+**/*.log
+.env
+.env.*
+!.env.example
+.git
+.github
+.claude
+.scratch
+docs
