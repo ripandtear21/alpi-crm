@@ -4,12 +4,16 @@ import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
 import { createI18n, LANGUAGE_STORAGE_KEY, type Language } from '../i18n/index.ts'
 import { createAppRouter } from '../router.tsx'
+import { fakeAuthApi } from '../routes/auth/fake-auth-api.ts'
 import { setViewportWidth } from '../test/viewport.ts'
 
 // Настоящее дерево маршрутов в памяти; стартуем с раздела, а не с главной,
-// чтобы не ходить в API за /health.
+// чтобы не ходить в API за /health. Пользователь уже вошёл с 2FA (подставной клиент входа).
 async function renderApp(language: Language = 'uk') {
-  const router = createAppRouter(createMemoryHistory({ initialEntries: ['/deals'] }))
+  const router = createAppRouter({
+    history: createMemoryHistory({ initialEntries: ['/deals'] }),
+    auth: fakeAuthApi(),
+  })
   render(
     <I18nextProvider i18n={createI18n(language)}>
       <RouterProvider router={router} />

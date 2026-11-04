@@ -12,7 +12,8 @@
     "typecheck": "pnpm -r --no-bail typecheck",
     "test": "vitest run",
     "build": "pnpm -r build",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test",
+    "create-owner": "pnpm --filter @alpi/api create-owner"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

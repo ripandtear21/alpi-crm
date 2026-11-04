@@ -1,0 +1,120 @@
+/* Экраны входа: карточка по центру на фоне каркаса. Цвета — переменные из app-layout.css. */
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 20px 24px 24px;
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+}
+
+.auth-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auth-card__brand {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.auth-card h1 {
+  margin: 16px 0 12px;
+  font-size: 18px;
+}
+
+.auth-card h2 {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-muted);
+}
+
+.auth-form input {
+  padding: 8px 10px;
+  color: var(--color-text);
+}
+
+.auth-hint {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.auth-error {
+  margin: 0;
+  color: #b91c1c;
+}
+
+.auth-primary {
+  padding: 8px 10px;
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.auth-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.qr-code {
+  width: 200px;
+  height: 200px;
+  align-self: center;
+}
+
+.auth-secret {
+  word-break: break-all;
+  color: var(--color-text);
+}
+
+.auth-backup-codes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  background: var(--color-bg);
+  border-radius: 6px;
+}

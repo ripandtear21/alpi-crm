@@ -13,7 +13,20 @@ import { startTestDatabase, type TestDatabase } from './testing/index.ts'
 const APP_USER = 'alpi_test_app'
 const APP_PASSWORD = 'alpi_test_app'
 
-const tablesOfMigration = ['project', 'project_member', 'external_link']
+const migrationNames = ['0001_project_isolation', '0002_auth']
+
+const tablesOfMigration = [
+  'project',
+  'project_member',
+  'external_link',
+  // 0002_auth — таблицы Better Auth
+  'user',
+  'session',
+  'account',
+  'verification',
+  'two_factor',
+  'rate_limit',
+]
 
 describe('схема и изоляция проектов', () => {
   let testDb: TestDatabase
@@ -76,6 +89,14 @@ describe('схема и изоляция проектов', () => {
         },
       ])
       .execute()
+    // project_member.user_id ссылается на учётную запись.
+    await owner
+      .insertInto('user')
+      .values([
+        { id: 'user-1', name: 'Перший', email: 'user-1@example.test' },
+        { id: 'user-2', name: 'Другий', email: 'user-2@example.test' },
+      ])
+      .execute()
     await owner
       .insertInto('project_member')
       .values([
@@ -95,7 +116,7 @@ describe('схема и изоляция проектов', () => {
   describe('миграции из packages/db/migrations', () => {
     it('применены на чистую базу: таблицы есть, миграция записана', async () => {
       const applied = await sql<{ name: string }>`select name from kysely_migration`.execute(owner)
-      expect(applied.rows.map((r) => r.name)).toEqual(['0001_project_isolation'])
+      expect(applied.rows.map((r) => r.name)).toEqual(migrationNames)
       expect(await existingTables(owner)).toEqual([...tablesOfMigration].sort())
     })
 
@@ -111,15 +132,15 @@ describe('схема и изоляция проектов', () => {
 
         const down = await createMigrator(scratch).migrateTo(NO_MIGRATIONS)
         expect(down.error).toBeUndefined()
-        expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
-          ['0001_project_isolation', 'Down', 'Success'],
-        ])
+        expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual(
+          [...migrationNames].reverse().map((name) => [name, 'Down', 'Success']),
+        )
         expect(await existingTables(scratch)).toEqual([])
 
         const again = await migrateToLatest(scratch)
-        expect(again.map((r) => [r.migrationName, r.status])).toEqual([
-          ['0001_project_isolation', 'Success'],
-        ])
+        expect(again.map((r) => [r.migrationName, r.status])).toEqual(
+          migrationNames.map((name) => [name, 'Success']),
+        )
         expect(await existingTables(scratch)).toEqual([...tablesOfMigration].sort())
       } finally {
         await scratch.destroy()
@@ -139,6 +160,15 @@ describe('схема и изоляция проектов', () => {
           })
           .execute(),
       ).rejects.toThrow(/duplicate key value violates unique constraint/)
+    })
+
+    it('участник проекта — только существующая учётная запись', async () => {
+      await expect(
+        owner
+          .insertInto('project_member')
+          .values({ project_id: projectA, user_id: 'no-such-user' })
+          .execute(),
+      ).rejects.toThrow(/project_member_user_id_fkey/)
     })
   })
 

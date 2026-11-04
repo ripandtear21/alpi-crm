@@ -4,7 +4,18 @@ import type { Database } from './schema.ts'
 
 export { createMigrator, migrateToLatest } from './migrate.ts'
 export { createProject, withProject } from './project.ts'
-export type { Database, ExternalLinkTable, ProjectMemberTable, ProjectTable } from './schema.ts'
+export type {
+  AccountTable,
+  Database,
+  ExternalLinkTable,
+  ProjectMemberTable,
+  ProjectTable,
+  RateLimitTable,
+  SessionTable,
+  TwoFactorTable,
+  UserTable,
+  VerificationTable,
+} from './schema.ts'
 
 /** Подключение к PostgreSQL через пул `pg`. Закрывать — `db.destroy()`. */
 export function createDb(connectionString: string): Kysely<Database> {
