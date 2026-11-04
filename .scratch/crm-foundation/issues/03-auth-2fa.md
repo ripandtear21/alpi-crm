@@ -1,7 +1,7 @@
 # Вход: email и пароль, обязательная двухфакторная аутентификация
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T00:26Z
 Blocked by: 02
 Source: .scratch/crm-mvp/spec.md, раздел 12, эпик 1
 
