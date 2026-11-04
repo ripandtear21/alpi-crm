@@ -1,7 +1,7 @@
 # Конструктор ролей и проверка прав
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T11:14Z
 Blocked by: 04
 Source: .scratch/crm-mvp/spec.md, раздел 12, эпик 1
 
