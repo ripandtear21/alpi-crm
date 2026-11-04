@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="uk" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ПРОТОТИП · Alpi CRM · напрям 1 «Інженерний реєстр»</title>
+<!--
+  ПРОТОТИП — викидний, не production-код.
+  Питання: як виглядає наша CRM у дизайн-напрямі 1 «Інженерний реєстр»
+  (docs/research/crm-design-directions.md, розділ «Направление 1»).
+  Без збірки; мережа — лише https (шрифти Google Fonts). Дані вигадані й живуть у пам'яті.
+  Параметри адреси: ?screen=kanban|deal|list|roles|signin &state=default|loading|empty|error|403|validation|toast|confirm|drag
+                    &theme=light|dark &vp=auto|390 &bar=0 (сховати панель прототипу)
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="stage"><div id="app"></div></div>
+
+<div id="protobar" role="toolbar" aria-label="Панель прототипу">
+  <span class="tagp keep">ПРОТОТИП · напрям 1</span>
+  <label>Екран
+    <select id="pb-screen">
+      <option value="kanban">Канбан</option>
+      <option value="deal">Картка угоди</option>
+      <option value="list">Список угод</option>
+      <option value="roles">Налаштування · ролі</option>
+      <option value="signin">Вхід з 2FA</option>
+    </select>
+  </label>
+  <label>Стан
+    <select id="pb-state">
+      <option value="default">Звичайний</option>
+      <option value="loading">Завантаження</option>
+      <option value="empty">Порожньо</option>
+      <option value="error">Помилка</option>
+      <option value="403">Немає доступу (403)</option>
+      <option value="validation">Помилка введення</option>
+      <option value="toast">Сповіщення (тост)</option>
+      <option value="confirm">Діалог підтвердження</option>
+      <option value="drag">Перетягування</option>
+    </select>
+  </label>
+  <button data-theme-btn="light">Світла</button><button data-theme-btn="dark">Темна</button>
+  <button data-vp="auto">Ширина вікна</button><button data-vp="390">390 px</button>
+  <button id="pb-motion" title="Імітувати prefers-reduced-motion">Без руху</button>
+  <button id="pb-min" class="keep" aria-label="Згорнути панель">▾</button>
+</div>
+
+<script src="icons.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

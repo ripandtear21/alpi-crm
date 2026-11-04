@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="uk" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ПРОТОТИП · Alpi CRM — Напрям 4 «Нічна консоль»</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!--
+  ПРОТОТИП, викинути після рішення. Напрям 4 «Ночная консоль» з docs/research/crm-design-directions.md.
+  Параметри адреси: ?screen=kanban|deal|list|roles|signin  &state=normal|loading|empty|error|forbidden|validation|toast|confirm|drag
+                    &theme=dark|light  &w=390  &bar=0 (сховати панель прототипу)  &lang=ru
+-->
+<div class="stage" id="stage">
+  <div class="app" id="app"></div>
+</div>
+
+<div class="protobar" id="protobar" role="region" aria-label="Панель прототипу"></div>
+
+<script src="https://unpkg.com/lucide@1.68.0/dist/umd/lucide.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
