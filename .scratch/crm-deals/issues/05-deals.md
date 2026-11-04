@@ -38,15 +38,25 @@ packages/db/migrations/**, packages/db/src/schema.ts, apps/api/src/deals/**, app
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тест изоляции: сделки и участники проекта A не видны в контексте B; сделку нельзя перенести в воронку или привязать к контакту другого проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тесты прав и охвата: без права — 403; менеджер «свои» не видит сделку коллеги (404) и видит сделку общей очереди; тимлид видит сделки своей команды и не видит чужой; смена ответственного без права «передача сделок» — 403.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тест «одна открытая сделка»: второй открытой сделке того же контакта в той же воронке отказывают на каждом пути — создание, повторное открытие, перенос в воронку, смена основного контакта, возврат из архива, восстановление из корзины, допродажа; архивная сделка новой не мешает; сделка в другой воронке — разрешена.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тест одновременности: 10 параллельных запросов на создание открытой сделки одного контакта в одной воронке дают ровно одну сделку; 2 параллельных «взять в работу» — ровно один ответственный, второму 409.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тест: проигрыш без причины или с архивной причиной — 422; повторное открытие снимает причину и пишет её в историю.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тест истории: смена этапа, суммы, валюты, ответственного и статуса пишет «было → стало» с автором.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тест: ни одно действие не меняет полей, кроме названных (смена этапа не меняет статус и сумму; выигрыш не меняет этап).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] Тест: удаление контакта, основного в двух сделках, без подтверждения возвращает их список и ничего не удаляет; с подтверждением — все три в корзине; восстановление контакта возвращает обе сделки.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d3d6e372508a6dae4ffe6334374e2311aa408d22
 
 ## Результат
 
