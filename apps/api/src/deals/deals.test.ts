@@ -741,34 +741,146 @@ describe('сделки', () => {
 
   describe('одновременные запросы', () => {
     /**
+     * Ждёт, пока `count` запросов к базе теста ждут блокировку (pg_stat_activity,
+     * wait_event_type = 'Lock'), — не дольше 10 секунд, потом ошибка.
+     */
+    async function lockWaiters(count: number) {
+      const deadline = Date.now() + 10_000
+      for (;;) {
+        const { rows } = await sql<{ waiting: number }>`
+          select count(*)::int as waiting from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock'
+        `.execute(h.owner)
+        if ((rows[0]?.waiting ?? 0) >= count) return
+        if (Date.now() > deadline) throw new Error('запросы не дошли до блокировки строки')
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+    }
+
+    /**
      * Держит строку сделки `dealId` заблокированной отдельной транзакцией, запускает запросы
-     * `start` и отпускает строку, только когда `count` из них ждут её блокировку в базе
-     * (pg_stat_activity): так запросы сходятся в базе, а не доходят до неё по очереди.
+     * `start` и отпускает строку, только когда `count` из них ждут блокировку в базе: так
+     * запросы сходятся в базе, а не доходят до неё по очереди. `start` может запускать запросы
+     * по одному, дожидаясь каждого (lockWaiters), — так задаётся, кто ждёт строку первым и
+     * первым её получит. Ошибка ожидания откатывает транзакцию — строка отпускается.
      */
     async function whileDealLocked(
       dealId: string,
       count: number,
-      start: () => Promise<Response>[],
+      start: () => Promise<Response>[] | Promise<Promise<Response>[]>,
     ): Promise<Response[]> {
       let requests: Promise<Response>[] = []
       await h.owner.transaction().execute(async (trx) => {
         await trx.selectFrom('deal').select('id').where('id', '=', dealId).forUpdate().execute()
-        requests = start()
-        const deadline = Date.now() + 10_000
-        for (;;) {
-          const { rows } = await sql<{ waiting: number }>`
-            select count(*)::int as waiting from pg_stat_activity
-            where datname = current_database()
-              and wait_event_type = 'Lock'
-              and query ilike 'update "deal"%'
-          `.execute(h.owner)
-          if ((rows[0]?.waiting ?? 0) >= count) break
-          if (Date.now() > deadline) throw new Error('запросы не дошли до блокировки строки')
-          await new Promise((resolve) => setTimeout(resolve, 10))
-        }
+        requests = await start()
+        await lockWaiters(count)
       })
       return Promise.all(requests)
     }
+
+    /** Сделки `a` и `b` по возрастанию id. */
+    const byId = <T extends { id: string }>(a: T, b: T): [T, T] => (a.id < b.id ? [a, b] : [b, a])
+
+    it('«стереть X» и «в корзину Y» с общими сделками (X — участник, Y — основной) — без взаимоблокировки', async () => {
+      const x = await createContact(admin, 'Учасник')
+      const y = await createContact(admin, 'Основний')
+      const [low, high] = byId(
+        await createDeal(admin, { pipelineId: dirA.main.id, contactId: y.id }),
+        await createDeal(admin, { pipelineId: dirA.other.id, contactId: y.id }),
+      )
+      // Порядок создания обратный порядку id: сделка с большим id создана раньше.
+      await h.owner
+        .updateTable('deal')
+        .set({ created_at: sql`now() - interval '1 hour'` })
+        .where('id', '=', high.id)
+        .execute()
+      for (const deal of [low, high]) {
+        await expectStatus(
+          await call(admin, 'POST', `/v1/deals/${deal.id}/participants`, { contactId: x.id }),
+          201,
+        )
+      }
+      await expectStatus(await call(admin, 'DELETE', `/v1/contacts/${x.id}`), 204)
+      // Список в ответе 409 — по-прежнему по времени создания.
+      const ask = await call(admin, 'DELETE', `/v1/contacts/${y.id}`)
+      expect(ask.status).toBe(409)
+      expect(await ask.json()).toMatchObject({
+        details: { deals: [{ id: high.id }, { id: low.id }] },
+      })
+
+      // Сделка с меньшим id заблокирована; первым её ждёт «стереть X», вторым — «в корзину Y».
+      // Если Y блокирует сделки не по id, он держит сделку с большим id, X получает сделку с
+      // меньшим и ждёт сделку с большим — взаимоблокировка, 40P01, ответ 500.
+      const [purged, trashed] = await whileDealLocked(low.id, 2, async () => {
+        const purge = call(admin, 'DELETE', `/v1/contacts/${x.id}/permanent`)
+        await lockWaiters(1)
+        return [purge, call(admin, 'DELETE', `/v1/contacts/${y.id}?confirm=${low.id},${high.id}`)]
+      })
+      expect([purged?.status, trashed?.status]).toEqual([204, 204])
+      const contactLeft = await h.owner
+        .selectFrom('contact')
+        .select('id')
+        .where('id', '=', x.id)
+        .execute()
+      expect(contactLeft).toEqual([])
+      const participants = await h.owner
+        .selectFrom('deal_participant')
+        .select('id')
+        .where('deal_id', 'in', [low.id, high.id])
+        .execute()
+      expect(participants).toEqual([])
+      const deals = await h.owner
+        .selectFrom('deal')
+        .select('deleted_at')
+        .where('id', 'in', [low.id, high.id])
+        .execute()
+      expect(deals.map((d) => d.deleted_at !== null)).toEqual([true, true])
+    })
+
+    it('одновременное «стереть» двух контактов, участников сделок друг друга, — без взаимоблокировки', async () => {
+      const a = await createContact(admin, 'Перший')
+      const b = await createContact(admin, 'Другий')
+      const dealA = await createDeal(admin, { pipelineId: dirA.main.id, contactId: a.id })
+      const dealB = await createDeal(admin, { pipelineId: dirA.main.id, contactId: b.id })
+      await expectStatus(
+        await call(admin, 'POST', `/v1/deals/${dealA.id}/participants`, { contactId: b.id }),
+        201,
+      )
+      await expectStatus(
+        await call(admin, 'POST', `/v1/deals/${dealB.id}/participants`, { contactId: a.id }),
+        201,
+      )
+      // W — основной в сделке с меньшим id, X — в сделке с большим; каждый — участник другой.
+      const [low, high] = byId(dealA, dealB)
+      const w = low === dealA ? a : b
+      const x = low === dealA ? b : a
+      for (const [contact, deal] of [
+        [w, low],
+        [x, high],
+      ] as const) {
+        await expectStatus(
+          await call(admin, 'DELETE', `/v1/contacts/${contact.id}?confirm=${deal.id}`),
+          204,
+        )
+      }
+
+      // Сделка с меньшим id заблокирована; первым её ждёт «стереть W», вторым — «стереть X».
+      // Если X блокирует свои сделки двумя заходами (где основной, потом где участник), он
+      // держит сделку с большим id и ждёт сделку с меньшим; W получает сделку с меньшим и ждёт
+      // сделку с большим — взаимоблокировка, 40P01, ответ 500.
+      const [first, second] = await whileDealLocked(low.id, 2, async () => {
+        const purgeW = call(admin, 'DELETE', `/v1/contacts/${w.id}/permanent`)
+        await lockWaiters(1)
+        return [purgeW, call(admin, 'DELETE', `/v1/contacts/${x.id}/permanent`)]
+      })
+      expect([first?.status, second?.status]).toEqual([204, 204])
+      const left = await h.owner
+        .selectFrom('deal')
+        .select('id')
+        .where('id', 'in', [low.id, high.id])
+        .execute()
+      expect(left).toEqual([])
+    })
 
     it('10 параллельных созданий открытой сделки одного контакта в воронке — ровно одна', async () => {
       const contact = await createContact(admin, 'Гонка')
