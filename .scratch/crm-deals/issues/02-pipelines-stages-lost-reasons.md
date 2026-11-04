@@ -1,7 +1,7 @@
 # Воронки, этапы и причины проигрыша
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T13:31Z
 Blocked by: —
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 1); .scratch/crm-mvp/spec.md, разделы 3.2, 5.5, 13.0.2; docs/research/our-pipedrive.md, раздел 1
 

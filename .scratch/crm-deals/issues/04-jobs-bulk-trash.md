@@ -1,7 +1,7 @@
 # Фоновые задачи, массовые операции, корзина и очистка журнала
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T13:31Z
 Blocked by: —
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 1); .scratch/crm-mvp/spec.md, разделы 3.1, 3.2 (`bulk_job`, удаление и архив), 5.3, 13.0 (журнал — 90 дней)
 
