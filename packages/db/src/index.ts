@@ -1,13 +1,10 @@
 import { Kysely, PostgresDialect } from 'kysely'
 import pg from 'pg'
+import type { Database } from './schema.ts'
 
-export { migrateToLatest } from './migrate.ts'
-
-/**
- * Таблицы базы для типов Kysely. Пока пусто: первая миграция и её типы — тикет 02
- * эпика crm-foundation (схема и row-level security).
- */
-export type Database = Record<string, never>
+export { createMigrator, migrateToLatest } from './migrate.ts'
+export { withProject } from './project.ts'
+export type { Database, ExternalLinkTable, ProjectMemberTable, ProjectTable } from './schema.ts'
 
 /** Подключение к PostgreSQL через пул `pg`. Закрывать — `db.destroy()`. */
 export function createDb(connectionString: string): Kysely<Database> {
