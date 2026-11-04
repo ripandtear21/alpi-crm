@@ -1,7 +1,7 @@
 # Заметки и файлы
 
 Type: task
-Status: open
+Status: claimed 2026-11-04T17:22Z
 Blocked by: 05
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 3); .scratch/crm-mvp/spec.md, разделы 3.2 (`note`, `file`), 5.2 (лента)
 
@@ -29,8 +29,35 @@ packages/db/migrations/**, packages/db/src/schema.ts, apps/api/src/storage/**, a
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts apps/api/src/deals/deals.test.ts` exit 0 · windows - · a94e5d29818188233b625c1649221ff8293ca705
 - [ ] Тест изоляции: заметки и файлы проекта A не видны в B; файл проекта A нельзя скачать с заголовком проекта B, даже зная его id.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/timeline/records.test.ts` exit 0 · windows - · a94e5d29818188233b625c1649221ff8293ca705
 - [ ] Тест прав и охвата: менеджер «свои» не читает заметки и файлы сделки коллеги (404) и не добавляет их; чужую заметку менеджер не меняет (403).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/timeline/records.test.ts` exit 0 · windows - · a94e5d29818188233b625c1649221ff8293ca705
 - [ ] Тест загрузки: 25 МБ — принят, 25 МБ + 1 байт — 413; файл `.pdf` с содержимым HTML — 415; скачивание идёт с `attachment` и `nosniff`; имя `../../x` не выходит за каталог хранилища.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/timeline/records.test.ts` exit 0 · windows - · a94e5d29818188233b625c1649221ff8293ca705
 - [ ] Тест ленты: изменения, заметки и файлы идут по времени, фильтр по типу оставляет только выбранный тип, курсор отдаёт следующую страницу без повторов.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/timeline/records.test.ts` exit 0 · windows - · a94e5d29818188233b625c1649221ff8293ca705
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · a94e5d29818188233b625c1649221ff8293ca705
+  - evidence: gate pass · `gate fast` exit 0 · windows - · a94e5d29818188233b625c1649221ff8293ca705
+
+## Результат
+
+- Миграция `packages/db/migrations/0012_notes_files.ts`: таблицы `note` и `file` под RLS. Ровно одна ссылка — на сделку, контакт или организацию (проверка `*_one_target`, составные внешние ключи `(project_id, …_id)`, каскад при окончательном удалении записи). Автор — ссылка на `user`. У `file` проверка таблицы: `storage_key` начинается с id проекта, размер 1 байт … 25 МБ. Права роли приложения: заметка — чтение, вставка, смена текста, удаление; файл — чтение, вставка, удаление (без UPDATE).
+- Хранилище — `apps/api/src/storage/storage.ts`: «положить» (во временный файл, потом переименование; при ошибке потока ничего не остаётся), «отдать поток», «удалить». Реализация — локальный диск; ключ — `<id проекта>/<id файла>`, ключ другого вида не принимается, путь проверяется ещё раз на выход за каталог. Каталог — новая обязательная настройка `STORAGE_DIR`: абсолютный путь вне каталога приложения (`apps/api` в разработке, `/app` в образе). `docker-compose.yml`: `STORAGE_DIR=/data/files` на томе `files`; `apps/api/Dockerfile`: каталог `/data/files` пользователя `node`; `.env.example` — образец.
+- Запросы `/api/v1/{deals|contacts|organizations}/:id/notes` и `/files` (`apps/api/src/notes/notes.ts`, `apps/api/src/files/files.ts`), лента — `/timeline` (`apps/api/src/timeline/timeline.ts`); проверка записи и охвата — `apps/api/src/timeline/entity.ts`. Вне охвата чтения или в корзине — 404, в охвате чтения без охвата изменения — 403.
+- Загрузка — тело запроса и есть файл: `POST …/files?name=<имя>`, в браузере `fetch(url, { method: 'POST', body: file })`. Не multipart: тело идёт потоком прямо в хранилище, без разбора формы и без новой зависимости. Content-Length больше 25 МБ — 413 сразу; без него — 413 на первом лишнем байте, недописанный объект удаляется. Общий предел тела JSON в 100 КБ (`app.ts`) на маршрут загрузки не действует, на остальных — как был (проверено и через настоящий HTTP-сервер).
+- Тип — по первым 64 КБ содержимого (`apps/api/src/files/sniff.ts`), своим кодом без зависимости: сигнатуры JPEG, PNG, GIF, WebP, PDF; ZIP — Office Open XML по папке частей (`word/`, `xl/`, `ppt/`) и OpenDocument по записи `mimetype`; текст — без управляющих байт и не разметка. CSV от текста отличает только расширение имени (содержимое одного вида). Не из списка — 415.
+- Скачивание: `Content-Disposition: attachment` (имя ASCII и точное в `filename*`), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: private, no-store`. Имя файла от пользователя — только последняя часть пути без управляющих символов (`../../x` → `x`), в ключ и путь на диске не попадает.
+- Лента: изменения (`change_log`), заметки и файлы одним списком, новые сверху по (время, id); `?type=change,note,file`, `?limit=`, `?cursor=` (время с микросекундами и id последней строки).
+- Тесты: `apps/api/src/timeline/records.test.ts` (изоляция, права и охват, загрузка и скачивание, лента), `apps/api/src/files/sniff.test.ts`, `apps/api/src/storage/storage.test.ts`, `apps/api/src/config.test.ts`; списки миграций и таблиц — `packages/db/src/project-isolation.test.ts`. За пределами списка тикета: откат 0010 в `apps/api/src/deals/deals.test.ts` сначала откатывает 0012 (таблицы ссылаются на `deal`); проверка столбцов `organization_id` в `apps/api/src/contacts/contacts.test.ts` теперь знает о `note` и `file`.
+
+Решено без владельца — подтвердить:
+
+- Список разрешённых типов: JPEG, PNG, WebP, GIF, PDF, DOCX, XLSX, PPTX, ODT, ODS, ODP, текст, CSV. Старые двоичные форматы Office (`.doc`, `.xls`, `.ppt`) не принимаются: в них макросы, и по сигнатуре их не отличить друг от друга и от установщиков `.msi`. Текст в Windows-1251 принимается.
+- Чужую заметку удаляет пользователь с правом «удалять» эту часть системы (сделки, контакты, организации); менять чужую заметку не может никто, в том числе он. Своя заметка меняется и удаляется с правом «изменять». Для файлов то же правило удаления: автор или право «удалять».
+- Объекты хранилища при окончательном удалении записи из корзины (`purge_from_trash`) остаются: строки заметок и файлов уходят каскадом, а уборка объектов — эпику эксплуатации. Для неё нужен крючок «после фиксации транзакции» в контексте проекта и сбор ключей до удаления в `contacts.ts` и `organizations.ts` — это вне списка файлов тикета.
+- Удаление файла удаляет объект до фиксации транзакции запроса (`shortcut:` в `files.ts`): если фиксация сорвётся, строка останется без содержимого. Перенести на «после фиксации» вместе с уборкой из корзины.
+- Документ Office, у которого до части `word/` (`xl/`, `ppt/`) лежит больше 64 КБ других частей, получит 415 (`shortcut:` в `sniff.ts`): тогда читать центральный каталог архива с конца файла.
+- Заметка — до 20 000 символов; изменения заметок в `change_log` не пишутся.
