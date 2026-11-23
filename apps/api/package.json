@@ -23,7 +23,8 @@
     "hono": "4.13.16",
     "kysely": "0.29.8",
     "pg": "8.23.1",
-    "pg-boss": "12.38.0"
+    "pg-boss": "12.38.0",
+    "pg-connection-string": "2.14.1"
   },
   "devDependencies": {
     "vite": "8.3.5"

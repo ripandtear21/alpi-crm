@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { applyProjectPreset, createProject, type Database, PROJECT_PRESETS } from '@alpi/db'
-import { type Kysely, sql, type Transaction } from 'kysely'
+import { type Kysely, type SqlBool, sql, type Transaction } from 'kysely'
 import type { ProjectPlan } from './plan.ts'
 
 // Запись тестовых данных служебной ролью (владелец таблиц) — напрямую в таблицы, а не через
@@ -30,6 +30,18 @@ type SeedTable =
   | 'organization'
   | 'contact'
   | 'deal'
+  | 'deal_participant'
+  | 'deal_product'
+
+/** Помеченные записи, которые --reset удаляет сам (остальное уходит с проектом). */
+const RESET_TABLES = [
+  'deal',
+  'deal_participant',
+  'deal_product',
+  'contact',
+  'organization',
+  'product',
+] as const
 
 /**
  * Ключ плана → id для записей типа `table` в проекте. Ссылки на записи, которых уже нет (их
@@ -387,33 +399,62 @@ export async function writeProject(
         .execute()
       const done = new Set(inserted.map((r) => r.id))
       const kept = rows.filter((r) => done.has(r.id))
+      // Участники и строки товаров тоже помечены: --reset отличает их от добавленных руками.
       const participants = kept.flatMap(({ id, item }) =>
-        item.participants.map((p) => ({
-          project_id: pid,
-          deal_id: id,
-          contact_id: contactId(p.contactKey),
-          role: p.role,
-          created_by: adminId,
+        item.participants.map((p, n) => ({
+          key: `${item.key}/participant-${n + 1}`,
+          values: {
+            id: randomUUID(),
+            project_id: pid,
+            deal_id: id,
+            contact_id: contactId(p.contactKey),
+            role: p.role,
+            created_by: adminId,
+          },
         })),
       )
       if (participants.length > 0) {
-        await db.insertInto('deal_participant').values(participants).execute()
+        await db
+          .insertInto('deal_participant')
+          .values(participants.map((p) => p.values))
+          .execute()
+        await link(
+          db,
+          pid,
+          'deal_participant',
+          participants.map((p) => ({ id: p.values.id, key: p.key })),
+        )
       }
       const lines = kept.flatMap(({ id, item }) =>
-        item.lines.map((line) => {
+        item.lines.map((line, n) => {
           const productId = products.ids.get(line.productKey)
           if (!productId) throw new Error(`нет товара ${line.productKey}`)
           return {
-            project_id: pid,
-            deal_id: id,
-            product_id: productId,
-            quantity: line.quantity,
-            unit_price: line.unitPrice,
-            created_by: adminId,
+            key: `${item.key}/line-${n + 1}`,
+            values: {
+              id: randomUUID(),
+              project_id: pid,
+              deal_id: id,
+              product_id: productId,
+              quantity: line.quantity,
+              unit_price: line.unitPrice,
+              created_by: adminId,
+            },
           }
         }),
       )
-      if (lines.length > 0) await db.insertInto('deal_product').values(lines).execute()
+      if (lines.length > 0) {
+        await db
+          .insertInto('deal_product')
+          .values(lines.map((l) => l.values))
+          .execute()
+        await link(
+          db,
+          pid,
+          'deal_product',
+          lines.map((l) => ({ id: l.values.id, key: l.key })),
+        )
+      }
       return [...done]
     })
 
@@ -433,13 +474,15 @@ export interface ResetOutcome {
   /** Проекты, где удалены только записи seed: в них есть записи, созданные руками. */
   keptProjects: string[]
   deleted: Record<'products' | 'organizations' | 'contacts' | 'deals', number>
+  /** Записи seed, оставленные потому, что на них ссылаются записи, созданные руками. */
+  kept: Record<'deal' | 'contact' | 'organization' | 'product', number>
 }
 
 /**
  * Удаляет помеченные записи seed. Запись seed, на которую ссылается запись, созданная руками
- * (контакт сделки, товар строки), остаётся. Проект seed удаляется целиком, только если в нём не
- * осталось ничего созданного не командой — иначе остаются проект, его настройка, участники и
- * команды.
+ * (сделка, контакт, строка товара, участник сделки, заметка, файл), остаётся: каскад не уносит
+ * ручное. Проект seed удаляется целиком, только если в нём не осталось ничего созданного не
+ * командой — иначе остаются проект, его настройка, участники и команды.
  */
 export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
   const projects = await serviceDb
@@ -453,85 +496,62 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
     deletedProjects: [],
     keptProjects: [],
     deleted: { products: 0, organizations: 0, contacts: 0, deals: 0 },
+    kept: { deal: 0, contact: 0, organization: 0, product: 0 },
   }
   for (const project of projects) {
     await serviceDb.transaction().execute(async (db) => {
       const pid = project.id
-      const seeded = (table: SeedTable) => sql<boolean>`${sql.ref(`${table}.id`)}::text in (
+      /** Строка `column` таблицы `table` помечена ссылкой seed. */
+      const marked = (
+        table: SeedTable,
+        column: string,
+      ) => sql<SqlBool>`${sql.raw(column)}::text in (
         select l.entity_id from external_link l
         where l.project_id = ${pid} and l.source = ${SEED_SOURCE} and l.entity_type = ${table}
       )`
-      const deals = await db
-        .deleteFrom('deal')
-        .where('deal.project_id', '=', pid)
-        .where(seeded('deal'))
-        .returning('id')
-        .execute()
-      const contacts = await db
-        .deleteFrom('contact')
-        .where('contact.project_id', '=', pid)
-        .where(seeded('contact'))
-        .where(({ not, exists, selectFrom }) =>
-          not(
-            exists(
-              selectFrom('deal')
-                .select(sql`1`.as('one'))
-                .whereRef('deal.primary_contact_id', '=', 'contact.id'),
-            ),
-          ),
-        )
-        .where(({ not, exists, selectFrom }) =>
-          not(
-            exists(
-              selectFrom('deal_participant')
-                .select(sql`1`.as('one'))
-                .whereRef('deal_participant.contact_id', '=', 'contact.id'),
-            ),
-          ),
-        )
-        .returning('id')
-        .execute()
-      const organizations = await db
-        .deleteFrom('organization')
-        .where('organization.project_id', '=', pid)
-        .where(seeded('organization'))
-        .where(({ not, exists, selectFrom }) =>
-          not(
-            exists(
-              selectFrom('deal')
-                .select(sql`1`.as('one'))
-                .whereRef('deal.organization_id', '=', 'organization.id'),
-            ),
-          ),
-        )
-        .where(({ not, exists, selectFrom }) =>
-          not(
-            exists(
-              selectFrom('contact')
-                .select(sql`1`.as('one'))
-                .whereRef('contact.organization_id', '=', 'organization.id'),
-            ),
-          ),
-        )
-        .returning('id')
-        .execute()
-      const products = await db
-        .deleteFrom('product')
-        .where('product.project_id', '=', pid)
-        .where(seeded('product'))
-        .where(({ not, exists, selectFrom }) =>
-          not(
-            exists(
-              selectFrom('deal_product')
-                .select(sql`1`.as('one'))
-                .whereRef('deal_product.product_id', '=', 'product.id'),
-            ),
-          ),
-        )
-        .returning('id')
-        .execute()
+      /** Строк, на которые ссылаются записи, созданные не командой: заметки, файлы, чужие строки. */
+      const notes = (column: string, alias: string) => sql`
+        not exists (select 1 from note n where n.${sql.raw(column)} = ${sql.raw(alias)}.id)
+        and not exists (select 1 from file f where f.${sql.raw(column)} = ${sql.raw(alias)}.id)`
+      const ids = (rows: { id: string }[]) => rows.map((r) => r.id)
+
+      // Сделка seed остаётся, если к ней руками добавили заметку, файл, строку товара или
+      // участника: иначе они ушли бы каскадом вместе со сделкой.
+      const deals = await sql<{ id: string }>`
+        delete from deal d
+        where d.project_id = ${pid} and ${marked('deal', 'd.id')} and ${notes('deal_id', 'd')}
+          and not exists (
+            select 1 from deal_product x where x.deal_id = d.id and not ${marked('deal_product', 'x.id')}
+          )
+          and not exists (
+            select 1 from deal_participant x
+            where x.deal_id = d.id and not ${marked('deal_participant', 'x.id')}
+          )
+        returning d.id
+      `.execute(db)
+      const contacts = await sql<{ id: string }>`
+        delete from contact c
+        where c.project_id = ${pid} and ${marked('contact', 'c.id')} and ${notes('contact_id', 'c')}
+          and not exists (select 1 from deal d where d.primary_contact_id = c.id)
+          and not exists (select 1 from deal_participant p where p.contact_id = c.id)
+        returning c.id
+      `.execute(db)
+      const organizations = await sql<{ id: string }>`
+        delete from organization o
+        where o.project_id = ${pid} and ${marked('organization', 'o.id')}
+          and ${notes('organization_id', 'o')}
+          and not exists (select 1 from deal d where d.organization_id = o.id)
+          and not exists (select 1 from contact c where c.organization_id = o.id)
+        returning o.id
+      `.execute(db)
+      const products = await sql<{ id: string }>`
+        delete from product p
+        where p.project_id = ${pid} and ${marked('product', 'p.id')}
+          and not exists (select 1 from deal_product x where x.product_id = p.id)
+        returning p.id
+      `.execute(db)
       // История изменений, если записи seed меняли через API, уходит вместе с записями.
-      const goneIds = [...deals, ...contacts, ...organizations].map((r) => r.id)
+      const goneIds = [...ids(deals.rows), ...ids(contacts.rows), ...ids(organizations.rows)]
       if (goneIds.length > 0) {
         await db
           .deleteFrom('change_log')
@@ -539,16 +559,25 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
           .where('entity_id', 'in', goneIds)
           .execute()
       }
-      await sql`
-        delete from external_link l
-        where l.project_id = ${pid} and l.source = ${SEED_SOURCE}
-          and l.entity_type in ('deal', 'contact', 'organization', 'product')
-          and l.entity_id = any(${[...goneIds, ...products.map((r) => r.id)]}::text[])
-      `.execute(db)
-      outcome.deleted.deals += deals.length
-      outcome.deleted.contacts += contacts.length
-      outcome.deleted.organizations += organizations.length
-      outcome.deleted.products += products.length
+      // Ссылки на удалённые записи (и на строки и участников, ушедших каскадом со сделками).
+      for (const table of RESET_TABLES) {
+        await sql`
+          delete from external_link l
+          where l.project_id = ${pid} and l.source = ${SEED_SOURCE} and l.entity_type = ${table}
+            and not exists (select 1 from ${sql.table(table)} t where t.id::text = l.entity_id)
+        `.execute(db)
+      }
+      outcome.deleted.deals += deals.rows.length
+      outcome.deleted.contacts += contacts.rows.length
+      outcome.deleted.organizations += organizations.rows.length
+      outcome.deleted.products += products.rows.length
+      for (const table of ['deal', 'contact', 'organization', 'product'] as const) {
+        const { rows } = await sql<{ n: number }>`
+          select count(*)::int as n from external_link l
+          where l.project_id = ${pid} and l.source = ${SEED_SOURCE} and l.entity_type = ${table}
+        `.execute(db)
+        outcome.kept[table] += rows[0]?.n ?? 0
+      }
 
       if (await hasHandMadeData(db, pid)) {
         outcome.keptProjects.push(project.name)
@@ -563,7 +592,8 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
 
 /**
  * Есть ли в проекте записи, созданные не командой seed: сделки, контакты, организации, товары,
- * заметки, файлы, массовые операции, участники и команды без пометки seed, свои роли и воронки
+ * заметки, файлы, массовые операции; участники проекта, команды, строки товаров и участники
+ * сделок без пометки seed; свои роли и воронки
  * не из стартовой настройки. Сам проект seed помечен ссылкой только тогда, когда его создал seed.
  */
 async function hasHandMadeData(db: Trx, pid: string): Promise<boolean> {
@@ -576,7 +606,7 @@ async function hasHandMadeData(db: Trx, pid: string): Promise<boolean> {
     .executeTakeFirst()
   if (!projectLink) return true
   const presetCodes = Object.values(PROJECT_PRESETS).flatMap((p) => p.pipelines.map((x) => x.code))
-  const unmarked = (table: 'project_member' | 'team') => sql`
+  const unmarked = (table: 'project_member' | 'team' | 'deal_product' | 'deal_participant') => sql`
     exists (select 1 from ${sql.table(table)} t where t.project_id = ${pid} and not exists (
       select 1 from external_link l
       where l.project_id = ${pid} and l.source = ${SEED_SOURCE} and l.entity_type = ${table}
@@ -597,6 +627,8 @@ async function hasHandMadeData(db: Trx, pid: string): Promise<boolean> {
       )
       or ${unmarked('project_member')}
       or ${unmarked('team')}
+      or ${unmarked('deal_product')}
+      or ${unmarked('deal_participant')}
     ) as found
   `
     .execute(db)

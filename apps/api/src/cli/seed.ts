@@ -11,6 +11,7 @@ import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createDb, type Database } from '@alpi/db'
 import type { Kysely } from 'kysely'
+import { parse } from 'pg-connection-string'
 import { type Auth, createAuth } from '../auth/auth.ts'
 import { readApiEnv } from '../config.ts'
 import { buildSeedPlan } from '../seed/plan.ts'
@@ -49,26 +50,38 @@ export interface SeedDeps {
   now?: Date
 }
 
-/** Адреса, которые считаются локальной базой. Пустой хост — сокет на этой же машине. */
-const LOCAL_HOSTS = new Set(['', 'localhost', '127.0.0.1', '[::1]', '::1'])
+/** Адреса локальной базы; путь (начинается с «/») — unix-сокет на этой же машине. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
 
-/** Причина отказа запускаться против этой базы; null — можно. */
+/**
+ * Причина отказа запускаться против этой базы; null — можно. Хост — так, как его выберет `pg`:
+ * из строки подключения (в том числе `?host=`), без него — PGHOST, без него — localhost.
+ * PGHOST, `hostaddr` и PGHOSTADDR проверяются и сами по себе: локальными должны быть все.
+ */
 export function refusal(
   env: NodeJS.ProcessEnv,
   databaseUrl: string,
   allowRemote: boolean,
 ): string | null {
-  if (env.NODE_ENV === 'production') {
+  if (env.NODE_ENV?.trim().toLowerCase() === 'production') {
     return 'NODE_ENV=production: тестовые данные на проде не создаются и не удаляются'
   }
-  let host: string
+  if (allowRemote) return null
+  let parsed: ReturnType<typeof parse>
   try {
-    host = new URL(databaseUrl).hostname
+    parsed = parse(databaseUrl)
   } catch {
-    return 'строка подключения к базе — не адрес URL'
+    return 'строку подключения к базе не удалось разобрать'
   }
-  if (!allowRemote && !LOCAL_HOSTS.has(host) && !host.endsWith('.localhost')) {
-    return `база на ${host} — не локальная; если это точно база разработки, добавьте --allow-remote`
+  const hosts = [
+    parsed.host || env.PGHOST || 'localhost',
+    env.PGHOST,
+    parsed.hostaddr,
+    env.PGHOSTADDR,
+  ].filter((host): host is string => Boolean(host))
+  const remote = hosts.find((host) => !LOCAL_HOSTS.has(host) && !host.startsWith('/'))
+  if (remote !== undefined) {
+    return `база на ${remote} — не локальная; если это точно база разработки, добавьте --allow-remote`
   }
   return null
 }
@@ -129,6 +142,12 @@ export async function runSeed(deps: SeedDeps, args: string[]): Promise<number> {
     out.log(
       `Удалено: сделок ${d.deals}, контактов ${d.contacts}, организаций ${d.organizations}, товаров ${d.products}, пользователей ${users.deleted.length}`,
     )
+    const k = projects.kept
+    if (k.deal + k.contact + k.organization + k.product > 0) {
+      out.log(
+        `Оставлены записи seed, на которые ссылаются записи, созданные руками: сделок ${k.deal}, контактов ${k.contact}, организаций ${k.organization}, товаров ${k.product}`,
+      )
+    }
     if (projects.deletedProjects.length > 0) {
       out.log(`Проекты удалены целиком: ${projects.deletedProjects.join(', ')}`)
     }
@@ -158,8 +177,9 @@ export async function runSeed(deps: SeedDeps, args: string[]): Promise<number> {
     deps.authUrl,
     plan.users,
     await readCredentials(credentialsFile),
+    // Файл дописывается после каждого пользователя: при сбое пароли созданных не теряются.
+    (credentials) => writeCredentials(credentialsFile, credentials),
   )
-  await writeCredentials(credentialsFile, users.credentials)
   out.log(`Пользователи: создано ${users.created}, всего ${plan.users.length}`)
 
   for (const project of plan.projects) {

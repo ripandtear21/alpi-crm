@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto'
 
-// Только для тестов: код 2FA так же, как его считает приложение на телефоне.
+// Для тестов и тестовых данных (pnpm seed, apps/api/src/seed/users.ts), не для API: код 2FA
+// так же, как его считает приложение на телефоне.
 
 /** Код TOTP (RFC 6238: SHA-1, 6 цифр, 30 с). */
 export function totp(base32Secret: string, at = Date.now()): string {

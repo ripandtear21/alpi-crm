@@ -10,7 +10,7 @@ import { buildSeedPlan, FRANCH_PRICED_FROM_STAGE } from '../seed/plan.ts'
 import { readCredentials } from '../seed/users.ts'
 import { type ApiHarness, ORIGIN, startApiHarness } from '../testing/api-harness.ts'
 import { totp } from '../testing/totp.ts'
-import { runSeed, type SeedDeps } from './seed.ts'
+import { refusal, runSeed, type SeedDeps } from './seed.ts'
 
 // `pnpm seed` (тикет crm-deals/10): тестовые данные на уменьшенном объёме (1/10) — числа,
 // правила базы, повторный запуск, --reset, отказ на проде и чтение созданного через API под
@@ -97,9 +97,26 @@ describe('pnpm seed', () => {
       await runSeed({ ...deps, env: { NODE_ENV: 'production' } }, [...SCALE, '--allow-remote']),
     ).toBe(1)
     expect(await runSeed({ ...deps, env: { NODE_ENV: 'production' } }, ['--reset'])).toBe(1)
-    expect(
-      await runSeed({ ...deps, databaseUrl: 'postgres://alpi:x@db.internal:5432/alpi_crm' }, SCALE),
-    ).toBe(1)
+    for (const NODE_ENV of ['Production', ' production ', 'PRODUCTION']) {
+      expect(await runSeed({ ...deps, env: { NODE_ENV } }, SCALE)).toBe(1)
+    }
+    // Хост — так, как его выберет pg: `?host=` важнее адреса, без хоста — PGHOST.
+    for (const [databaseUrl, env] of [
+      ['postgres://alpi:x@db.internal:5432/alpi_crm', {}],
+      ['postgres://u:p@localhost/db?host=prod.example.com', {}],
+      ['postgres:///db', { PGHOST: 'prod.example.com' }],
+      ['postgres://u:p@localhost/db', { PGHOST: 'prod.example.com' }],
+      ['postgres://u:p@localhost/db?hostaddr=10.0.0.5', {}],
+    ] as const) {
+      expect(
+        await runSeed({ ...deps, databaseUrl, env: { NODE_ENV: 'test', ...env } }, SCALE),
+      ).toBe(1)
+    }
+    expect(refusal({}, 'postgres:///db', false)).toBeNull()
+    expect(refusal({}, 'postgres://u@[::1]:5432/db', false)).toBeNull()
+    expect(refusal({}, 'postgres://u@/db?host=/var/run/postgresql', false)).toBeNull()
+    expect(refusal({ PGHOST: '/tmp' }, 'postgres:///db', false)).toBeNull()
+    expect(refusal({}, 'postgres://u@db.internal/db', true)).toBeNull()
     expect(await runSeed(deps, ['--scale', '5'])).toBe(2)
     expect(await counts()).toEqual(before)
     expect(existsSync(credentialsFile)).toBe(false)
@@ -344,8 +361,37 @@ describe('pnpm seed', () => {
     async () => {
       const alpi = await projectId('alpi')
       if (!alpi) throw new Error('нет проекта')
-      // Руками: контакт и его сделка в ALPI, сделка у контакта seed, отдельный проект с контактом.
-      const stage = await h.owner
+      const author = await h.auth.api
+        .createUser({
+          body: { email: 'hand@example.test', password: 'ручний-пароль-1', name: 'Ручний' },
+        })
+        .then((r) => r.user)
+      const seededDeals = await h.owner
+        .selectFrom('deal as d')
+        .innerJoin('pipeline as p', 'p.id', 'd.pipeline_id')
+        .innerJoin('external_link as l', (join) =>
+          join.on('l.entity_type', '=', 'deal').on(sql<SqlBool>`l.entity_id = d.id::text`),
+        )
+        .select(['d.id', 'd.primary_contact_id', 'd.status', 'd.archived_at'])
+        .where('d.project_id', '=', alpi)
+        .where('p.code', '=', 'alpi')
+        .orderBy('d.id')
+        .execute()
+      // C1 — контакт открытой неархивной сделки seed: на нём ручные заметка и файл, а позже —
+      // ручная открытая сделка в той же воронке.
+      const d2 = seededDeals.find((d) => d.status === 'open' && d.archived_at === null)
+      if (!d2) throw new Error('нет открытой сделки')
+      const c1 = d2.primary_contact_id
+      const seen = new Set([c1])
+      const [d1, d3, d4] = seededDeals.filter(
+        (d) => !seen.has(d.primary_contact_id) && Boolean(seen.add(d.primary_contact_id)),
+      )
+      if (!d1 || !d3 || !d4) throw new Error('мало сделок')
+
+      // Руками: контакт без сделок, организация, товар без строк и товар в строке сделки seed,
+      // заметка и файл на сделке и на контакте seed, участник сделки seed, сделка у контакта
+      // seed в другой воронке, отдельный проект с контактом.
+      const auto = await h.owner
         .selectFrom('stage as s')
         .innerJoin('pipeline as p', 'p.id', 's.pipeline_id')
         .select(['s.id', 's.pipeline_id'])
@@ -353,64 +399,165 @@ describe('pnpm seed', () => {
         .where('p.code', '=', 'autowebinars')
         .orderBy('s.position')
         .executeTakeFirstOrThrow()
-      const handContact = await h.owner
-        .insertInto('contact')
-        .values({ project_id: alpi, first_name: 'Ручний' })
+      const addContact = (first_name: string) =>
+        h.owner
+          .insertInto('contact')
+          .values({ project_id: alpi, first_name })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+      const handContact = await addContact('Ручний')
+      const handParticipant = await addContact('Учасник')
+      const handOrg = await h.owner
+        .insertInto('organization')
+        .values({ project_id: alpi, name: 'Ручна організація' })
         .returning('id')
         .executeTakeFirstOrThrow()
-      const seededContact = await h.owner
+      const [handProduct, lonelyProduct] = await h.owner
+        .insertInto('product')
+        .values([
+          { project_id: alpi, name: 'Ручний товар', price_eur: 10 },
+          { project_id: alpi, name: 'Ручний товар без рядків', price_eur: 20 },
+        ])
+        .returning('id')
+        .execute()
+      if (!handProduct || !lonelyProduct) throw new Error('товары не созданы')
+      const handLine = await h.owner
+        .insertInto('deal_product')
+        .values({
+          project_id: alpi,
+          deal_id: d3.id,
+          product_id: handProduct.id,
+          quantity: 1,
+          unit_price: 10,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      await h.owner
+        .insertInto('deal_participant')
+        .values({
+          project_id: alpi,
+          deal_id: d4.id,
+          contact_id: handParticipant.id,
+          role: 'колега',
+        })
+        .execute()
+      await h.owner
+        .insertInto('note')
+        .values([
+          { project_id: alpi, deal_id: d1.id, text: 'Нотатка до угоди', author_id: author.id },
+          { project_id: alpi, contact_id: c1, text: 'Нотатка до контакту', author_id: author.id },
+        ])
+        .execute()
+      const fileRow = (target: { deal_id: string } | { contact_id: string }) => {
+        const id = crypto.randomUUID()
+        return {
+          id,
+          project_id: alpi,
+          ...target,
+          name: 'договір.pdf',
+          content_type: 'application/pdf',
+          size: 1,
+          storage_key: `${alpi}/${id}`,
+          author_id: author.id,
+        }
+      }
+      await h.owner
+        .insertInto('file')
+        .values([fileRow({ deal_id: d1.id }), fileRow({ contact_id: c1 })])
+        .execute()
+      const seededAutoContact = await h.owner
         .selectFrom('contact as c')
         .innerJoin('external_link as l', (join) =>
-          join.on('l.source', '=', 'seed').on(sql<SqlBool>`l.entity_id = c.id::text`),
+          join.on('l.entity_type', '=', 'contact').on(sql<SqlBool>`l.entity_id = c.id::text`),
         )
         .select('c.id')
         .where('c.project_id', '=', alpi)
+        .where('c.id', 'not in', [
+          c1,
+          d1.primary_contact_id,
+          d3.primary_contact_id,
+          d4.primary_contact_id,
+        ])
         .where(({ not, exists, selectFrom }) =>
           not(
             exists(
               selectFrom('deal')
                 .select('id')
                 .whereRef('primary_contact_id', '=', 'c.id')
-                .where('pipeline_id', '=', stage.pipeline_id),
+                .where('pipeline_id', '=', auto.pipeline_id),
             ),
           ),
         )
         .executeTakeFirstOrThrow()
-      const handDeals = await h.owner
+      const handDeal = await h.owner
         .insertInto('deal')
-        .values(
-          [handContact.id, seededContact.id].map((contactId) => ({
-            project_id: alpi,
-            title: 'Ручна угода',
-            pipeline_id: stage.pipeline_id,
-            stage_id: stage.id,
-            primary_contact_id: contactId,
-          })),
-        )
+        .values({
+          project_id: alpi,
+          title: 'Ручна угода',
+          pipeline_id: auto.pipeline_id,
+          stage_id: auto.id,
+          primary_contact_id: seededAutoContact.id,
+        })
         .returning('id')
-        .execute()
+        .executeTakeFirstOrThrow()
       const other = await createProject(h.owner, { code: 'hand-made', name: 'Ручний' })
       await h.owner
         .insertInto('contact')
         .values({ project_id: other.id, first_name: 'Чужий' })
         .execute()
 
-      expect(await runSeed(deps, ['--reset'])).toBe(0)
+      const log: string[] = []
+      const loud = { log: (m: string) => log.push(m), error: (m: string) => log.push(m) }
+      expect(await runSeed({ ...deps, out: loud }, ['--reset'])).toBe(0)
 
       expect(await projectId('franch')).toBeUndefined()
       expect(await projectId('alpi')).toBe(alpi)
-      const left = await h.owner
-        .selectFrom('deal')
-        .select('id')
-        .where('project_id', '=', alpi)
-        .execute()
-      expect(left.map((d) => d.id).sort()).toEqual(handDeals.map((d) => d.id).sort())
-      const contacts = await h.owner
-        .selectFrom('contact')
-        .select('id')
-        .where('project_id', '=', alpi)
-        .execute()
-      expect(contacts.map((c) => c.id).sort()).toEqual([handContact.id, seededContact.id].sort())
+      const ids = async (
+        table: 'deal' | 'contact' | 'organization' | 'product' | 'note' | 'file',
+      ) =>
+        (
+          await sql<{
+            id: string
+          }>`select id::text as id from ${sql.table(table)} where project_id = ${alpi}`.execute(
+            h.owner,
+          )
+        ).rows
+          .map((r) => r.id)
+          .sort()
+      // Сделки seed с ручными заметкой и файлом, строкой товара, участником — на месте.
+      expect(await ids('deal')).toEqual([handDeal.id, d1.id, d3.id, d4.id].sort())
+      expect(await ids('contact')).toEqual(
+        [
+          handContact.id,
+          handParticipant.id,
+          seededAutoContact.id,
+          c1,
+          d1.primary_contact_id,
+          d3.primary_contact_id,
+          d4.primary_contact_id,
+        ].sort(),
+      )
+      expect(await ids('organization')).toEqual([handOrg.id])
+      expect(await ids('product')).toEqual(
+        expect.arrayContaining([handProduct.id, lonelyProduct.id]),
+      )
+      expect(await ids('note')).toHaveLength(2)
+      expect(await ids('file')).toHaveLength(2)
+      expect(
+        await h.owner
+          .selectFrom('deal_product')
+          .select('id')
+          .where('id', '=', handLine.id)
+          .execute(),
+      ).toHaveLength(1)
+      expect(
+        await h.owner
+          .selectFrom('deal_participant')
+          .select('contact_id')
+          .where('deal_id', '=', d4.id)
+          .execute(),
+      ).toEqual([{ contact_id: handParticipant.id }])
+      expect(log.join('\n')).toMatch(/Оставлены записи seed[^\n]*сделок 3, контактов 5/)
       expect(
         await h.owner
           .selectFrom('contact')
@@ -421,11 +568,51 @@ describe('pnpm seed', () => {
       // Пользователи seed — участники оставленного проекта ALPI: остаются, как и их пароли.
       expect(await readCredentials(credentialsFile)).toHaveLength(11)
 
-      // Ручные записи убраны — второй --reset удаляет проект и пользователей целиком.
+      // Ручная открытая сделка у контакта C1 в воронке ALPI: при повторном запуске сделка плана
+      // для C1 в этой воронке пропускается, и вывод это называет.
+      const alpiStage = await h.owner
+        .selectFrom('stage as s')
+        .innerJoin('pipeline as p', 'p.id', 's.pipeline_id')
+        .select(['s.id', 's.pipeline_id'])
+        .where('p.project_id', '=', alpi)
+        .where('p.code', '=', 'alpi')
+        .orderBy('s.position')
+        .executeTakeFirstOrThrow()
+      await h.owner
+        .insertInto('deal')
+        .values({
+          project_id: alpi,
+          title: 'Ручна відкрита',
+          pipeline_id: alpiStage.pipeline_id,
+          stage_id: alpiStage.id,
+          primary_contact_id: c1,
+        })
+        .execute()
+      log.length = 0
+      expect(await runSeed({ ...deps, out: loud }, SCALE)).toBe(0)
+      expect(log.join('\n')).toMatch(/«ALPI»[^\n]*пропущено сделок 1/)
+      const { rows: seededNow } = await sql<{ n: number }>`
+        select count(*)::int as n from external_link
+        where project_id = ${alpi} and source = 'seed' and entity_type = 'deal'
+      `.execute(h.owner)
+      expect(seededNow).toEqual([{ n: 499 }])
+
+      // Ручные записи убраны — --reset удаляет проекты и пользователей целиком.
       await h.owner.deleteFrom('deal').where('project_id', '=', alpi).execute()
-      await h.owner.deleteFrom('contact').where('id', '=', handContact.id).execute()
+      await h.owner.deleteFrom('note').where('project_id', '=', alpi).execute()
+      await h.owner.deleteFrom('file').where('project_id', '=', alpi).execute()
+      await h.owner
+        .deleteFrom('contact')
+        .where('id', 'in', [handContact.id, handParticipant.id])
+        .execute()
+      await h.owner.deleteFrom('organization').where('id', '=', handOrg.id).execute()
+      await h.owner
+        .deleteFrom('product')
+        .where('id', 'in', [handProduct.id, lonelyProduct.id])
+        .execute()
       expect(await runSeed(deps, ['--reset'])).toBe(0)
       expect(await projectId('alpi')).toBeUndefined()
+      expect(await projectId('franch')).toBeUndefined()
       expect(await projectId('hand-made')).toBe(other.id)
       expect(
         await h.owner.selectFrom('user').select('id').where('email', 'like', 'seed.%').execute(),

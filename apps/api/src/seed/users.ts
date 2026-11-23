@@ -63,6 +63,8 @@ export async function ensureUsers(
   authUrl: string,
   users: PlannedUser[],
   known: SeedCredential[],
+  /** Сохраняет известные учётные данные: после каждого нового пользователя и в конце. */
+  save: (credentials: SeedCredential[]) => Promise<void>,
 ): Promise<EnsuredUsers> {
   const ids = new Map<string, string>()
   const credentials: SeedCredential[] = []
@@ -92,8 +94,15 @@ export async function ensureUsers(
     ids.set(user.key, id)
     credentials.push({ email: user.email, name: user.name, role: user.role, password, totpSecret })
     created++
+    await save(mergeCredentials(credentials, known))
   }
+  await save(credentials)
   return { ids, credentials, created, unknown }
+}
+
+/** Новые и уже сохранённые учётные данные: сохранённые ещё не пройденных пользователей не теряются. */
+function mergeCredentials(fresh: SeedCredential[], known: SeedCredential[]): SeedCredential[] {
+  return [...fresh, ...known.filter((k) => !fresh.some((c) => c.email === k.email))]
 }
 
 /**
