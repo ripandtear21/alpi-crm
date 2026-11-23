@@ -38,11 +38,13 @@ apps/web/src/routes/deals/$dealId/**, apps/web/src/components/timeline/**, apps/
 - [ ] Тест экрана: фильтр ленты «Нотатки» оставляет только заметки; новая заметка появляется сверху без перезагрузки.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
 - [ ] Тест прав: менеджер без права «передача сделок» не видит смены ответственного; без права удалять — кнопки удаления; прямой запрос чужой сделки показывает «немає доступу», и в ответе API нет её данных.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/deals.test.ts apps/web/src/routes/deals` exit 0 · windows - · f5b8e7fddbc97c1ee90589ddf895ebe764c695bb
 - [ ] Тест: допродажа контакту, у которого уже есть открытая сделка в воронке допродаж, показывает подсказку со ссылкой и не создаёт сделку.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
 - [ ] Проверено в настоящем браузере на тестовых данных на 1280 и 375 px.
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · f5b8e7fddbc97c1ee90589ddf895ebe764c695bb
 
 ## Результат
 
@@ -52,6 +54,9 @@ apps/web/src/routes/deals/$dealId/**, apps/web/src/components/timeline/**, apps/
 - Сделка вне охвата, удалённая или несуществующая — экран «Немає доступу» без её данных (API отвечает одинаковым 404 `{ code }`).
 - Файл больше 25 МБ отклоняется на клиенте до отправки; загрузка идёт с индикатором; скачивание — запросом с заголовком проекта (простой ссылкой нельзя: API требует `X-Project-Id`).
 - API: `GET /project/access` (`apps/api/src/projects/projects.ts`) — права самого пользователя в текущем проекте `{ userId, permissions }`; по ним карточка прячет кнопки без права. Тип `ProjectAccess` — в `packages/shared`.
+- После перебазирования на канбан (тикет 11): `/deals` — канбан, `/deals/$dealId` — карточка; ссылка названия сделки на канбане открывает карточку, удаление сделки из карточки возвращает на канбан (тесты в `deal-card-page.test.tsx`).
+- 404 чужой и удалённой сделки проверяется и по телу ответа: только `{ code: 'DEAL_NOT_FOUND' }`, без данных сделки (`apps/api/src/deals/deals.test.ts`).
+- не проверено: пункт 6 «Done when» (настоящий браузер на 1280 и 375 px) — у исполнителя нет профиля браузера и запущенного стека с данными `pnpm seed`; вёрстка проверена только тестами экрана в jsdom, которые ширину не отрисовывают.
 
 Решено без владельца — подтвердить:
 
