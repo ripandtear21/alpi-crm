@@ -2,6 +2,8 @@ import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RolesApiError } from './roles-api.ts'
 import './directory.css'
+import './settings.css'
+import { Button } from '../../ui/button.tsx'
 
 // Общие части экранов «Воронки» и «Причины проигрыша» (тикет crm-deals/02): переименование,
 // перестановка кнопками «выше / ниже», добавление по названию и текст ошибки API.
@@ -14,7 +16,11 @@ export type Notice = { kind: 'status' | 'alert'; text: string } | null
 
 export function NoticeLine({ notice }: { notice: Notice }) {
   if (!notice) return null
-  return <p role={notice.kind}>{notice.text}</p>
+  return (
+    <p className="ui-notice" role={notice.kind}>
+      {notice.text}
+    </p>
+  )
 }
 
 /** Текст отказа API по коду: свои коды справочников, иначе — общие тексты настроек. */
@@ -52,7 +58,8 @@ export function OrderButtons({
   const { t } = useTranslation('settings')
   return (
     <span className="directory__order">
-      <button
+      <Button
+        size="sm"
         type="button"
         aria-label={t('directory.up', { name })}
         title={t('directory.up', { name })}
@@ -60,8 +67,9 @@ export function OrderButtons({
         onClick={() => onMove(-1)}
       >
         ↑
-      </button>
-      <button
+      </Button>
+      <Button
+        size="sm"
         type="button"
         aria-label={t('directory.down', { name })}
         title={t('directory.down', { name })}
@@ -69,7 +77,7 @@ export function OrderButtons({
         onClick={() => onMove(1)}
       >
         ↓
-      </button>
+      </Button>
     </span>
   )
 }
@@ -99,15 +107,16 @@ export function RenameForm({
       }}
     >
       <input
+        className="ui-input ui-input--sm"
         aria-label={label}
         value={name}
         maxLength={MAX_NAME_LENGTH}
         required
         onChange={(event) => setName(event.target.value)}
       />
-      <button type="submit" disabled={pending}>
+      <Button size="sm" type="submit" disabled={pending}>
         {submitLabel}
-      </button>
+      </Button>
     </form>
   )
 }
@@ -135,15 +144,16 @@ export function AddForm({
       }}
     >
       <input
+        className="ui-input ui-input--sm"
         name="name"
         aria-label={label}
         placeholder={label}
         maxLength={MAX_NAME_LENGTH}
         required
       />
-      <button type="submit" disabled={pending}>
+      <Button size="sm" type="submit" disabled={pending}>
         {t('directory.add')}
-      </button>
+      </Button>
     </form>
   )
 }
@@ -160,8 +170,8 @@ export function ArchiveButton({
 }) {
   const { t } = useTranslation('settings')
   return (
-    <button type="button" disabled={pending} onClick={() => onChange(!archived)}>
+    <Button size="sm" type="button" disabled={pending} onClick={() => onChange(!archived)}>
       {archived ? t('directory.restore') : t('directory.archive')}
-    </button>
+    </Button>
   )
 }

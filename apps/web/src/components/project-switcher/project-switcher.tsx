@@ -11,6 +11,7 @@ export function ProjectSwitcher() {
     <label className="app-header__project">
       <span className="app-header__project-label">{t('project.label')}</span>
       <select
+        className="ui-select ui-select--sm"
         value={current?.id ?? ''}
         title={current?.name}
         disabled={!current}

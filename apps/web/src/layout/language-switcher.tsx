@@ -5,7 +5,7 @@ export function LanguageSwitcher() {
   const { t, i18n } = useTranslation()
 
   return (
-    <fieldset className="language-switcher">
+    <fieldset className="ui-segmented language-switcher">
       <legend className="visually-hidden">{t('language.label')}</legend>
       {LANGUAGES.map((language) => (
         <button

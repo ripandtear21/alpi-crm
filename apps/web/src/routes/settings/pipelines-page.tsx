@@ -6,6 +6,7 @@ import {
   projectQueryKey,
   useCurrentProject,
 } from '../../components/project-switcher/current-project.tsx'
+import { Button } from '../../ui/button.tsx'
 import {
   AddForm,
   ArchiveButton,
@@ -61,7 +62,9 @@ function PipelinesEditor({ api, projectId }: { api: PipelinesApi; projectId: str
     return (
       <section>
         <h1>{t('pipelines.title')}</h1>
-        <p role="alert">{denied ? t('pipelines.noAccess') : t('roles.errors.unknown')}</p>
+        <p className="ui-notice" role="alert">
+          {denied ? t('pipelines.noAccess') : t('roles.errors.unknown')}
+        </p>
       </section>
     )
   }
@@ -221,6 +224,7 @@ function PipelineSettings({
       <label>
         {t('pipelines.name')}{' '}
         <input
+          className="ui-input ui-input--sm"
           value={name}
           maxLength={80}
           required
@@ -230,6 +234,7 @@ function PipelineSettings({
       <label>
         {t('pipelines.code')}{' '}
         <input
+          className="ui-input ui-input--sm"
           value={code}
           maxLength={40}
           pattern="[a-z][a-z0-9_\-]*"
@@ -245,9 +250,9 @@ function PipelineSettings({
         />{' '}
         {t('pipelines.upsell')}
       </label>
-      <button type="submit" disabled={pending}>
+      <Button size="sm" type="submit" disabled={pending}>
         {t('directory.save')}
-      </button>
+      </Button>
     </form>
   )
 }
@@ -290,7 +295,9 @@ function StageRow({
       {confirming ? (
         <>
           <span className="directory__hint">{t('pipelines.deleteHint')}</span>
-          <button
+          <Button
+            size="sm"
+            variant="danger"
             type="button"
             disabled={pending}
             onClick={() => {
@@ -299,15 +306,15 @@ function StageRow({
             }}
           >
             {t('pipelines.confirmDelete', { name: stage.name })}
-          </button>
-          <button type="button" onClick={() => setConfirming(false)}>
+          </Button>
+          <Button size="sm" type="button" onClick={() => setConfirming(false)}>
             {t('directory.cancel')}
-          </button>
+          </Button>
         </>
       ) : (
-        <button type="button" disabled={pending} onClick={() => setConfirming(true)}>
+        <Button size="sm" type="button" disabled={pending} onClick={() => setConfirming(true)}>
           {t('pipelines.deleteStage', { name: stage.name })}
-        </button>
+        </Button>
       )}
     </li>
   )
@@ -343,18 +350,25 @@ function CreatePipelineForm({
     >
       <h2>{t('pipelines.new')}</h2>
       <label>
-        {t('pipelines.name')} <input name="name" maxLength={80} required />
+        {t('pipelines.name')}{' '}
+        <input className="ui-input ui-input--sm" name="name" maxLength={80} required />
       </label>
       <label>
         {t('pipelines.code')}{' '}
-        <input name="code" maxLength={40} pattern="[a-z][a-z0-9_\-]*" required />
+        <input
+          className="ui-input ui-input--sm"
+          name="code"
+          maxLength={40}
+          pattern="[a-z][a-z0-9_\-]*"
+          required
+        />
       </label>
       <label>
         <input type="checkbox" name="isUpsell" /> {t('pipelines.upsell')}
       </label>
-      <button type="submit" disabled={pending}>
+      <Button size="sm" type="submit" variant="primary" disabled={pending}>
         {t('pipelines.create')}
-      </button>
+      </Button>
     </form>
   )
 }

@@ -10,6 +10,8 @@ import type { MembersApi } from './members-api.ts'
 import { useApiErrorText } from './members-page.tsx'
 import { RolesApiError } from './roles-api.ts'
 import './members.css'
+import './settings.css'
+import { Button } from '../../ui/button.tsx'
 
 // Настройки → команды: создать команду с тимлидом, переименовать, сменить тимлида, добавить и
 // убрать участников. Тимлид один и сам состоит в команде, участник — не больше чем в одной
@@ -64,7 +66,9 @@ function TeamsEditor({ api, projectId }: { api: MembersApi; projectId: string })
     return (
       <section>
         <h1>{t('teams.title')}</h1>
-        <p role="alert">{denied ? t('roles.noAccess') : t('roles.errors.unknown')}</p>
+        <p className="ui-notice" role="alert">
+          {denied ? t('roles.noAccess') : t('roles.errors.unknown')}
+        </p>
       </section>
     )
   }
@@ -83,7 +87,11 @@ function TeamsEditor({ api, projectId }: { api: MembersApi; projectId: string })
   return (
     <section className="members">
       <h1>{t('teams.title')}</h1>
-      {message && <p role="status">{message}</p>}
+      {message && (
+        <p className="ui-notice" role="status">
+          {message}
+        </p>
+      )}
       {teams.data.length === 0 && <p>{t('teams.empty')}</p>}
       {teams.data.map((team) => (
         <TeamCard
@@ -150,19 +158,21 @@ function TeamCard({
         <label>
           {t('teams.name')}{' '}
           <input
+            className="ui-input ui-input--sm"
             value={name}
             maxLength={60}
             required
             onChange={(event) => setName(event.target.value)}
           />
         </label>{' '}
-        <button type="submit" disabled={pending}>
+        <Button size="sm" type="submit" disabled={pending}>
           {t('teams.rename')}
-        </button>
+        </Button>
       </form>
       <label>
         {t('teams.lead')}{' '}
         <select
+          className="ui-select ui-select--sm"
           aria-label={t('teams.leadOf', { name: team.name })}
           value={team.leadUserId}
           disabled={pending}
@@ -192,9 +202,9 @@ function TeamCard({
             ) : (
               <>
                 {' '}
-                <button type="button" disabled={pending} onClick={() => onRemove(userId)}>
+                <Button size="sm" type="button" disabled={pending} onClick={() => onRemove(userId)}>
                   {t('teams.remove', { name: nameOf(userId) })}
-                </button>
+                </Button>
               </>
             )}
           </li>
@@ -203,6 +213,7 @@ function TeamCard({
       <label>
         {t('teams.addMember')}{' '}
         <select
+          className="ui-select ui-select--sm"
           aria-label={t('teams.addMemberTo', { name: team.name })}
           value={toAdd}
           onChange={(event) => setToAdd(event.target.value)}
@@ -215,7 +226,8 @@ function TeamCard({
           ))}
         </select>
       </label>{' '}
-      <button
+      <Button
+        size="sm"
         type="button"
         disabled={pending || toAdd === ''}
         onClick={() => {
@@ -224,10 +236,10 @@ function TeamCard({
         }}
       >
         {t('teams.add')}
-      </button>{' '}
-      <button type="button" disabled={pending} onClick={onDelete}>
+      </Button>{' '}
+      <Button size="sm" variant="danger" type="button" disabled={pending} onClick={onDelete}>
         {t('teams.delete', { name: team.name })}
-      </button>
+      </Button>
     </article>
   )
 }
@@ -266,11 +278,12 @@ function CreateTeamForm({
     >
       <h2>{t('teams.new')}</h2>
       <label>
-        {t('teams.name')} <input name="name" maxLength={60} required />
+        {t('teams.name')}{' '}
+        <input className="ui-input ui-input--sm" name="name" maxLength={60} required />
       </label>
       <label>
         {t('teams.lead')}{' '}
-        <select name="leadUserId" required defaultValue="">
+        <select className="ui-select ui-select--sm" name="leadUserId" required defaultValue="">
           <option value="" disabled>
             —
           </option>
@@ -281,9 +294,9 @@ function CreateTeamForm({
           ))}
         </select>
       </label>
-      <button type="submit" disabled={pending}>
+      <Button size="sm" type="submit" variant="primary" disabled={pending}>
         {t('teams.create')}
-      </button>
+      </Button>
     </form>
   )
 }

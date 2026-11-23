@@ -1,78 +1,83 @@
+/* Экран «Роли»: список ролей слева, редактор справа; на телефоне — друг под другом. */
 .roles__layout {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: var(--s-5);
   align-items: flex-start;
 }
 
-.roles__list ul {
-  list-style: none;
-  margin: 0 0 8px;
-  padding: 0;
+.roles__list {
+  flex: 0 1 var(--nav-w);
+  min-width: 0;
 }
 
-.roles__list li button {
+.roles__list ul {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 var(--s-3);
+  padding: 0;
+  list-style: none;
+}
+
+/* Роли в списке выглядят как пункты меню; выбранная — как активный раздел. */
+.roles__list li .ui-button {
+  justify-content: space-between;
   width: 100%;
-  margin-bottom: 4px;
+  background: none;
+  box-shadow: none;
+  color: var(--ink-2);
   text-align: left;
 }
 
-.roles__list button[aria-pressed="true"] {
-  border-color: var(--color-accent);
-  background: var(--color-accent-light);
+.roles__list li .ui-button:hover:not(:disabled) {
+  background: var(--hover);
 }
 
-.roles__count,
-.roles__hint,
-.roles__note {
-  color: var(--color-muted);
+.roles__list .ui-button[aria-pressed="true"] {
+  background: var(--nav-on);
+  color: var(--nav-on-ink);
 }
 
 .roles__editor {
-  flex: 1 1 420px;
-  min-width: 0;
   display: flex;
+  flex: 1 1 26rem;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--s-5);
+  min-width: 0;
+  padding: var(--s-5);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
-/* Таблица шире экрана телефона — прокручивается сама, страница остаётся на месте. */
-.roles__matrix {
-  display: block;
-  overflow-x: auto;
-  border-collapse: collapse;
-  background: #fff;
-}
-
-.roles__matrix th,
-.roles__matrix td {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--color-line);
+.roles__matrix :is(th, td) {
   text-align: center;
 }
 
 .roles__matrix th[scope="row"],
-.roles__matrix caption {
+.roles__matrix th:first-child {
   text-align: left;
 }
 
 .roles__scope {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--s-2) var(--s-4);
   align-items: center;
-  margin-bottom: 4px;
 }
 
 .roles__scope > span {
-  min-width: 90px;
+  min-width: 6rem;
+  color: var(--ink);
+  font-size: var(--fs-ui);
 }
 
 .roles__standalone {
-  display: block;
+  display: flex;
 }
 
 .roles__actions {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: var(--s-2);
 }

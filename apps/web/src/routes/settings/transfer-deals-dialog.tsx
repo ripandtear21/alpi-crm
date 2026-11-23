@@ -1,14 +1,16 @@
 import type { BulkJobProgress, MemberSummary } from '@alpi/shared'
 import { useQuery } from '@tanstack/react-query'
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { projectQueryKey } from '../../components/project-switcher/current-project.tsx'
+import { Button } from '../../ui/button.tsx'
+import { Dialog } from '../../ui/dialog.tsx'
 import { type MembersApi, MembersApiError } from './members-api.ts'
 
 // Диалог «Передать сделки» на экране участников (тикет crm-deals/09): кому — участнику проекта
 // или в общую очередь, затем ход массовой операции и отключение участника. Права и охват
-// проверяет API; диалог показывает его отказ текстом. Тикет 01 (базовые компоненты) ещё не
-// слит — диалог на текущих элементах.
+// проверяет API; диалог показывает его отказ текстом. Построен на общем Dialog (тикет
+// crm-deals/01): рамка, Esc, возврат фокуса и область уведомлений — оттуда.
 //
 // Диалог модальный (showModal): пока он открыт, страница за ним недоступна, и передачу другого
 // участника не начать поверх недоконченной. Экран участников вдобавок пересоздаёт диалог на
@@ -41,21 +43,11 @@ export function TransferDealsDialog({
   onDisabled: (userId: string) => void
 }) {
   const { t } = useTranslation('settings')
-  const headingId = useId()
-  const dialog = useRef<HTMLDialogElement>(null)
-  const heading = useRef<HTMLHeadingElement>(null)
   const [step, setStep] = useState<Step>({ kind: 'choose' })
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const who = member.name || member.email
   const recipients = members.filter((m) => !m.disabled && m.userId !== member.userId)
-
-  useEffect(() => {
-    const element = dialog.current
-    // Без закрытия при размонтировании: убранный из документа диалог браузер снимает сам.
-    if (element && !element.open) element.showModal()
-    heading.current?.focus()
-  }, [])
 
   const job = useQuery({
     queryKey: projectQueryKey(projectId, 'bulk-job', step.kind === 'running' ? step.jobId : null),
@@ -104,24 +96,26 @@ export function TransferDealsDialog({
 
   const progress = job.data
   return (
-    <dialog
-      ref={dialog}
-      className="transfer-dialog"
-      aria-labelledby={headingId}
-      // Escape модального диалога браузер закрывает сам (событие close): экран участников
-      // убирает диалог так же, как по кнопке «Закрыть».
+    <Dialog
+      // Открыт всё время, пока смонтирован: экран участников монтирует диалог на участника.
+      // Escape, кнопка «Закрыть» в заголовке, щелчок по затемнению и закрытие браузером
+      // (событие close) убирают диалог через onClose.
+      open
       onClose={onClose}
+      title={t('members.transfer.title', { name: who })}
+      className="transfer-dialog"
     >
-      <h2 id={headingId} ref={heading} tabIndex={-1}>
-        {t('members.transfer.title', { name: who })}
-      </h2>
-
       {step.kind === 'choose' && (
         <form className="transfer-dialog__form" onSubmit={transfer}>
           <p className="members__hint">{t('members.transfer.hint')}</p>
           <label>
             {t('members.transfer.to')}{' '}
-            <select name="toUserId" defaultValue="" disabled={pending}>
+            <select
+              className="ui-select ui-select--sm"
+              name="toUserId"
+              defaultValue=""
+              disabled={pending}
+            >
               <option value="">{t('members.transfer.queue')}</option>
               {recipients.map((m) => (
                 <option key={m.userId} value={m.userId}>
@@ -130,29 +124,35 @@ export function TransferDealsDialog({
               ))}
             </select>
           </label>
-          <button type="submit" disabled={pending}>
+          <Button size="sm" type="submit" variant="primary" disabled={pending}>
             {t('members.transfer.submit')}
-          </button>
+          </Button>
         </form>
       )}
 
       {step.kind === 'running' && (
         <div className="transfer-dialog__progress">
-          {job.isError ? <p role="alert">{errorText(job.error)}</p> : <Progress job={progress} />}
+          {job.isError ? (
+            <p className="ui-notice" role="alert">
+              {errorText(job.error)}
+            </p>
+          ) : (
+            <Progress job={progress} />
+          )}
           {progress?.status === 'done' && (
-            <button type="button" disabled={pending} onClick={disable}>
+            <Button size="sm" type="button" variant="danger" disabled={pending} onClick={disable}>
               {t('members.disable', { name: who })}
-            </button>
+            </Button>
           )}
         </div>
       )}
 
-      {message && <p role="status">{message}</p>}
-
-      <button type="button" className="transfer-dialog__close" onClick={onClose}>
-        {t('members.transfer.close')}
-      </button>
-    </dialog>
+      {message && (
+        <p className="ui-notice" role="status">
+          {message}
+        </p>
+      )}
+    </Dialog>
   )
 }
 

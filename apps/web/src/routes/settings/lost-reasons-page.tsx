@@ -6,6 +6,7 @@ import {
   projectQueryKey,
   useCurrentProject,
 } from '../../components/project-switcher/current-project.tsx'
+import { Button } from '../../ui/button.tsx'
 import {
   AddForm,
   ArchiveButton,
@@ -62,7 +63,9 @@ function LostReasonsEditor({ api, projectId }: { api: PipelinesApi; projectId: s
     return (
       <section>
         <h1>{t('lostReasons.title')}</h1>
-        <p role="alert">{denied ? t('lostReasons.noAccess') : t('roles.errors.unknown')}</p>
+        <p className="ui-notice" role="alert">
+          {denied ? t('lostReasons.noAccess') : t('roles.errors.unknown')}
+        </p>
       </section>
     )
   }
@@ -255,11 +258,12 @@ function CreateGroupForm({
     >
       <h2>{t('lostReasons.newGroup')}</h2>
       <label>
-        {t('lostReasons.groupName')} <input name="name" maxLength={80} required />
+        {t('lostReasons.groupName')}{' '}
+        <input className="ui-input ui-input--sm" name="name" maxLength={80} required />
       </label>
-      <button type="submit" disabled={pending}>
+      <Button size="sm" type="submit" variant="primary" disabled={pending}>
         {t('lostReasons.createGroup')}
-      </button>
+      </Button>
     </form>
   )
 }

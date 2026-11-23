@@ -1,42 +1,30 @@
+/* Экраны «Пользователи» и «Команды». Таблица шире экрана телефона прокручивается сама
+   (обёртка .ui-table-wrap), страница остаётся на месте. */
 .members {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--s-4);
+  max-width: var(--content-w);
 }
 
-/* Таблица шире экрана телефона — прокручивается сама, страница остаётся на месте. */
-.members__table {
-  max-width: 100%;
-  overflow-x: auto;
+.members > h1 {
+  margin-bottom: 0;
 }
 
-.members__table table {
-  border-collapse: collapse;
-}
-
-.members__table caption {
-  text-align: left;
-}
-
-.members__table th,
-.members__table td {
-  padding: 4px 8px;
-  text-align: left;
+.members__table td,
+.members__table tbody th {
   vertical-align: top;
 }
 
 .members__email {
   display: block;
-  color: var(--color-muted);
-  font-weight: normal;
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+  font-weight: 400;
 }
 
 .members__disabled {
-  color: var(--color-muted);
-}
-
-.members__hint {
-  color: var(--color-muted);
+  color: var(--ink-3);
 }
 
 .members__add,
@@ -44,49 +32,49 @@
 .members__password {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--s-3);
   align-items: center;
-  padding: 12px;
-  border: 1px solid var(--color-line);
-  border-radius: 6px;
 }
 
 .members__add h2,
+.members__team h2,
 .members__add .members__hint {
   flex-basis: 100%;
+}
+
+.members__team ul {
+  flex-basis: 100%;
+  display: grid;
+  gap: var(--s-2);
   margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.members__team li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.members__password {
+  box-shadow:
+    inset 2px 0 0 var(--accent-solid),
+    var(--shadow);
 }
 
 .members__password code {
-  font-size: 1.1em;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-tag);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: var(--fs-body);
   user-select: all;
 }
 
-/* Диалог передачи сделок: поверх экрана, по центру; на телефоне — почти во всю ширину. */
-.transfer-dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: min(440px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
-  margin: 0;
-  padding: 16px;
-  overflow-y: auto;
-  transform: translate(-50%, -50%);
-  color: var(--color-text);
-  background: #fff;
-  border: 1px solid var(--color-line);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgb(0 0 0 / 18%);
-}
-
-.transfer-dialog h2 {
-  margin: 0;
-  font-size: 1.15em;
+/* Диалог передачи сделок: рамку, затемнение и заголовок даёт общий Dialog (ui/dialog.tsx). */
+.transfer-dialog .ui-dialog__title {
   overflow-wrap: anywhere;
 }
 
@@ -94,17 +82,15 @@
 .transfer-dialog__progress {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
+  gap: var(--s-2);
 }
 
 .transfer-dialog__form label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.transfer-dialog select {
-  max-width: 100%;
+  align-self: stretch;
+  gap: var(--s-1);
 }
 
 .transfer-dialog progress {
@@ -113,8 +99,4 @@
 
 .transfer-dialog p {
   margin: 0;
-}
-
-.transfer-dialog__close {
-  align-self: flex-end;
 }
