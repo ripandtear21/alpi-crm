@@ -27,6 +27,13 @@ export function SidePanel(props: DialogProps) {
   return <DialogFrame {...props} side />
 }
 
+/**
+ * Сколько событий close ещё придёт на узел от закрытий самой очистки эффекта, а не браузера.
+ * По узлу, а не в ref компонента: событие снятого со страницы узла до React не доходит, и счёт
+ * уходит вместе с узлом, не задевая следующий открытый диалог.
+ */
+const ownCloses = new WeakMap<HTMLDialogElement, number>()
+
 /** Событие пришло на сам <dialog> и точка за пределами его рамки — то есть на затемнение. */
 function isOnBackdrop(event: MouseEvent<HTMLDialogElement>): boolean {
   if (event.target !== event.currentTarget) return false
@@ -94,7 +101,12 @@ function DialogFrame({
     return () => {
       releaseToasts.current?.()
       releaseToasts.current = undefined
-      if (dialog.open) dialog.close()
+      // Своё закрытие (под StrictMode после него диалог тут же открывается снова) — не повод
+      // звать onClose: его событие close обработчик ниже пропускает.
+      if (dialog.open) {
+        ownCloses.set(dialog, (ownCloses.get(dialog) ?? 0) + 1)
+        dialog.close()
+      }
       opener?.focus()
     }
   }, [open, addToastLayer])
@@ -119,6 +131,18 @@ function DialogFrame({
       // чтобы состояние open не разошлось с тем, что видно.
       onCancel={(event) => {
         event.preventDefault()
+        onClose()
+      }}
+      // Браузер закрыл диалог сам, без cancel (Esc, <form method="dialog">): родитель узнаёт,
+      // иначе open останется true при закрытом диалоге. Событие своего закрытия из очистки
+      // эффекта пропускаем — в happy-dom оно приходит сразу, в браузере позже, когда диалог
+      // уже снова открыт.
+      onClose={(event) => {
+        const pending = ownCloses.get(event.currentTarget) ?? 0
+        if (pending > 0) {
+          ownCloses.set(event.currentTarget, pending - 1)
+          return
+        }
         onClose()
       }}
       // Затемнение — это тоже сам <dialog>, как и пустое место внутри него (у высокой боковой

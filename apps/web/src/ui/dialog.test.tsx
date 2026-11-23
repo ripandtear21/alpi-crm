@@ -1,4 +1,4 @@
-import { configure, fireEvent, render, screen } from '@testing-library/react'
+import { act, configure, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { type ReactNode, useState } from 'react'
 import { I18nextProvider } from 'react-i18next'
@@ -190,5 +190,40 @@ describe.each([
     expect(screen.queryByRole('dialog')).not.toBeNull()
     fireEvent.click(dialog, OUTSIDE)
     expect(screen.queryByRole('dialog')).not.toBeNull()
+  })
+
+  it('браузер закрыл диалог сам (событие close, как у <form method="dialog">): родитель узнаёт, фокус возвращается', async () => {
+    const { dialog } = await openDialog()
+    const trigger = screen.getByRole('button', { name: 'Передать сделки' })
+
+    act(() => (dialog as HTMLDialogElement).close())
+    // Закрытый <dialog> скрыт и для queryByRole: смотрим, что родитель убрал сам узел.
+    expect(document.querySelector('dialog')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('после закрытия кнопкой и повторного открытия закрытие браузером снова доходит до родителя', async () => {
+    const { user } = await openDialog()
+    // Закрывает очистка эффекта уже снятый со страницы узел: его close до React не доходит.
+    await user.click(screen.getByRole('button', { name: 'Закрыть' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Передать сделки' }))
+    const reopened = screen.getByRole('dialog', { name: 'Передача сделок' }) as HTMLDialogElement
+    act(() => reopened.close())
+    expect(document.querySelector('dialog')).toBeNull()
+  })
+
+  it('открытый с первой отрисовки остаётся открытым (своё закрытие под StrictMode — не повод закрыть)', () => {
+    const onClose = vi.fn()
+    render(
+      <I18nextProvider i18n={createI18n('ru')}>
+        <Dialog open onClose={onClose} title="Сразу">
+          <p>Текст</p>
+        </Dialog>
+      </I18nextProvider>,
+    )
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Сразу' }).hasAttribute('open')).toBe(true)
   })
 })
