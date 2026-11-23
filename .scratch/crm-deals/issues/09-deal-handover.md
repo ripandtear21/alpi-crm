@@ -1,7 +1,8 @@
 # Передача сделок при отключении сотрудника
 
 Type: task
-Status: open
+Status: done 2026-11-23T18:40Z
+PR: #8
 Blocked by: 04, 05
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 3); .scratch/crm-mvp/spec.md, раздел 4 («Уход сотрудника»); .scratch/crm-foundation/issues/06-teams-and-users.md
 
@@ -24,18 +25,19 @@ apps/api/src/members/open-deals.ts, apps/api/src/members/**, apps/api/src/deals/
 ## Done when
 
 - [ ] Тест: отключение участника с открытой сделкой — отказ; с одной только архивной открытой сделкой — отказ; с выигранными, проигранными и удалёнными — разрешено.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · b8b4327db2841c56ff5caae81da75f0d4900422a
 - [ ] Тест: передача 300 открытых сделок менеджеру идёт массовой операцией с прогрессом; у всех новый ответственный и запись в истории; после неё отключение проходит.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · b8b4327db2841c56ff5caae81da75f0d4900422a
 - [ ] Тест: передача в общую очередь снимает ответственного; сделки видны менеджеру с охватом «свои».
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · b8b4327db2841c56ff5caae81da75f0d4900422a
 - [ ] Тест прав: без права «передача сделок» — 403; тимлид не передаёт сделки участнику другой команды и не передаёт сделки вне своего охвата; получатель из другого проекта или отключённый — 422.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · b8b4327db2841c56ff5caae81da75f0d4900422a
 - [ ] Тест изоляции: проверка и передача в проекте A не видят и не трогают сделок того же пользователя в проекте B.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/transfer.test.ts` exit 0 · windows - · b8b4327db2841c56ff5caae81da75f0d4900422a
 - [ ] Диалог проверен в браузере на 1280 и 375 px.
+  - evidence: screenshot pass · проверяющий второго раунда: Playwright, Chrome, светлая тема, 1280 и 375 px — dialog-choose/done/swap-{1280,375}-light.png, :modal = true, Escape закрывает · windows dev · b8b4327db2841c56ff5caae81da75f0d4900422a
 - [ ] `pnpm verify` зелёный.
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 84472b96ab04655a37f5ef5f91cec5207f08b846
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · b8b4327db2841c56ff5caae81da75f0d4900422a
 
 ## Результат
 
@@ -44,9 +46,16 @@ apps/api/src/members/open-deals.ts, apps/api/src/members/**, apps/api/src/deals/
 - Решено без владельца, подтвердить: у тимлида есть право «передача сделок», но нет права «массовые операции», а каркас массовых операций (тикет 04) проверял «массовые операции» при запуске и на каждой порции. У массового действия появилось необязательное поле `standalone` — отдельное право вместо «массовых операций» и при запуске (`POST /v1/bulk-jobs`), и на каждой порции; у передачи сделок это `transfer_deals`. Проверено тестом тимлида без «массовых операций».
 - Решено без владельца, подтвердить: запуск передачи пишется в журнал опасных действий тем же событием `bulk.started`, что и любая массовая операция, с подробностями `fromUserId`, `toUserId` и числом открытых сделок на старте. Почему не новое событие: запуск передачи и есть запуск массовой операции (сущность записи — `bulk_job`), фильтр журнала по `bulk.started` находит все массовые изменения сразу, а экран журнала уже умеет показывать это событие.
 - Диалог «Передать сделки» на экране участников (`apps/web/src/routes/settings/transfer-deals-dialog.tsx`): получатель или общая очередь, ход операции, затем отключение; если за время передачи появились новые сделки — текст с их числом и повторная передача. Тикет 01 не слит — диалог на текущих элементах.
-- Не проверено исполнителем — пункт «Диалог проверен в браузере на 1280 и 375 px»: проверки в браузере в этой волне ведёт проверяющий, а не исполнитель. Его снимки (до доработки раунда 1) — `C:/Users/norma/.claude/worfy-harness/runs/alpi-crm/crm-deals-wave-20261104T171843Z/verify-09/screens/`: `dialog-choose-*`, `dialog-done-*`, `dialog-newdeals-*` на 1280 и 375 px в светлой и тёмной теме, `dialog-swap-1280-light.png` (смена участника при открытом диалоге), `members-*`. Доработка сделала диалог модальным — вид после неё снимками не подтверждён.
+- Не проверено исполнителем — пункт «Диалог проверен в браузере на 1280 и 375 px»: проверки в браузере в этой волне ведёт проверяющий, а не исполнитель. Его снимки (до доработки раунда 1) — папка прогона волны (`crm-deals-wave-20261104T171843Z/verify-09/screens/`): `dialog-choose-*`, `dialog-done-*`, `dialog-newdeals-*` на 1280 и 375 px в светлой и тёмной теме, `dialog-swap-1280-light.png` (смена участника при открытом диалоге), `members-*`. Доработка сделала диалог модальным — вид после неё снимками не подтверждён.
 
 ### Доработка, раунд 1
 
 - Общий `POST /v1/bulk-jobs` с действием `deals.transfer`: если участник `fromUserId` вне охвата изменения сделок инициатора, `select` действия не выбирает ничего — операция заканчивается с `total: 0`, и `GET /v1/bulk-jobs/:id` не выдаёт ни числа, ни id чужих открытых сделок. Проверка — в `select`, а не в `validate`: у `validate` нет роли и охвата инициатора, а `select` разворачивается правами на момент старта операции. Сделки, переданные списком id, и получатель вне охвата по-прежнему отсекает проверка каждой записи (`inScope`) — `OUT_OF_SCOPE`, ответственный не меняется; на обе проверки есть тесты через общий маршрут.
 - Диалог передачи открывается модально (`showModal`): страница за ним недоступна, Escape закрывает его через событие `close`. Экран участников пересоздаёт диалог на каждого участника (`key`), так что ход и кнопка отключения прежнего участника не достаются следующему. Отключение, закончившееся после закрытия диалога, закрывает только диалог того участника, которого отключили.
+
+### Слияние
+
+- 2026-11-23: второй раунд проверки — VERIFIED (PR #8, комментарий с вердиктом); gate full на `97487d8` — exit 0, `[gate] green (full)`; слито в main `909d2c3`.
+- Строки проверки переписаны с `84472b9` (коммит до перебазирования, в ветке его нет) на `b8b4327`: на нём проверяющий второго раунда прогнал `pnpm verify` (exit 0, 410 тестов).
+- Пункт «Диалог проверен в браузере на 1280 и 375 px» закрыт проверяющим: Chrome, светлая тема, диалог модальный, Escape закрывает, следующий участник получает чистый диалог (снимки — в папке прогона волны, `verify-09-r2/screens/`).
+- Долг из crm-deals/01, который касается этого диалога: после перевода на общий `Dialog` диалог закрывается щелчком по затемнению и во время передачи (задание на сервере продолжается, полоса хода пропадает), а начальный фокус стоит на ✕ «Закрыть» — `transfer-deals-dialog.tsx:99`.
