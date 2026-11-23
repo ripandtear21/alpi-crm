@@ -14,7 +14,8 @@
     "build": "pnpm -r build",
     "verify": "pnpm lint && pnpm typecheck && pnpm test",
     "create-owner": "pnpm --filter @alpi/api create-owner",
-    "project-preset": "pnpm --filter @alpi/api project-preset"
+    "project-preset": "pnpm --filter @alpi/api project-preset",
+    "seed": "pnpm --filter @alpi/api seed"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

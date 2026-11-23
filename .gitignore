@@ -10,3 +10,5 @@ Thumbs.db
 .claude/worktrees/
 coverage/
 *.tsbuildinfo
+# Пароли и секреты 2FA пользователей тестовых данных (pnpm seed)
+.seed-credentials.json
