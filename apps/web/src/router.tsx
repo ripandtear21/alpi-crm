@@ -20,11 +20,15 @@ import { SignInPage } from './routes/auth/sign-in-page.tsx'
 import { TwoFactorPage } from './routes/auth/two-factor-page.tsx'
 import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
 import { ContactCardPage } from './routes/contacts/$contactId/contact-card-page.tsx'
+import { ContactsListPage } from './routes/contacts/contacts-list-page.tsx'
 import { createDealCardApi, type DealCardApi } from './routes/deals/$dealId/deal-card-api.ts'
 import { DealCardPage } from './routes/deals/$dealId/deal-card-page.tsx'
 import { createDealsApi, type DealsApi } from './routes/deals/deals-api.ts'
 import { KanbanPage } from './routes/deals/kanban-page.tsx'
+import { DealsListPage, type DealsListSearch } from './routes/deals/list/deals-list-page.tsx'
+import { createListsApi, type ListsApi } from './routes/deals/list/lists-api.ts'
 import { OrganizationCardPage } from './routes/organizations/$organizationId/organization-card-page.tsx'
+import { OrganizationsListPage } from './routes/organizations/organizations-list-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
 import { AuditPage } from './routes/settings/audit-page.tsx'
 import { LostReasonsPage } from './routes/settings/lost-reasons-page.tsx'
@@ -38,6 +42,7 @@ import { createRolesApi, type RolesApi } from './routes/settings/roles-api.ts'
 import { RolesPage } from './routes/settings/roles-page.tsx'
 import { SettingsPage } from './routes/settings/settings-page.tsx'
 import { TeamsPage } from './routes/settings/teams-page.tsx'
+import { TrashPage } from './routes/settings/trash-page.tsx'
 
 export interface RouterContext {
   auth: AuthApi
@@ -51,6 +56,7 @@ export interface RouterContext {
   dealCard: DealCardApi
   timeline: TimelineApi
   contacts: ContactsApi
+  lists: ListsApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -147,10 +153,50 @@ const dealsRoute = createRoute({
   },
 })
 
+// Списки сделок, контактов и организаций (тикет crm-deals/12).
+const dealsListRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/deals/list',
+  validateSearch: (search: Record<string, unknown>): DealsListSearch => ({
+    ...(typeof search.pipeline === 'string' ? { pipeline: search.pipeline } : {}),
+    ...(typeof search.stage === 'string' ? { stage: search.stage } : {}),
+    // Роутер сам разбирает JSON в адресе: фильтр приходит объектом — вернём ему вид строки.
+    ...(typeof search.filter === 'string'
+      ? { filter: search.filter }
+      : typeof search.filter === 'object' && search.filter !== null
+        ? { filter: JSON.stringify(search.filter) }
+        : {}),
+  }),
+  component: function DealsListRoute() {
+    const { lists, session, queryClient } = dealsListRoute.useRouteContext()
+    const search = dealsListRoute.useSearch()
+    return (
+      <DealsListPage
+        api={lists}
+        userId={session.user.id}
+        queryClient={queryClient}
+        search={search}
+      />
+    )
+  },
+})
+
 const contactsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/contacts',
-  component: () => <SectionPlaceholder title="nav.contacts" />,
+  component: function ContactsRoute() {
+    const { lists, session, queryClient } = contactsRoute.useRouteContext()
+    return <ContactsListPage api={lists} userId={session.user.id} queryClient={queryClient} />
+  },
+})
+
+const organizationsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/organizations',
+  component: function OrganizationsRoute() {
+    const { lists, session, queryClient } = organizationsRoute.useRouteContext()
+    return <OrganizationsListPage api={lists} userId={session.user.id} queryClient={queryClient} />
+  },
 })
 
 const tasksRoute = createRoute({
@@ -234,6 +280,15 @@ const productsRoute = createRoute({
   },
 })
 
+const trashRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/settings/trash',
+  component: function TrashRoute() {
+    const { lists, queryClient } = trashRoute.useRouteContext()
+    return <TrashPage api={lists} queryClient={queryClient} />
+  },
+})
+
 // Карточка сделки (тикет crm-deals/13).
 const dealCardRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -245,7 +300,7 @@ const dealCardRoute = createRoute({
   },
 })
 
-// Карточки контакта и организации (тикет crm-deals/14). Сам список /contacts — тикет 12.
+// Карточки контакта и организации (тикет crm-deals/14).
 const contactCardRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/contacts/$contactId',
@@ -289,7 +344,9 @@ const routeTree = rootRoute.addChildren([
   appRoute.addChildren([
     indexRoute,
     dealsRoute,
+    dealsListRoute,
     contactsRoute,
+    organizationsRoute,
     tasksRoute,
     reportsRoute,
     settingsRoute,
@@ -300,6 +357,7 @@ const routeTree = rootRoute.addChildren([
     pipelinesRoute,
     lostReasonsRoute,
     productsRoute,
+    trashRoute,
     dealCardRoute,
     contactCardRoute,
     organizationCardRoute,
@@ -331,6 +389,8 @@ export interface AppRouterOptions {
   timeline?: TimelineApi
   /** Только в тестах: подставной клиент карточек контакта и организации. В браузере — запросы к API. */
   contacts?: ContactsApi
+  /** Только в тестах: подставной клиент списков, массовых действий и корзины. В браузере — запросы к API. */
+  lists?: ListsApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -348,6 +408,7 @@ export function createAppRouter({
   dealCard = createDealCardApi(),
   timeline = createTimelineApi(),
   contacts = createContactsApi(),
+  lists = createListsApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -362,6 +423,7 @@ export function createAppRouter({
     dealCard,
     timeline,
     contacts,
+    lists,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })

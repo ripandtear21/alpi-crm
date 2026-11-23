@@ -1,4 +1,9 @@
-import type { PipelineSummary, StageSummary } from '@alpi/shared'
+import {
+  EMPTY_FILTER,
+  type FilterGroup,
+  type PipelineSummary,
+  type StageSummary,
+} from '@alpi/shared'
 import {
   type InfiniteData,
   type QueryClient,
@@ -16,7 +21,7 @@ import {
 } from '../../components/project-switcher/current-project.tsx'
 import { useMediaQuery } from '../../layout/use-media-query.ts'
 import { Badge } from '../../ui/badge.tsx'
-import { Button } from '../../ui/button.tsx'
+import { Button, buttonClass } from '../../ui/button.tsx'
 import { cx } from '../../ui/cx.ts'
 import { Skeleton } from '../../ui/feedback.tsx'
 import { Field, Select } from '../../ui/field.tsx'
@@ -30,6 +35,8 @@ import {
   type OwnerFilter,
   type StageAggregate,
 } from './deals-api.ts'
+import { conditionCount, FilterEditor } from './list/filter-editor.tsx'
+import { dealFilterOptions } from './list/filter-options.ts'
 import { LostDialog } from './lost-dialog.tsx'
 import { NewDealDialog } from './new-deal-dialog.tsx'
 import './kanban.css'
@@ -104,6 +111,26 @@ function Kanban({ api, userId }: { api: DealsApi; userId: string }) {
   return <Board key={current.id} api={api} projectId={current.id} userId={userId} />
 }
 
+/**
+ * Адрес списка сделок с тем, что видно на канбане: воронка, этап колонки (если есть), фильтр
+ * и выбранный ответственный (в списке это условие фильтра).
+ */
+function listHref(
+  pipelineId: string,
+  stageId: string | undefined,
+  filter: FilterGroup,
+  owner: OwnerFilter | undefined,
+): string {
+  const parts: FilterGroup[] = conditionCount(filter) > 0 ? [filter] : []
+  if (owner === 'none') parts.push({ and: [{ field: 'owner', op: 'empty' }] })
+  else if (owner !== undefined) parts.push({ and: [{ field: 'owner', op: 'eq', value: owner }] })
+  const params: Record<string, string> = { pipeline: pipelineId }
+  if (stageId) params.stage = stageId
+  if (parts.length > 0)
+    params.filter = JSON.stringify(parts.length === 1 ? parts[0] : { and: parts })
+  return `/deals/list?${new URLSearchParams(params)}`
+}
+
 /** Ключи запросов канбана проекта: всё под одним префиксом, чтобы обновлять разом. */
 const boardKey = (projectId: string, ...rest: unknown[]) =>
   projectQueryKey(projectId, 'deals', 'board', ...rest)
@@ -113,6 +140,7 @@ const STAGE_IN_KEY = 6
 
 function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; userId: string }) {
   const { t } = useTranslation('deals')
+  const { t: tl } = useTranslation('lists')
   const queryClient = useQueryClient()
   const phone = useMediaQuery(PHONE_QUERY)
   const [storedPipeline, setStoredPipeline] = useState(() => readStoredPipeline(projectId))
@@ -121,6 +149,11 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
   const [creating, setCreating] = useState(false)
   const [losing, setLosing] = useState<BoardDeal | null>(null)
   const [dragged, setDragged] = useState<BoardDeal | null>(null)
+  // Фильтр канбана — тот же формат и та же выдача API, что у списка сделок (тикет crm-deals/12).
+  const [filter, setFilter] = useState<FilterGroup>(EMPTY_FILTER)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const filterKey = JSON.stringify(filter)
+  const filters = conditionCount(filter)
 
   const pipelines = useQuery({
     queryKey: boardKey(projectId, 'pipelines'),
@@ -136,8 +169,8 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
   const pipeline = active.find((p) => p.id === storedPipeline) ?? active[0]
   const ownerKey = owner ?? 'all'
   const aggregates = useQuery({
-    queryKey: boardKey(projectId, 'aggregates', pipeline?.id, ownerKey),
-    queryFn: () => api.aggregates(projectId, pipeline?.id ?? '', owner),
+    queryKey: boardKey(projectId, 'aggregates', pipeline?.id, ownerKey, filterKey),
+    queryFn: () => api.aggregates(projectId, pipeline?.id ?? '', owner, filter),
     enabled: pipeline !== undefined,
     retry: false,
   })
@@ -189,10 +222,32 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
                 ))}
             </Select>
           </Field>
+          <Button size="sm" onClick={() => setFilterOpen(true)}>
+            {filters > 0 ? tl('filter.buttonCount', { count: filters }) : tl('filter.button')}
+          </Button>
+          <a
+            className={buttonClass({ size: 'sm' })}
+            href={listHref(pipeline.id, undefined, filter, owner)}
+          >
+            {tl('listView')}
+          </a>
           <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
             {t('kanban.newDeal')}
           </Button>
         </div>
+      )}
+      {filterOpen && (
+        <FilterEditor
+          entity="deals"
+          open
+          value={filter}
+          options={dealFilterOptions(active, owners.data ?? [])}
+          onApply={(next) => {
+            setFilter(next)
+            setFilterOpen(false)
+          }}
+          onClose={() => setFilterOpen(false)}
+        />
       )}
     </div>
   )
@@ -339,6 +394,7 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
       pipeline={pipeline}
       stage={stage}
       owner={owner}
+      filter={filter}
       aggregate={aggregateOf(stage.id)}
       phone={phone}
       dragged={dragged}
@@ -469,6 +525,7 @@ function StageColumn({
   pipeline,
   stage,
   owner,
+  filter,
   aggregate,
   phone,
   dragged,
@@ -483,6 +540,7 @@ function StageColumn({
   pipeline: PipelineSummary
   stage: StageSummary
   owner: OwnerFilter | undefined
+  filter: FilterGroup
   aggregate: StageAggregate | undefined
   phone: boolean
   dragged: BoardDeal | null
@@ -495,12 +553,20 @@ function StageColumn({
   const { t, i18n } = useTranslation('deals')
   const [over, setOver] = useState(false)
   const deals = useInfiniteQuery({
-    queryKey: boardKey(projectId, 'column', pipeline.id, stage.id, owner ?? 'all'),
+    queryKey: boardKey(
+      projectId,
+      'column',
+      pipeline.id,
+      stage.id,
+      owner ?? 'all',
+      JSON.stringify(filter),
+    ),
     queryFn: ({ pageParam }) =>
       api.stagePage(projectId, {
         pipelineId: pipeline.id,
         stageId: stage.id,
         ...(owner === undefined ? {} : { owner }),
+        ...(conditionCount(filter) > 0 ? { filter } : {}),
         ...(pageParam === null ? {} : { cursor: pageParam }),
       }),
     initialPageParam: null as string | null,
@@ -593,10 +659,7 @@ function StageColumn({
           </div>
         )}
         {!canLoadMore && deals.hasNextPage && rest > 0 && (
-          <a
-            className="kanban-col__list"
-            href={`/deals/list?${new URLSearchParams({ pipeline: pipeline.id, stage: stage.id })}`}
-          >
+          <a className="kanban-col__list" href={listHref(pipeline.id, stage.id, filter, owner)}>
             {t('kanban.openAsList', { count: rest })}
           </a>
         )}

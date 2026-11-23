@@ -1,4 +1,4 @@
-import type { LostReasonGroupSummary, PipelineSummary } from '@alpi/shared'
+import type { FilterGroup, LostReasonGroupSummary, PipelineSummary } from '@alpi/shared'
 import {
   type BoardDeal,
   type ContactOption,
@@ -10,6 +10,7 @@ import {
   type OwnerFilter,
   type PipelineAggregates,
 } from './deals-api.ts'
+import { matchesFilter } from './list/fake-lists-api.ts'
 
 // Подставной клиент канбана для тестов: данные в памяти, как их отдаёт API (новые на этапе
 // сверху, страницы по `pageSize` с курсором), и журнал вызовов. `failNext` — следующее действие
@@ -26,7 +27,7 @@ export const STAGE_PAYMENT = '00000000-0000-4000-9200-000000000013'
 export const REASON_EXPENSIVE = '00000000-0000-4000-9200-000000000031'
 
 export interface FakeDealsCall {
-  action: 'changeStage' | 'win' | 'lose' | 'take' | 'create'
+  action: 'changeStage' | 'win' | 'lose' | 'take' | 'create' | 'stagePage'
   dealId?: string
   value?: unknown
 }
@@ -126,7 +127,12 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
     return deal
   }
 
-  function matches(deal: BoardDeal, owner: OwnerFilter | undefined): boolean {
+  function matches(
+    deal: BoardDeal,
+    owner: OwnerFilter | undefined,
+    filter: FilterGroup | undefined,
+  ): boolean {
+    if (filter && !matchesFilter('deals', { archivedAt: null, ...deal }, filter)) return false
     if (owner === undefined) return true
     if (owner === 'none') return deal.ownerId === null
     return deal.ownerId === (owner === 'me' ? FAKE_ME.id : owner)
@@ -154,9 +160,10 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
     async owners() {
       return [FAKE_ME, FAKE_COLLEAGUE]
     },
-    async stagePage(_projectId, { pipelineId, stageId, owner, cursor }) {
+    async stagePage(_projectId, { pipelineId, stageId, owner, filter, cursor }) {
+      if (filter) api.calls.push({ action: 'stagePage', value: filter })
       const column = api.deals.filter(
-        (d) => d.pipelineId === pipelineId && d.stageId === stageId && matches(d, owner),
+        (d) => d.pipelineId === pipelineId && d.stageId === stageId && matches(d, owner, filter),
       )
       const start = cursor === undefined ? 0 : Number(cursor)
       const items = column.slice(start, start + api.pageSize)
@@ -166,10 +173,10 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
         nextCursor: next < column.length ? String(next) : null,
       }
     },
-    async aggregates(_projectId, pipelineId, owner) {
+    async aggregates(_projectId, pipelineId, owner, filter) {
       const result: PipelineAggregates = { stages: [] }
       for (const deal of api.deals) {
-        if (deal.pipelineId !== pipelineId || !matches(deal, owner)) continue
+        if (deal.pipelineId !== pipelineId || !matches(deal, owner, filter)) continue
         let stage = result.stages.find((s) => s.stageId === deal.stageId)
         if (!stage) {
           stage = { stageId: deal.stageId, count: 0, sums: {} }

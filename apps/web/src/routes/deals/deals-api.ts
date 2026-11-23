@@ -1,4 +1,4 @@
-import type { LostReasonGroupSummary, PipelineSummary } from '@alpi/shared'
+import type { FilterGroup, LostReasonGroupSummary, PipelineSummary } from '@alpi/shared'
 import { projectHeaders } from '../../components/project-switcher/projects-api.ts'
 
 // Запросы канбана к API (apps/api/src/deals): `/api/v1/...` в контексте проекта. Отказ —
@@ -52,6 +52,8 @@ export interface StagePageQuery {
   pipelineId: string
   stageId: string
   owner?: OwnerFilter
+  /** Фильтр канбана — тот же формат, что у списка сделок (тикет crm-deals/12). */
+  filter?: FilterGroup
   cursor?: string
 }
 
@@ -105,6 +107,7 @@ export interface DealsApi {
     projectId: string,
     pipelineId: string,
     owner: OwnerFilter | undefined,
+    filter?: FilterGroup,
   ): Promise<PipelineAggregates>
   changeStage(projectId: string, dealId: string, stageId: string): Promise<void>
   win(projectId: string, dealId: string): Promise<void>
@@ -152,6 +155,11 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     }
     return search.toString()
   }
+  /** Пустой фильтр не отправляется: адрес запроса канбана без фильтра остаётся прежним. */
+  const filterParam = (filter: FilterGroup | undefined) =>
+    filter && ('and' in filter ? filter.and : filter.or).length > 0
+      ? JSON.stringify(filter)
+      : undefined
   const action = (projectId: string, dealId: string, name: string, body: unknown = {}) =>
     send<unknown>(projectId, 'POST', `/deals/${dealId}/${name}`, body).then(() => undefined)
 
@@ -159,14 +167,18 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     pipelines: (projectId) => send(projectId, 'GET', '/pipelines'),
     lostReasons: (projectId) => send(projectId, 'GET', '/lost-reasons'),
     owners: (projectId) => send(projectId, 'GET', '/deals/owners'),
-    stagePage: (projectId, { pipelineId, stageId, owner, cursor }) =>
+    stagePage: (projectId, { pipelineId, stageId, owner, filter, cursor }) =>
       send(
         projectId,
         'GET',
-        `/deals?${query({ pipeline: pipelineId, stage: stageId, owner, cursor })}`,
+        `/deals?${query({ pipeline: pipelineId, stage: stageId, owner, filter: filterParam(filter), cursor })}`,
       ),
-    aggregates: (projectId, pipelineId, owner) =>
-      send(projectId, 'GET', `/pipelines/${pipelineId}/aggregates?${query({ owner })}`),
+    aggregates: (projectId, pipelineId, owner, filter) =>
+      send(
+        projectId,
+        'GET',
+        `/pipelines/${pipelineId}/aggregates?${query({ owner, filter: filterParam(filter) })}`,
+      ),
     changeStage: (projectId, dealId, stageId) => action(projectId, dealId, 'stage', { stageId }),
     win: (projectId, dealId) => action(projectId, dealId, 'win'),
     lose: (projectId, dealId, lostReasonId) => action(projectId, dealId, 'lose', { lostReasonId }),
