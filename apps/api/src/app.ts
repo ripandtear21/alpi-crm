@@ -9,8 +9,9 @@ import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { type BulkDeps, bulkRoutes, NO_BULK } from './bulk/routes.ts'
 import { contactsRoutes } from './contacts/contacts.ts'
 import type { ContactDependents } from './contacts/dependents.ts'
-import { dealsRoutes } from './deals/deals.ts'
+import { dealsRoutes, pipelineAggregatesRoutes } from './deals/deals.ts'
 import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
+import { NO_STAGE_REQUIREMENTS, type StageRequirements } from './deals/stage-requirements.ts'
 import { isFileUpload } from './files/files.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
@@ -58,6 +59,8 @@ export interface AppDeps {
   contactDependents?: ContactDependents
   /** Хранилище содержимого файлов (storage/storage.ts); без него файлов нет. */
   storage?: FileStorage
+  /** Какие поля требует этап при смене этапа сделки; по умолчанию — никаких. */
+  stageRequirements?: StageRequirements
 }
 
 /**
@@ -69,15 +72,19 @@ function v1Routes({
   stageDeals,
   contactDependents,
   storage,
+  stageRequirements,
 }: {
   stageDeals: StageDealsChecker
   contactDependents: ContactDependents
   storage: FileStorage
+  stageRequirements: StageRequirements
 }) {
   return (
     new Hono<PermissionsEnv>()
-      .route('/deals', dealsRoutes())
+      .route('/deals', dealsRoutes({ stageRequirements }))
       .route('/pipelines', pipelinesRoutes({ stageDeals }))
+      // Агрегаты колонок канбана: /v1/pipelines/:id/aggregates (deals/board.ts).
+      .route('/pipelines', pipelineAggregatesRoutes())
       .route('/lost-reasons', lostReasonsRoutes())
       .route('/contacts', contactsRoutes({ dependents: contactDependents }))
       .route('/organizations', organizationsRoutes())
@@ -104,6 +111,7 @@ export function createApp({
   stageDeals = OPEN_STAGE_DEALS,
   contactDependents = DEAL_CONTACT_DEPENDENTS,
   storage = NO_FILE_STORAGE,
+  stageRequirements = NO_STAGE_REQUIREMENTS,
 }: AppDeps) {
   const jsonBodyLimit = bodyLimit({
     maxSize: MAX_BODY_BYTES,
@@ -139,7 +147,7 @@ export function createApp({
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
       .route('/v1/members', memberTransferRoutes(bulk))
-      .route('/v1', v1Routes({ stageDeals, contactDependents, storage }))
+      .route('/v1', v1Routes({ stageDeals, contactDependents, storage, stageRequirements }))
   )
 }
 

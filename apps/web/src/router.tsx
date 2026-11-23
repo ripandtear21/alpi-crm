@@ -17,6 +17,8 @@ import { ChangePasswordPage } from './routes/auth/change-password-page.tsx'
 import { SignInPage } from './routes/auth/sign-in-page.tsx'
 import { TwoFactorPage } from './routes/auth/two-factor-page.tsx'
 import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
+import { createDealsApi, type DealsApi } from './routes/deals/deals-api.ts'
+import { KanbanPage } from './routes/deals/kanban-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
 import { AuditPage } from './routes/settings/audit-page.tsx'
 import { LostReasonsPage } from './routes/settings/lost-reasons-page.tsx'
@@ -39,6 +41,7 @@ export interface RouterContext {
   members: MembersApi
   pipelines: PipelinesApi
   products: ProductsApi
+  deals: DealsApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -125,11 +128,14 @@ const indexRoute = createRoute({
   component: HomePage,
 })
 
-// Разделы левого меню; пока у каждого временная страница-заглушка.
+// Разделы левого меню; у кого ещё нет экрана — временная страница-заглушка.
 const dealsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/deals',
-  component: () => <SectionPlaceholder title="nav.deals" />,
+  component: function DealsRoute() {
+    const { deals, session, queryClient } = dealsRoute.useRouteContext()
+    return <KanbanPage api={deals} userId={session.user.id} queryClient={queryClient} />
+  },
 })
 
 const contactsRoute = createRoute({
@@ -258,6 +264,8 @@ export interface AppRouterOptions {
   pipelines?: PipelinesApi
   /** Только в тестах: подставной клиент каталога товаров. В браузере — запросы к API. */
   products?: ProductsApi
+  /** Только в тестах: подставной клиент канбана сделок. В браузере — запросы к API. */
+  deals?: DealsApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -271,6 +279,7 @@ export function createAppRouter({
   members = createMembersApi(),
   pipelines = createPipelinesApi(),
   products = createProductsApi(),
+  deals = createDealsApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -281,6 +290,7 @@ export function createAppRouter({
     members,
     pipelines,
     products,
+    deals,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })

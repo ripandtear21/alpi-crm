@@ -18,9 +18,10 @@ import {
 import { contactScopePredicate } from '../contacts/scope.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
-import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
+import { dealAggregates, dealOwners, listDeals } from './board.ts'
 import { addLine, productsTotalChange, removeLine, updateLine } from './lines.ts'
 import { ownerAllowed } from './scope.ts'
+import { NO_STAGE_REQUIREMENTS, type StageRequirements } from './stage-requirements.ts'
 import {
   DEAL_CURRENCIES,
   DEFAULT_CURRENCY,
@@ -28,6 +29,7 @@ import {
   type DealCurrency,
   type DealRow,
   type DealView,
+  dealContext,
   dealView,
   findDeal,
   guardedWrite,
@@ -63,20 +65,6 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /** Что меняет действие: столбцы сделки, значения или выражения SQL (now()). */
 type DealSet = UpdateObject<Database, 'deal'>
-
-async function dealContext(c: Ctx): Promise<DealContext> {
-  const db = c.get('db')
-  const userId = c.get('session').user.id
-  const { permissions } = c.get('access')
-  return {
-    db,
-    projectId: c.get('projectId'),
-    actorId: userId,
-    permissions,
-    scope: permissions.scopes.deals,
-    viewer: await resolveViewer(db, userId, PROJECT_TEAMS),
-  }
-}
 
 // ---- Разбор тела ----------------------------------------------------------------------------
 
@@ -569,8 +557,17 @@ async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<
 
 // ---- Этап, статус, архив, перенос -----------------------------------------------------------
 
-/** Смена этапа в своей воронке: только этап и время смены этапа, статус и сумма — нет. */
-async function changeStage(c: Ctx, ctx: DealContext, id: string): Promise<Result<DealView>> {
+/**
+ * Смена этапа в своей воронке: только этап и время смены этапа, статус и сумма — нет. Этап
+ * может требовать заполненных полей (`requirements`): не заполнены — 422 со списком, сделка
+ * остаётся на месте.
+ */
+async function changeStage(
+  c: Ctx,
+  ctx: DealContext,
+  id: string,
+  requirements: StageRequirements,
+): Promise<Result<DealView>> {
   const body = await readBody(c)
   const stageId = readUuid(body?.stageId)
   if (!body || stageId === undefined || unknownKey(body, ['stageId']) !== null) {
@@ -580,6 +577,10 @@ async function changeStage(c: Ctx, ctx: DealContext, id: string): Promise<Result
     if (row.stage_id === stageId) return ok(null)
     const stage = await liveStage(ctx, row.pipeline_id, stageId)
     if (!stage.ok) return stage
+    const missing = await requirements.missingFields(ctx.db, row, stageId)
+    if (missing.length > 0) {
+      return refuse(422, 'STAGE_REQUIREMENTS_MISSING', { fields: missing })
+    }
     return ok({ stage_id: stageId, stage_changed_at: sql`now()` })
   })
 }
@@ -902,105 +903,131 @@ async function dealHistory(c: Ctx, ctx: DealContext, id: string) {
 
 // ---- Маршруты -------------------------------------------------------------------------------
 
-/** Маршруты сделок: `/v1/deals`. */
-export function dealsRoutes() {
-  const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
-    outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome)
+const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
+  outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome)
+
+/**
+ * Маршруты сделок: `/v1/deals`. `stageRequirements` — какие поля требует этап при смене этапа
+ * (по умолчанию — никаких).
+ */
+export function dealsRoutes({
+  stageRequirements = NO_STAGE_REQUIREMENTS,
+}: {
+  stageRequirements?: StageRequirements
+} = {}) {
   const edit = requirePermission('deals', 'edit')
-  return new Hono<PermissionsEnv>()
-    .get('/:id', requirePermission('deals', 'view'), async (c) => {
-      const ctx = await dealContext(c)
-      const row = await visibleDeal(ctx, c.req.param('id'))
-      if (!row) return fail(c, refuse(404, 'DEAL_NOT_FOUND'))
-      return c.json<DealView>(await dealView(ctx.db, row))
-    })
-    .get('/:id/history', requirePermission('deals', 'view'), async (c) =>
-      respond(c, await dealHistory(c, await dealContext(c), c.req.param('id'))),
-    )
-    .post('/', requirePermission('deals', 'create'), async (c) =>
-      respond(c, await createDeal(c, await dealContext(c)), 201),
-    )
-    .put('/:id', edit, async (c) =>
-      respond(c, await updateDeal(c, await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/stage', edit, async (c) =>
-      respond(c, await changeStage(c, await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/win', edit, async (c) =>
-      respond(c, await win(await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/lose', edit, async (c) =>
-      respond(c, await lose(c, await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/reopen', edit, async (c) =>
-      respond(c, await reopen(await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/archive', edit, async (c) =>
-      respond(c, await setArchived(await dealContext(c), c.req.param('id'), true)),
-    )
-    .post('/:id/unarchive', edit, async (c) =>
-      respond(c, await setArchived(await dealContext(c), c.req.param('id'), false)),
-    )
-    .post('/:id/move', edit, async (c) =>
-      respond(c, await moveDeal(c, await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/take', edit, async (c) =>
-      respond(c, await takeDeal(await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/upsell', requirePermission('deals', 'create'), async (c) =>
-      respond(c, await createUpsell(c, await dealContext(c), c.req.param('id')), 201),
-    )
-    .delete('/:id', requirePermission('deals', 'delete'), async (c) => {
-      const outcome = await trashDeal(await dealContext(c), c.req.param('id'))
-      return outcome.ok ? c.body(null, 204) : fail(c, outcome)
-    })
-    .post('/:id/restore', requirePermission('trash', 'edit'), async (c) =>
-      respond(c, await restoreDeal(await dealContext(c), c.req.param('id'))),
-    )
-    .post('/:id/participants', edit, async (c) =>
-      respond(c, await addParticipant(c, await dealContext(c), c.req.param('id')), 201),
-    )
-    .put('/:id/participants/:contactId', edit, async (c) =>
-      respond(
-        c,
-        await updateParticipant(
+  const view = requirePermission('deals', 'view')
+  return (
+    new Hono<PermissionsEnv>()
+      // Канбан и списки (тикет 11): до `/:id`, иначе `owners` разберётся как id сделки.
+      .get('/', view, async (c) => respond(c, await listDeals(c, await dealContext(c))))
+      .get('/owners', view, async (c) => respond(c, ok(await dealOwners(await dealContext(c)))))
+      .get('/:id', requirePermission('deals', 'view'), async (c) => {
+        const ctx = await dealContext(c)
+        const row = await visibleDeal(ctx, c.req.param('id'))
+        if (!row) return fail(c, refuse(404, 'DEAL_NOT_FOUND'))
+        return c.json<DealView>(await dealView(ctx.db, row))
+      })
+      .get('/:id/history', requirePermission('deals', 'view'), async (c) =>
+        respond(c, await dealHistory(c, await dealContext(c), c.req.param('id'))),
+      )
+      .post('/', requirePermission('deals', 'create'), async (c) =>
+        respond(c, await createDeal(c, await dealContext(c)), 201),
+      )
+      .put('/:id', edit, async (c) =>
+        respond(c, await updateDeal(c, await dealContext(c), c.req.param('id'))),
+      )
+      .post('/:id/stage', edit, async (c) =>
+        respond(
           c,
+          await changeStage(c, await dealContext(c), c.req.param('id'), stageRequirements),
+        ),
+      )
+      .post('/:id/win', edit, async (c) =>
+        respond(c, await win(await dealContext(c), c.req.param('id'))),
+      )
+      .post('/:id/lose', edit, async (c) =>
+        respond(c, await lose(c, await dealContext(c), c.req.param('id'))),
+      )
+      .post('/:id/reopen', edit, async (c) =>
+        respond(c, await reopen(await dealContext(c), c.req.param('id'))),
+      )
+      .post('/:id/archive', edit, async (c) =>
+        respond(c, await setArchived(await dealContext(c), c.req.param('id'), true)),
+      )
+      .post('/:id/unarchive', edit, async (c) =>
+        respond(c, await setArchived(await dealContext(c), c.req.param('id'), false)),
+      )
+      .post('/:id/move', edit, async (c) =>
+        respond(c, await moveDeal(c, await dealContext(c), c.req.param('id'))),
+      )
+      .post('/:id/take', edit, async (c) =>
+        respond(c, await takeDeal(await dealContext(c), c.req.param('id'))),
+      )
+      .post('/:id/upsell', requirePermission('deals', 'create'), async (c) =>
+        respond(c, await createUpsell(c, await dealContext(c), c.req.param('id')), 201),
+      )
+      .delete('/:id', requirePermission('deals', 'delete'), async (c) => {
+        const outcome = await trashDeal(await dealContext(c), c.req.param('id'))
+        return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+      })
+      .post('/:id/restore', requirePermission('trash', 'edit'), async (c) =>
+        respond(c, await restoreDeal(await dealContext(c), c.req.param('id'))),
+      )
+      .post('/:id/participants', edit, async (c) =>
+        respond(c, await addParticipant(c, await dealContext(c), c.req.param('id')), 201),
+      )
+      .put('/:id/participants/:contactId', edit, async (c) =>
+        respond(
+          c,
+          await updateParticipant(
+            c,
+            await dealContext(c),
+            c.req.param('id'),
+            c.req.param('contactId'),
+          ),
+        ),
+      )
+      .delete('/:id/participants/:contactId', edit, async (c) => {
+        const outcome = await removeParticipant(
           await dealContext(c),
           c.req.param('id'),
           c.req.param('contactId'),
+        )
+        return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+      })
+      .post('/:id/products', edit, async (c) =>
+        respond(c, await addLine(c, await dealContext(c), c.req.param('id')), 201),
+      )
+      .put('/:id/products/:lineId', edit, async (c) =>
+        respond(
+          c,
+          await updateLine(c, await dealContext(c), c.req.param('id'), c.req.param('lineId')),
         ),
-      ),
-    )
-    .delete('/:id/participants/:contactId', edit, async (c) => {
-      const outcome = await removeParticipant(
-        await dealContext(c),
-        c.req.param('id'),
-        c.req.param('contactId'),
       )
-      return outcome.ok ? c.body(null, 204) : fail(c, outcome)
-    })
-    .post('/:id/products', edit, async (c) =>
-      respond(c, await addLine(c, await dealContext(c), c.req.param('id')), 201),
-    )
-    .put('/:id/products/:lineId', edit, async (c) =>
-      respond(
-        c,
-        await updateLine(c, await dealContext(c), c.req.param('id'), c.req.param('lineId')),
-      ),
-    )
-    .delete('/:id/products/:lineId', edit, async (c) => {
-      const outcome = await removeLine(
-        await dealContext(c),
-        c.req.param('id'),
-        c.req.param('lineId'),
-      )
-      return outcome.ok ? c.body(null, 204) : fail(c, outcome)
-    })
-    .post('/:id/apply-products-total', edit, async (c) => {
-      const ctx = await dealContext(c)
-      return respond(
-        c,
-        await changeDeal(ctx, c.req.param('id'), (row) => productsTotalChange(ctx, row)),
-      )
-    })
+      .delete('/:id/products/:lineId', edit, async (c) => {
+        const outcome = await removeLine(
+          await dealContext(c),
+          c.req.param('id'),
+          c.req.param('lineId'),
+        )
+        return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+      })
+      .post('/:id/apply-products-total', edit, async (c) => {
+        const ctx = await dealContext(c)
+        return respond(
+          c,
+          await changeDeal(ctx, c.req.param('id'), (row) => productsTotalChange(ctx, row)),
+        )
+      })
+  )
+}
+
+/** Агрегаты колонок канбана: `/v1/pipelines/:id/aggregates` (монтируется рядом с воронками). */
+export function pipelineAggregatesRoutes() {
+  return new Hono<PermissionsEnv>().get(
+    '/:id/aggregates',
+    requirePermission('deals', 'view'),
+    async (c) => respond(c, await dealAggregates(c, await dealContext(c), c.req.param('id'))),
+  )
 }
