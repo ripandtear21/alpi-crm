@@ -12,12 +12,15 @@ import {
 } from '../../../components/contact-form/contacts-api.ts'
 import { RecordDealsList } from '../../../components/contact-form/record-deals.tsx'
 import { recordRights } from '../../../components/contact-form/record-rights.ts'
+import { CopyLinkButton } from '../../../components/copy-link/copy-link-button.tsx'
 import {
   projectQueryKey,
   useCurrentProject,
+  useProjectCode,
 } from '../../../components/project-switcher/current-project.tsx'
 import { Timeline, timelineQueryKey } from '../../../components/timeline/timeline.tsx'
 import type { TimelineApi } from '../../../components/timeline/timeline-api.ts'
+import { NoAccess } from '../../../layout/no-access.tsx'
 import { Badge } from '../../../ui/badge.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
@@ -68,18 +71,6 @@ export function ContactCardPage({
   )
 }
 
-/** Контакта нет, он удалён или вне охвата: экран без каких-либо его данных. */
-function NoAccess() {
-  const { t } = useTranslation('contact-card')
-  return (
-    <section className="record-card__denied">
-      <h1>{t('denied.title')}</h1>
-      <p>{t('denied.text')}</p>
-      <Link to="/contacts">{t('denied.back')}</Link>
-    </section>
-  )
-}
-
 type OpenDialog = 'edit' | 'remove' | 'deal' | null
 
 function ContactCardScreen({
@@ -100,6 +91,7 @@ function ContactCardScreen({
   const { t } = useTranslation('contact-card')
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const code = useProjectCode()
   const [dialog, setDialog] = useState<OpenDialog>(null)
   const contactKey = projectQueryKey(projectId, 'contact', contactId)
   const dealsKey = projectQueryKey(projectId, 'contact-deals', contactId)
@@ -180,6 +172,7 @@ function ContactCardScreen({
           )}
         </div>
         <div className="record-card__actions">
+          <CopyLinkButton />
           {rights.dealCreate && activePipelines.length > 0 && (
             <Button variant="primary" size="sm" onClick={() => setDialog('deal')}>
               {t('actions.newDeal')}
@@ -257,7 +250,7 @@ function ContactCardScreen({
           onClose={() => setDialog(null)}
           onRemoved={() => {
             queryClient.removeQueries({ queryKey: contactKey })
-            void navigate({ to: '/contacts' })
+            void navigate({ to: '/p/$code/contacts', params: { code } })
           }}
         />
       )}
@@ -294,6 +287,7 @@ function ContactDetails({
   organizationName: string | null
 }) {
   const { t } = useTranslation('contact-card')
+  const code = useProjectCode()
   return (
     <dl className="record-card__rows">
       {contact.phones.map((phone, index) => (
@@ -329,8 +323,8 @@ function ContactDetails({
             t('side.none')
           ) : (
             <Link
-              to="/organizations/$organizationId"
-              params={{ organizationId: contact.organizationId }}
+              to="/p/$code/organizations/$organizationId"
+              params={{ code, organizationId: contact.organizationId }}
             >
               {organizationName ?? '…'}
             </Link>

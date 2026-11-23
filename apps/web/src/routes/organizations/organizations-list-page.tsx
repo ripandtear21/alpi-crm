@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   projectQueryKey,
   useCurrentProject,
+  useProjectCode,
 } from '../../components/project-switcher/current-project.tsx'
 import { creatorFilterOptions } from '../deals/list/filter-options.ts'
 import { type ListColumnDef, ListView } from '../deals/list/list-view.tsx'
@@ -52,6 +53,7 @@ function OrganizationsListBody({
   userId: string
 }) {
   const { t, i18n } = useTranslation('lists')
+  const code = useProjectCode()
   const owners = useQuery({
     queryKey: projectQueryKey(projectId, 'lists', 'owners'),
     queryFn: () => api.owners(projectId),
@@ -63,7 +65,7 @@ function OrganizationsListBody({
     name: {
       key: 'name',
       cell: (row) => (
-        <Link to="/organizations/$organizationId" params={{ organizationId: row.id }}>
+        <Link to="/p/$code/organizations/$organizationId" params={{ code, organizationId: row.id }}>
           {row.name}
         </Link>
       ),

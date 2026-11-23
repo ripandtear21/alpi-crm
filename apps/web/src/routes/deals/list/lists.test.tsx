@@ -323,7 +323,7 @@ describe('канбан и фильтр', () => {
     })
     const link = screen.getByRole('link', { name: 'Список' })
     const href = new URL(link.getAttribute('href') ?? '', 'http://x')
-    expect(href.pathname).toBe('/deals/list')
+    expect(href.pathname).toBe('/p/alpi/deals/list')
     expect(JSON.parse(href.searchParams.get('filter') ?? '{}')).toEqual({
       and: [{ field: 'amount', op: 'gt', value: 500 }],
     })

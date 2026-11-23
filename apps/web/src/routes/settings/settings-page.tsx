@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { useProjectCode } from '../../components/project-switcher/current-project.tsx'
 import './settings.css'
 
 // Настройки проекта: роли, пользователи, команды, журнал действий, воронки, причины проигрыша и товары; остальные подразделы придут
@@ -8,6 +9,7 @@ export function SettingsPage() {
   const { t } = useTranslation('settings')
   const { t: tAudit } = useTranslation('audit')
   const { t: tLists } = useTranslation('lists')
+  const code = useProjectCode()
 
   return (
     <section>
@@ -15,28 +17,44 @@ export function SettingsPage() {
       <nav aria-label={t('sectionsLabel')}>
         <ul className="settings-index">
           <li>
-            <Link to="/settings/roles">{t('roles.title')}</Link>
+            <Link to="/p/$code/settings/roles" params={{ code }}>
+              {t('roles.title')}
+            </Link>
           </li>
           <li>
-            <Link to="/settings/audit">{tAudit('title')}</Link>
+            <Link to="/p/$code/settings/audit" params={{ code }}>
+              {tAudit('title')}
+            </Link>
           </li>
           <li>
-            <Link to="/settings/users">{t('members.title')}</Link>
+            <Link to="/p/$code/settings/users" params={{ code }}>
+              {t('members.title')}
+            </Link>
           </li>
           <li>
-            <Link to="/settings/teams">{t('teams.title')}</Link>
+            <Link to="/p/$code/settings/teams" params={{ code }}>
+              {t('teams.title')}
+            </Link>
           </li>
           <li>
-            <Link to="/settings/pipelines">{t('pipelines.title')}</Link>
+            <Link to="/p/$code/settings/pipelines" params={{ code }}>
+              {t('pipelines.title')}
+            </Link>
           </li>
           <li>
-            <Link to="/settings/lost-reasons">{t('lostReasons.title')}</Link>
+            <Link to="/p/$code/settings/lost-reasons" params={{ code }}>
+              {t('lostReasons.title')}
+            </Link>
           </li>
           <li>
-            <Link to="/settings/products">{t('products.title')}</Link>
+            <Link to="/p/$code/settings/products" params={{ code }}>
+              {t('products.title')}
+            </Link>
           </li>
           <li>
-            <Link to="/settings/trash">{tLists('trash.title')}</Link>
+            <Link to="/p/$code/settings/trash" params={{ code }}>
+              {tLists('trash.title')}
+            </Link>
           </li>
         </ul>
       </nav>

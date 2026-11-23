@@ -17,12 +17,15 @@ import {
 } from '../../../components/contact-form/contacts-api.ts'
 import { RecordDealsList } from '../../../components/contact-form/record-deals.tsx'
 import { type RecordRights, recordRights } from '../../../components/contact-form/record-rights.ts'
+import { CopyLinkButton } from '../../../components/copy-link/copy-link-button.tsx'
 import {
   projectQueryKey,
   useCurrentProject,
+  useProjectCode,
 } from '../../../components/project-switcher/current-project.tsx'
 import { Timeline, timelineQueryKey } from '../../../components/timeline/timeline.tsx'
 import type { TimelineApi } from '../../../components/timeline/timeline-api.ts'
+import { NoAccess } from '../../../layout/no-access.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Combobox } from '../../../ui/combobox.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
@@ -67,17 +70,6 @@ export function OrganizationCardPage({
   )
 }
 
-function NoAccess() {
-  const { t } = useTranslation('organization-card')
-  return (
-    <section className="record-card__denied">
-      <h1>{t('denied.title')}</h1>
-      <p>{t('denied.text')}</p>
-      <Link to="/contacts">{t('denied.back')}</Link>
-    </section>
-  )
-}
-
 /** Число в предупреждении: «200+», если загружена не вся выдача. */
 const countText = (count: number, more: boolean) => (more ? `${count}+` : String(count))
 
@@ -97,6 +89,7 @@ function OrganizationCardScreen({
   const { t } = useTranslation('organization-card')
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const code = useProjectCode()
   const [dialog, setDialog] = useState<'remove' | 'contact' | null>(null)
   const organizationKey = projectQueryKey(projectId, 'organization', organizationId)
   const contactsKey = projectQueryKey(projectId, 'organization-contacts', organizationId)
@@ -163,6 +156,7 @@ function OrganizationCardScreen({
           <h1 className="record-card__title">{record.name}</h1>
         </div>
         <div className="record-card__actions">
+          <CopyLinkButton />
           {rights.organizationDelete && (
             <Button
               variant="danger"
@@ -262,7 +256,7 @@ function OrganizationCardScreen({
           onClose={() => setDialog(null)}
           onRemoved={() => {
             queryClient.removeQueries({ queryKey: organizationKey })
-            void navigate({ to: '/contacts' })
+            void navigate({ to: '/p/$code/contacts', params: { code } })
           }}
         />
       )}
@@ -381,6 +375,7 @@ function OrganizationContacts({
 }) {
   const { t } = useTranslation('organization-card')
   const { t: tc } = useTranslation('contact-card')
+  const code = useProjectCode()
   const [search, setSearch] = useState('')
   const [error, setError] = useState<{ text: string; contactId?: string } | null>(null)
   const text = search.trim()
@@ -414,7 +409,7 @@ function OrganizationContacts({
           {contacts.map((contact) => (
             <li key={contact.id} className="record-card__item">
               <span className="record-card__item-main">
-                <Link to="/contacts/$contactId" params={{ contactId: contact.id }}>
+                <Link to="/p/$code/contacts/$contactId" params={{ code, contactId: contact.id }}>
                   {contactName(contact)}
                 </Link>
                 {contact.phones[0] && (

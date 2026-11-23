@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { SearchApi } from '../components/search-bar/search-api.ts'
 import { AppHeader } from './app-header.tsx'
 import { AppNav } from './app-nav.tsx'
 import { MOBILE_MEDIA_QUERY, useMediaQuery } from './use-media-query.ts'
@@ -7,7 +8,7 @@ import './app-layout.css'
 
 // Каркас всех экранов: шапка сверху, левое меню, справа — содержимое раздела.
 // На телефоне меню свёрнуто и открывается кнопкой в шапке поверх содержимого.
-export function AppLayout({ children }: { children: ReactNode }) {
+export function AppLayout({ children, search }: { children: ReactNode; search: SearchApi }) {
   const { t } = useTranslation('layout')
   const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -27,6 +28,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {t('skip')}
       </a>
       <AppHeader
+        search={search}
         menuToggle={
           isMobile ? { open: menuOpen, onToggle: () => setMenuOpen((open) => !open) } : null
         }

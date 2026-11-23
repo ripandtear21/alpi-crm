@@ -1,13 +1,13 @@
 import { PROJECT_HEADER, type ProjectSummary } from '@alpi/shared'
 import { QueryClient } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
 import { createI18n, type Language } from '../../i18n/index.ts'
 import { createAppRouter } from '../../router.tsx'
 import { fakeAuthApi } from '../../routes/auth/fake-auth-api.ts'
-import { PROJECT_STORAGE_KEY, projectQueryKey } from './current-project.tsx'
+import { PROJECT_STORAGE_KEY } from './current-project.tsx'
 import { fakeProjectsApi, PROJECT_ALPI, PROJECT_FRANCH } from './fake-projects-api.ts'
 import { createProjectsApi, projectHeaders } from './projects-api.ts'
 
@@ -58,20 +58,6 @@ describe('переключатель проекта', () => {
     window.localStorage.setItem(PROJECT_STORAGE_KEY, '00000000-0000-4000-8000-0000000000ff')
     const { switcher } = await renderApp([PROJECT_FRANCH])
     expect(switcher.value).toBe(PROJECT_FRANCH.id)
-  })
-
-  it('смена проекта запоминает выбор и удаляет кэш данных прежнего проекта', async () => {
-    const { queryClient, switcher } = await renderApp()
-    queryClient.setQueryData(projectQueryKey(PROJECT_ALPI.id, 'deals'), ['сделка ALPI'])
-    queryClient.setQueryData(['health'], { status: 'ok' })
-
-    fireEvent.change(switcher, { target: { value: PROJECT_FRANCH.id } })
-
-    expect(switcher.value).toBe(PROJECT_FRANCH.id)
-    expect(window.localStorage.getItem(PROJECT_STORAGE_KEY)).toBe(PROJECT_FRANCH.id)
-    expect(queryClient.getQueryData(projectQueryKey(PROJECT_ALPI.id, 'deals'))).toBeUndefined()
-    // Данные вне проектов (список проектов, состояние API) остаются.
-    expect(queryClient.getQueryData(['health'])).toEqual({ status: 'ok' })
   })
 
   it('без доступных проектов — неактивный список с пояснением, uk и ru', async () => {

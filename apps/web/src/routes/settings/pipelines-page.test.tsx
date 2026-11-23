@@ -219,10 +219,10 @@ describe('экран причин проигрыша', () => {
     await renderAt('/settings')
     const nav = await screen.findByRole('navigation', { name: 'Розділи налаштувань' })
     expect(within(nav).getByRole('link', { name: 'Воронки' }).getAttribute('href')).toBe(
-      '/settings/pipelines',
+      '/p/alpi/settings/pipelines',
     )
     expect(within(nav).getByRole('link', { name: 'Причини програшу' }).getAttribute('href')).toBe(
-      '/settings/lost-reasons',
+      '/p/alpi/settings/lost-reasons',
     )
   })
 })

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
 import {
@@ -29,14 +29,18 @@ async function renderKanban({
   deals = [],
   language = 'uk',
   api = fakeDealsApi(deals),
+  path = '/p/alpi/deals',
+  onRouter,
 }: {
   deals?: BoardDeal[]
   language?: Language
   api?: FakeDealsApi
+  path?: string
+  onRouter?: (router: ReturnType<typeof createAppRouter>) => void
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
-    history: createMemoryHistory({ initialEntries: ['/deals'] }),
+    history: createMemoryHistory({ initialEntries: [path] }),
     auth: fakeAuthApi(),
     projects: fakeProjectsApi(),
     deals: api,
@@ -49,6 +53,7 @@ async function renderKanban({
       </QueryClientProvider>
     </I18nextProvider>,
   )
+  onRouter?.(router)
   await screen.findByRole('heading', { level: 1 })
   return api
 }
@@ -85,7 +90,7 @@ describe('канбан воронки', () => {
     const card = await cardIn('Новий лід', 'Ірина — вебінар')
     expect(
       within(card).getByRole('link', { name: 'Ірина — вебінар' }).getAttribute('href'),
-    ).toMatch(/^\/deals\/[0-9a-f-]{36}$/)
+    ).toMatch(/^\/p\/alpi\/deals\/[0-9a-f-]{36}$/)
     expect(within(card).getByText('Ірина Вигадана')).toBeTruthy()
     expect(within(card).getByText('Власник')).toBeTruthy()
     expect(within(card).getByText(/100/).textContent).toMatch(/€/)
@@ -269,6 +274,39 @@ describe('канбан воронки', () => {
     })
     expect(window.localStorage.getItem(`alpi.kanban.pipeline.${PROJECT_ALPI.id}`)).toBe(PIPELINE_ID)
   })
+
+  it('воронка — в адресе: без неё или с чужой адрес получает показанную воронку', async () => {
+    for (const path of ['/p/alpi/deals', '/p/alpi/deals?pipeline=unknown']) {
+      let router: ReturnType<typeof createAppRouter> | undefined
+      await renderKanban({ path, onRouter: (r) => (router = r) })
+      await screen.findByRole('region', { name: 'Етап Новий лід' })
+      await waitFor(() => expect(router?.state.location.search).toEqual({ pipeline: PIPELINE_ID }))
+      cleanup()
+    }
+  })
+
+  it('ссылка на канбан с воронкой открывает эту воронку; смена воронки меняет адрес', async () => {
+    const second = '00000000-0000-4000-9200-0000000000f2'
+    const api = fakeDealsApi()
+    const [first] = await api.pipelines(PROJECT_ALPI.id)
+    if (!first) throw new Error('у подставного API нет воронки')
+    api.pipelines = async () => [first, { ...first, id: second, name: 'Друга воронка' }]
+    // В прошлый раз смотрели первую — ссылка всё равно открывает свою.
+    window.localStorage.setItem(`alpi.kanban.pipeline.${PROJECT_ALPI.id}`, first.id)
+    let router: ReturnType<typeof createAppRouter> | undefined
+    await renderKanban({
+      api,
+      path: `/p/alpi/deals?pipeline=${second}`,
+      onRouter: (r) => (router = r),
+    })
+    const select = (await screen.findByRole('combobox', { name: 'Воронка' })) as HTMLSelectElement
+    expect(select.value).toBe(second)
+
+    fireEvent.change(select, { target: { value: first.id } })
+
+    await waitFor(() => expect(router?.state.location.search).toEqual({ pipeline: first.id }))
+    expect(select.value).toBe(first.id)
+  })
 })
 
 describe('форма «+ Угода»', () => {
@@ -336,7 +374,7 @@ describe('форма «+ Угода»', () => {
     const alert = await within(form).findByRole('alert')
     expect(alert.textContent).toContain('У цього клієнта вже є відкрита угода в цій воронці.')
     expect(within(alert).getByRole('link', { name: 'Відкрити угоду' }).getAttribute('href')).toBe(
-      '/deals/00000000-0000-4000-9300-0000000000ff',
+      '/p/alpi/deals/00000000-0000-4000-9300-0000000000ff',
     )
     expect(api.calls[0]?.value).toMatchObject({ contactId: '00000000-0000-4000-9400-000000000002' })
   })

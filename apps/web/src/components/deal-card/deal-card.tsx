@@ -27,6 +27,8 @@ export function formatMoney(amount: number, currency: string, language: string):
 
 export interface DealCardProps {
   deal: BoardDeal
+  /** Адрес карточки сделки — с кодом проекта (`/p/<код>/deals/<id>`). */
+  href: string
   /** Карточку можно перетащить (на телефоне — нет). */
   draggable: boolean
   /** Карточку сейчас тащат: на её месте — пустая рамка. */
@@ -40,6 +42,7 @@ export interface DealCardProps {
 
 export function DealCard({
   deal,
+  href,
   draggable,
   dragging = false,
   onDragStart,
@@ -65,7 +68,7 @@ export function DealCard({
       }}
       onDragEnd={onDragEnd}
     >
-      <a className="deal-card__title" href={`/deals/${deal.id}`} draggable={false}>
+      <a className="deal-card__title" href={href} draggable={false}>
         {deal.title}
       </a>
       {deal.contactName === null ? (

@@ -12,6 +12,7 @@ import { formatMoney } from '../../../components/deal-card/deal-card.tsx'
 import {
   projectQueryKey,
   useCurrentProject,
+  useProjectCode,
 } from '../../../components/project-switcher/current-project.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { allowedBulkActions, BulkDialog } from './bulk-dialog.tsx'
@@ -88,6 +89,7 @@ function DealsListBody({
   search: DealsListSearch
 }) {
   const { t, i18n } = useTranslation('lists')
+  const code = useProjectCode()
   const pipelines = useQuery({
     queryKey: projectQueryKey(projectId, 'lists', 'pipelines'),
     queryFn: () => api.pipelines(projectId),
@@ -121,7 +123,7 @@ function DealsListBody({
     title: {
       key: 'title',
       cell: (row) => (
-        <Link to="/deals/$dealId" params={{ dealId: row.id }}>
+        <Link to="/p/$code/deals/$dealId" params={{ code, dealId: row.id }}>
           {row.title}
         </Link>
       ),
@@ -140,7 +142,10 @@ function DealsListBody({
       key: 'contact',
       cell: (row) =>
         row.contactName ? (
-          <Link to="/contacts/$contactId" params={{ contactId: row.primaryContactId }}>
+          <Link
+            to="/p/$code/contacts/$contactId"
+            params={{ code, contactId: row.primaryContactId }}
+          >
             {row.contactName}
           </Link>
         ) : (
@@ -151,7 +156,10 @@ function DealsListBody({
       key: 'organization',
       cell: (row) =>
         row.organizationId && row.organizationName ? (
-          <Link to="/organizations/$organizationId" params={{ organizationId: row.organizationId }}>
+          <Link
+            to="/p/$code/organizations/$organizationId"
+            params={{ code, organizationId: row.organizationId }}
+          >
             {row.organizationName}
           </Link>
         ) : (
@@ -182,7 +190,7 @@ function DealsListBody({
       userId={userId}
       title={t('deals.title')}
       toolbar={
-        <Link to="/deals" className="list-head__link">
+        <Link to="/p/$code/deals" params={{ code }} className="list-head__link">
           {t('deals.kanban')}
         </Link>
       }

@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CopyLinkButton } from '../../../components/copy-link/copy-link-button.tsx'
 import { Badge } from '../../../ui/badge.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { cx } from '../../../ui/cx.ts'
@@ -94,6 +95,7 @@ export function DealHeader({ card }: { card: DealCardModel }) {
               {t('actions.upsell')}
             </Button>
           )}
+          <CopyLinkButton />
           {more.length > 0 && (
             <Menu
               label={t('actions.more')}

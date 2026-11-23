@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { ProjectSwitcher } from '../components/project-switcher/project-switcher.tsx'
+import type { SearchApi } from '../components/search-bar/search-api.ts'
+import { SearchBar } from '../components/search-bar/search-bar.tsx'
 import { NAV_ID } from './app-nav.tsx'
 import { LanguageSwitcher } from './language-switcher.tsx'
 import { ThemeSwitcher } from './theme-switcher.tsx'
@@ -7,11 +9,12 @@ import { ThemeSwitcher } from './theme-switcher.tsx'
 type AppHeaderProps = {
   // Кнопка меню есть только на телефоне: на широком экране меню видно всегда.
   menuToggle: { open: boolean; onToggle: () => void } | null
+  search: SearchApi
 }
 
-// Шапка: переключатель проекта; поиск, уведомления и профиль пока только занимают свои места —
-// их поведение добавят тикеты поиска, уведомлений и входа.
-export function AppHeader({ menuToggle }: AppHeaderProps) {
+// Шапка: переключатель проекта и строка поиска; уведомления и профиль пока только занимают
+// свои места — их поведение добавят тикеты уведомлений и входа.
+export function AppHeader({ menuToggle, search }: AppHeaderProps) {
   const { t } = useTranslation(['layout', 'common'])
 
   return (
@@ -33,13 +36,7 @@ export function AppHeader({ menuToggle }: AppHeaderProps) {
         {t('common:appName')}
       </span>
       <ProjectSwitcher />
-      <input
-        type="search"
-        className="ui-input app-header__search"
-        aria-label={t('search.label')}
-        placeholder={t('search.placeholder')}
-        disabled
-      />
+      <SearchBar api={search} />
       <div className="app-header__prefs">
         <LanguageSwitcher />
         <ThemeSwitcher />

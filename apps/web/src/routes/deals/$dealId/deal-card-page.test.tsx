@@ -73,7 +73,7 @@ async function renderCard({
   timeline = fakeTimelineApi(timelineItems()),
   dealId = DEAL_ID,
   kanban = fakeDealsApi(),
-  path = `/deals/${dealId}`,
+  path = `/p/alpi/deals/${dealId}`,
 }: {
   api?: FakeDealCardApi
   timeline?: FakeTimelineApi
@@ -314,7 +314,7 @@ describe('карточка сделки: права', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Видалити угоду?' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Видалити' }))
     await waitFor(() => expect(api.calls).toContain('remove'))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/deals'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/p/alpi/deals'))
     expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe('Угоди')
   })
 
@@ -337,11 +337,11 @@ describe('карточка сделки: права', () => {
 
   it('название сделки на канбане ведёт на её карточку', async () => {
     const kanban = fakeDealsApi([fakeDeal({ id: DEAL_ID, title: TITLE })])
-    const { router } = await renderCard({ kanban, path: '/deals' })
+    const { router } = await renderCard({ kanban, path: '/p/alpi/deals' })
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Угоди')
     const link = await screen.findByRole('link', { name: TITLE })
     router.history.push(link.getAttribute('href') as string)
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/deals/${DEAL_ID}`))
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/p/alpi/deals/${DEAL_ID}`))
     await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(TITLE))
     expect(screen.getByRole('button', { name: 'Виграно' })).toBeTruthy()
   })
@@ -375,7 +375,7 @@ describe('карточка сделки: допродажа', () => {
     expect(alert.textContent).toContain('У клієнта вже є відкрита угода в цій воронці.')
     expect(
       within(alert).getByRole('link', { name: 'Відкрити ту угоду' }).getAttribute('href'),
-    ).toBe(`/deals/${existing.id}`)
+    ).toBe(`/p/alpi/deals/${existing.id}`)
     expect(api.deals).toHaveLength(2)
     expect(api.calls).not.toContain('upsell')
   })
@@ -389,7 +389,7 @@ describe('карточка сделки: допродажа', () => {
     await waitFor(() => expect(api.deals).toHaveLength(2))
     const created = api.deals[1]
     expect(created?.pipelineId).toBe(UPSELL_PIPELINE_ID)
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/deals/${created?.id}`))
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/p/alpi/deals/${created?.id}`))
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Ірина Мельник — допродаж' }),
     ).toBeTruthy()

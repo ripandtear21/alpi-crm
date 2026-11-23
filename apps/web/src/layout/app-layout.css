@@ -166,6 +166,11 @@
   max-width: 62ch;
 }
 
+/* Экран «немає доступу» (layout/no-access.tsx) */
+.no-access {
+  padding: var(--s-6);
+}
+
 /* Телефон: та же граница, что MOBILE_MEDIA_QUERY в use-media-query.ts */
 @media (max-width: 767px) {
   /* Шапка в три строки: кнопка меню, название и значки; проект и настройки вида; поиск. */

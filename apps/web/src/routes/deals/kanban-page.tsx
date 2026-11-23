@@ -16,6 +16,7 @@ import { type DragEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DealCard, formatMoney } from '../../components/deal-card/deal-card.tsx'
 import {
+  projectHref,
   projectQueryKey,
   useCurrentProject,
 } from '../../components/project-switcher/current-project.tsx'
@@ -85,19 +86,40 @@ export function KanbanPage({
   api,
   userId,
   queryClient,
+  pipelineId,
+  onPipelineChange,
 }: {
   api: DealsApi
   userId: string
   queryClient: QueryClient
+  /** Воронка из адреса; нет — выбранная в прошлый раз или первая. */
+  pipelineId?: string | undefined
+  /** Показана другая воронка: адрес меняется на неё (тикет crm-deals/15). */
+  onPipelineChange?: (pipelineId: string) => void
 }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <Kanban api={api} userId={userId} />
+      <Kanban
+        api={api}
+        userId={userId}
+        pipelineId={pipelineId}
+        onPipelineChange={onPipelineChange}
+      />
     </QueryClientProvider>
   )
 }
 
-function Kanban({ api, userId }: { api: DealsApi; userId: string }) {
+type PipelineInAddress = {
+  pipelineId?: string | undefined
+  onPipelineChange?: ((pipelineId: string) => void) | undefined
+}
+
+function Kanban({
+  api,
+  userId,
+  pipelineId,
+  onPipelineChange,
+}: { api: DealsApi; userId: string } & PipelineInAddress) {
   const { t } = useTranslation('deals')
   const { current } = useCurrentProject()
   if (!current) {
@@ -108,7 +130,17 @@ function Kanban({ api, userId }: { api: DealsApi; userId: string }) {
       </section>
     )
   }
-  return <Board key={current.id} api={api} projectId={current.id} userId={userId} />
+  return (
+    <Board
+      key={current.id}
+      api={api}
+      projectId={current.id}
+      projectCode={current.code}
+      userId={userId}
+      pipelineId={pipelineId}
+      onPipelineChange={onPipelineChange}
+    />
+  )
 }
 
 /**
@@ -116,6 +148,7 @@ function Kanban({ api, userId }: { api: DealsApi; userId: string }) {
  * и выбранный ответственный (в списке это условие фильтра).
  */
 function listHref(
+  projectCode: string,
   pipelineId: string,
   stageId: string | undefined,
   filter: FilterGroup,
@@ -128,7 +161,7 @@ function listHref(
   if (stageId) params.stage = stageId
   if (parts.length > 0)
     params.filter = JSON.stringify(parts.length === 1 ? parts[0] : { and: parts })
-  return `/deals/list?${new URLSearchParams(params)}`
+  return projectHref(projectCode, `/deals/list?${new URLSearchParams(params)}`)
 }
 
 /** Ключи запросов канбана проекта: всё под одним префиксом, чтобы обновлять разом. */
@@ -138,7 +171,19 @@ const boardKey = (projectId: string, ...rest: unknown[]) =>
 /** Позиция id этапа в ключе колонки: [project, id, deals, board, column, pipeline, stage, owner]. */
 const STAGE_IN_KEY = 6
 
-function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; userId: string }) {
+function Board({
+  api,
+  projectId,
+  projectCode,
+  userId,
+  pipelineId,
+  onPipelineChange,
+}: {
+  api: DealsApi
+  projectId: string
+  projectCode: string
+  userId: string
+} & PipelineInAddress) {
   const { t } = useTranslation('deals')
   const { t: tl } = useTranslation('lists')
   const queryClient = useQueryClient()
@@ -166,7 +211,17 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
     retry: false,
   })
   const active = (pipelines.data ?? []).filter((p) => p.archivedAt === null)
-  const pipeline = active.find((p) => p.id === storedPipeline) ?? active[0]
+  const pipeline =
+    active.find((p) => p.id === (pipelineId ?? storedPipeline)) ??
+    active.find((p) => p.id === storedPipeline) ??
+    active[0]
+  // В адресе — показанная воронка: и когда её там не было, и когда там чужая или архивная.
+  const shownPipelineId = pipeline?.id
+  useEffect(() => {
+    if (shownPipelineId !== undefined && shownPipelineId !== pipelineId) {
+      onPipelineChange?.(shownPipelineId)
+    }
+  }, [shownPipelineId, pipelineId, onPipelineChange])
   const ownerKey = owner ?? 'all'
   const aggregates = useQuery({
     queryKey: boardKey(projectId, 'aggregates', pipeline?.id, ownerKey, filterKey),
@@ -193,6 +248,7 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
               onChange={(event) => {
                 storePipeline(projectId, event.target.value)
                 setStoredPipeline(event.target.value)
+                onPipelineChange?.(event.target.value)
               }}
             >
               {active.map((p) => (
@@ -227,7 +283,7 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
           </Button>
           <a
             className={buttonClass({ size: 'sm' })}
-            href={listHref(pipeline.id, undefined, filter, owner)}
+            href={listHref(projectCode, pipeline.id, undefined, filter, owner)}
           >
             {tl('listView')}
           </a>
@@ -391,6 +447,7 @@ function Board({ api, projectId, userId }: { api: DealsApi; projectId: string; u
       key={stage.id}
       api={api}
       projectId={projectId}
+      projectCode={projectCode}
       pipeline={pipeline}
       stage={stage}
       owner={owner}
@@ -522,6 +579,7 @@ function DropZones({ onWin, onLose }: { onWin: () => void; onLose: () => void })
 function StageColumn({
   api,
   projectId,
+  projectCode,
   pipeline,
   stage,
   owner,
@@ -537,6 +595,7 @@ function StageColumn({
 }: {
   api: DealsApi
   projectId: string
+  projectCode: string
   pipeline: PipelineSummary
   stage: StageSummary
   owner: OwnerFilter | undefined
@@ -637,6 +696,7 @@ function StageColumn({
             <DealCard
               key={deal.id}
               deal={deal}
+              href={projectHref(projectCode, `/deals/${deal.id}`)}
               draggable={!phone}
               dragging={dragged?.id === deal.id}
               onDragStart={() => onDragStart(deal)}
@@ -659,7 +719,10 @@ function StageColumn({
           </div>
         )}
         {!canLoadMore && deals.hasNextPage && rest > 0 && (
-          <a className="kanban-col__list" href={listHref(pipeline.id, stage.id, filter, owner)}>
+          <a
+            className="kanban-col__list"
+            href={listHref(projectCode, pipeline.id, stage.id, filter, owner)}
+          >
             {t('kanban.openAsList', { count: rest })}
           </a>
         )}

@@ -32,7 +32,7 @@ async function renderCard({
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
-    history: createMemoryHistory({ initialEntries: [`/organizations/${organizationId}`] }),
+    history: createMemoryHistory({ initialEntries: [`/p/alpi/organizations/${organizationId}`] }),
     auth: fakeAuthApi(),
     projects: fakeProjectsApi(),
     deals: fakeDealsApi(),
@@ -108,7 +108,7 @@ describe('карточка организации: контакты и сдел�
     await renderCard({ api: withContacts() })
     const contacts = await screen.findByRole('list', { name: 'Контакти' })
     const link = within(contacts).getByRole('link', { name: 'Ірина Мельник' })
-    expect(link.getAttribute('href')).toBe(`/contacts/${CONTACT_ID}`)
+    expect(link.getAttribute('href')).toBe(`/p/alpi/contacts/${CONTACT_ID}`)
     expect(within(contacts).getByText('+380 67 123 4567')).toBeTruthy()
     const deals = await screen.findByRole('list', { name: 'Угоди' })
     expect(within(deals).getByRole('link', { name: 'Ірина — курс' })).toBeTruthy()
@@ -172,7 +172,7 @@ describe('карточка организации: удаление', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Видалити' }))
     const again = await screen.findByRole('dialog', { name: 'Видалити організацію?' })
     fireEvent.click(within(again).getByRole('button', { name: 'Видалити' }))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/contacts'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/p/alpi/contacts'))
     expect(api.calls).toEqual([`removeOrganization:${ORGANIZATION_ID}`])
   })
 })

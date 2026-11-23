@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { Badge, type BadgeTone } from '../../ui/badge.tsx'
 import { Skeleton } from '../../ui/feedback.tsx'
+import { useProjectCode } from '../project-switcher/current-project.tsx'
 import { RECORD_LIST_LIMIT, type RecordDeals } from './contacts-api.ts'
 
 // Сделки контакта или организации (тикет crm-deals/14): название со ссылкой на карточку,
@@ -24,6 +25,7 @@ export function RecordDealsList({
   failed: boolean
 }) {
   const { t } = useTranslation('contact-card')
+  const code = useProjectCode()
   if (failed) return <p className="record-card__stub">{t('errors.unknown')}</p>
   if (!deals) return <Skeleton lines={2} />
   if (deals.items.length === 0) return <p className="record-card__stub">{t('deals.empty')}</p>
@@ -37,7 +39,7 @@ export function RecordDealsList({
           return (
             <li key={deal.id} className="record-card__item">
               <span className="record-card__item-main">
-                <Link to="/deals/$dealId" params={{ dealId: deal.id }}>
+                <Link to="/p/$code/deals/$dealId" params={{ code, dealId: deal.id }}>
                   {deal.title}
                 </Link>
                 <span className="record-card__item-meta">

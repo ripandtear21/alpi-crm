@@ -1,0 +1,61 @@
+/* Строка поиска в шапке (тикет crm-deals/15): поле с выпадающим списком групп. */
+.search-bar {
+  position: relative;
+  min-width: 0;
+}
+
+.search-bar__input {
+  width: 100%;
+  border-radius: inherit;
+}
+
+.search-bar__popup {
+  right: 0;
+  max-height: min(70vh, 480px);
+}
+
+.search-bar__group {
+  padding: var(--s-2) 10px var(--s-1);
+  color: var(--ink-3);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+}
+
+.search-bar__item {
+  cursor: pointer;
+}
+
+.search-bar__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-bar__marks {
+  display: inline-flex;
+  flex: none;
+  gap: var(--s-1);
+}
+
+/* Телефон: в шапке — кнопка в виде поля, поиск открывается во весь экран. */
+.search-bar__trigger {
+  color: var(--ink-3);
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-dialog.ui-dialog {
+  width: 100vw;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+}
+
+.search-bar--inline .search-bar__popup {
+  position: static;
+  max-height: none;
+  margin-top: var(--s-2);
+  box-shadow: 0 0 0 1px var(--line-2);
+}

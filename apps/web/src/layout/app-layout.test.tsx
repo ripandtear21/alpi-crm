@@ -12,7 +12,7 @@ import { setViewportWidth } from '../test/viewport.ts'
 // чтобы не ходить в API за /health. Пользователь уже вошёл с 2FA (подставной клиент входа).
 async function renderApp(language: Language = 'uk') {
   const router = createAppRouter({
-    history: createMemoryHistory({ initialEntries: ['/deals'] }),
+    history: createMemoryHistory({ initialEntries: ['/p/alpi/deals'] }),
     auth: fakeAuthApi(),
     projects: fakeProjectsApi(),
   })
@@ -31,7 +31,7 @@ describe('каркас интерфейса', () => {
     const header = screen.getByRole('banner')
     expect(within(header).getByText('Alpi CRM')).toBeTruthy()
     expect(within(header).getByRole('combobox', { name: 'Проєкт' })).toBeTruthy()
-    expect(within(header).getByRole('searchbox', { name: 'Швидкий пошук' })).toBeTruthy()
+    expect(within(header).getByRole('combobox', { name: 'Швидкий пошук' })).toBeTruthy()
     expect(within(header).getByRole('button', { name: 'Сповіщення' })).toBeTruthy()
     expect(within(header).getByRole('button', { name: 'Профіль' })).toBeTruthy()
 
@@ -51,7 +51,7 @@ describe('каркас интерфейса', () => {
 
     const nav = await screen.findByRole('navigation', { name: 'Главное меню' })
     expect(within(nav).getByRole('link', { name: 'Сделки' })).toBeTruthy()
-    expect(screen.getByRole('searchbox', { name: 'Быстрый поиск' })).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: 'Быстрый поиск' })).toBeTruthy()
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Сделки')
     expect(screen.getByRole('button', { name: 'Русский' }).getAttribute('aria-pressed')).toBe(
       'true',
