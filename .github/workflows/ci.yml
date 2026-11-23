@@ -35,6 +35,34 @@ jobs:
       - run: pnpm verify
       - run: pnpm build
 
+  # Сценарий приёмки владельца в браузере (тикет crm-deals/16): своя база embedded PostgreSQL,
+  # данные pnpm seed, API и собранный клиент поднимает e2e/global-setup.ts.
+  e2e:
+    name: e2e (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Браузер той версии, которую требует @playwright/test из lock-файла, с системными библиотеками.
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e
+      # Трассировки, снимки экрана, журнал стенда (test-results/stack.log) и HTML-отчёт —
+      # только при падении: их смотрят через `pnpm exec playwright show-trace <trace.zip>`.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14
+
   docker:
     name: образ ${{ matrix.app }}
     runs-on: ubuntu-latest
@@ -61,7 +89,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [verify, docker]
+    needs: [verify, docker, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Все задания зелёные

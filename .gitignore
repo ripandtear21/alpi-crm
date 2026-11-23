@@ -12,3 +12,6 @@ coverage/
 *.tsbuildinfo
 # Пароли и секреты 2FA пользователей тестовых данных (pnpm seed)
 .seed-credentials.json
+# Сквозной тест Playwright (pnpm e2e): трассировки, снимки, журнал стенда и отчёт
+test-results/
+playwright-report/
