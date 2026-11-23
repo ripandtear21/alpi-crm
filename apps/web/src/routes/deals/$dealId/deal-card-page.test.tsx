@@ -12,6 +12,7 @@ import type { TimelineItem } from '../../../components/timeline/timeline-api.ts'
 import { createI18n } from '../../../i18n/index.ts'
 import { createAppRouter } from '../../../router.tsx'
 import { fakeAuthApi } from '../../auth/fake-auth-api.ts'
+import { type FakeDealsApi, fakeDeal, fakeDealsApi } from '../fake-deals-api.ts'
 import {
   CONTACT_ID,
   DEAL_ID,
@@ -71,16 +72,22 @@ async function renderCard({
   api = fakeDealCardApi(),
   timeline = fakeTimelineApi(timelineItems()),
   dealId = DEAL_ID,
+  kanban = fakeDealsApi(),
+  path = `/deals/${dealId}`,
 }: {
   api?: FakeDealCardApi
   timeline?: FakeTimelineApi
   dealId?: string
+  /** Канбан «/deals» (тикет crm-deals/11): туда ведёт удаление сделки. */
+  kanban?: FakeDealsApi
+  path?: string
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
-    history: createMemoryHistory({ initialEntries: [`/deals/${dealId}`] }),
+    history: createMemoryHistory({ initialEntries: [path] }),
     auth: fakeAuthApi(),
     projects: fakeProjectsApi(),
+    deals: kanban,
     dealCard: api,
     timeline,
     queryClient,
@@ -288,7 +295,7 @@ describe('карточка сделки: права', () => {
 
   it('администратор меняет ответственного, удаляет сделку и чужие заметки', async () => {
     const api = fakeDealCardApi({ role: 'admin' })
-    await renderCard({ api })
+    const { router } = await renderCard({ api })
     const owner = screen.getByRole('combobox', { name: 'Змінити відповідального' })
     fireEvent.change(owner, { target: { value: '' } })
     await waitFor(() => expect(api.deals[0]?.ownerId).toBeNull())
@@ -307,6 +314,8 @@ describe('карточка сделки: права', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Видалити угоду?' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Видалити' }))
     await waitFor(() => expect(api.calls).toContain('remove'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/deals'))
+    expect((await screen.findByRole('heading', { level: 1 })).textContent).toBe('Угоди')
   })
 
   it('чужая или удалённая сделка — «Немає доступу» без её данных', async () => {
@@ -324,6 +333,17 @@ describe('карточка сделки: права', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Немає доступу')
     expect(screen.queryByText('Чужа угода', { exact: false })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Виграно' })).toBeNull()
+  })
+
+  it('название сделки на канбане ведёт на её карточку', async () => {
+    const kanban = fakeDealsApi([fakeDeal({ id: DEAL_ID, title: TITLE })])
+    const { router } = await renderCard({ kanban, path: '/deals' })
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Угоди')
+    const link = await screen.findByRole('link', { name: TITLE })
+    router.history.push(link.getAttribute('href') as string)
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/deals/${DEAL_ID}`))
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(TITLE))
+    expect(screen.getByRole('button', { name: 'Виграно' })).toBeTruthy()
   })
 })
 
