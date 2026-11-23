@@ -1,7 +1,8 @@
 # Карточка сделки
 
 Type: task
-Status: claimed 2026-11-23T18:46Z
+Status: done 2026-11-23T21:18Z
+PR: #13
 Blocked by: 01, 05, 06, 07
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 5); .scratch/crm-mvp/spec.md, разделы 5.2, 13.0.2 (пункт 41), 13.0.4; docs/prototypes/
 
@@ -69,3 +70,11 @@ apps/web/src/routes/deals/$dealId/**, apps/web/src/components/timeline/**, apps/
 Ждёт владельца:
 
 - Откуда менеджеру брать имена участников проекта. Список участников (`GET /members`) отдаётся только с правом «пользователи и роли»; без него карточка показывает имя ответственного, только если это сам пользователь, иначе — «Інший менеджер», а сменить ответственного может только на себя или в общую очередь. Имена авторов в ленте приходят из самой ленты.
+
+Проверка волны (PR #13): VERIFIED на c6017e5, затем раунд перебазирования на main после слияния 11 и VERIFIED второго круга на c56537e (глубина low).
+
+- Consider: [med] `apps/api/src/deals/deals.test.ts:532` — тест 404 проверял только статус; исправлено в раунде перебазирования (тело `{ code: 'DEAL_NOT_FOUND' }`, красный на мутанте).
+- Noted: [low] `apps/web/src/components/deal-products/deal-products.css:76` — подпись «Ціна» выше соседних на 1280 px.
+- Noted: [low] `apps/web/src/routes/deals/$dealId/deal-card.css:28-33` — у закрытой сделки на 1280 px название переносится в узкую колонку.
+- Долг: [low] `apps/web/src/routes/deals/$dealId/deal-card-page.test.tsx:344` — переход с канбана на карточку через `router.history.push`, а не кликом по ссылке.
+- Решено без владельца, подтвердить: маршрут `GET /project/access` (права текущего пользователя в проекте) добавлен в этой волне.
