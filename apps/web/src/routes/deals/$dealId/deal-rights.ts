@@ -22,9 +22,9 @@ export function dealRights(access: ProjectAccess, deal: DealCard): DealRights {
   const { permissions, userId } = access
   const scope = permissions.scopes.deals.write
   // Сделку общей очереди меняет каждый с правом на сделки; свою — всегда.
-  // shortcut: охват «команда» считается подходящим для любой чужой сделки — клиент не знает
-  // состава команд; кнопка может оказаться лишней, сервер ответит 403. Переделать, когда
-  // ответ сделки или /project/access станет сообщать, в охвате ли запись.
+  // shortcut: охват «команда» не проверяется, переделать, когда API скажет, в охвате ли запись.
+  // Состава команд клиент не знает: при охвате «команда» кнопки видны у любой чужой сделки, а
+  // лишнюю сервер отклонит ответом 403.
   const inScope = deal.ownerId === null || deal.ownerId === userId || scope !== 'own'
   const edit = can(permissions, 'deals', 'edit') && inScope
   return {
