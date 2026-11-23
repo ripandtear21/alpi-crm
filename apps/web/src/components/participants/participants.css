@@ -1,0 +1,62 @@
+/* Участники сделки (тикет crm-deals/13). */
+
+.participants {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.participants__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.participants__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 32px;
+  padding: var(--s-1) 0;
+}
+
+.participants__name {
+  font-size: 14px;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+
+.participants__role {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.participants__role .ui-input {
+  width: 140px;
+}
+
+.participants__role-text,
+.participants__empty {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+  margin: 0;
+}
+
+.participants__add,
+.participants__new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  border-top: 1px solid var(--line);
+  padding-top: var(--s-3);
+}
+
+.participants__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}

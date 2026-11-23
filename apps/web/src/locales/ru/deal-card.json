@@ -1,0 +1,229 @@
+{
+  "loading": "Загрузка сделки…",
+  "save": "Сохранить",
+  "cancel": "Отмена",
+  "denied": {
+    "title": "Нет доступа",
+    "text": "Сделка не найдена, удалена или у вас нет к ней доступа.",
+    "back": "К списку сделок"
+  },
+  "title": {
+    "label": "Название сделки",
+    "rename": "Изменить название"
+  },
+  "owner": {
+    "label": "Владелец",
+    "change": "Сменить ответственного",
+    "queue": "Общая очередь",
+    "hidden": "Другой менеджер",
+    "take": "Взять в работу"
+  },
+  "status": {
+    "open": "Открыта",
+    "won": "Выиграна",
+    "lost": "Проиграна",
+    "lostWith": "Проиграна: {{reason}}",
+    "archived": "В архиве"
+  },
+  "actions": {
+    "win": "Выиграна",
+    "lose": "Проиграна",
+    "reopen": "Открыть снова",
+    "upsell": "Создать допродажу",
+    "more": "Другие действия со сделкой",
+    "archive": "В архив",
+    "unarchive": "Из архива",
+    "remove": "Удалить сделку"
+  },
+  "stages": {
+    "label": "Этапы воронки",
+    "days_one": "{{count}} день",
+    "days_few": "{{count}} дня",
+    "days_many": "{{count}} дней",
+    "days_other": "{{count}} дня"
+  },
+  "lose": {
+    "title": "Сделка проиграна",
+    "group": "Группа причин",
+    "chooseGroup": "Выберите группу",
+    "reason": "Причина",
+    "chooseReason": "Выберите причину",
+    "required": "Выберите причину проигрыша.",
+    "noReasons": "В проекте нет действующих причин проигрыша — добавьте их в настройках.",
+    "submit": "Отметить проигранной"
+  },
+  "upsell": {
+    "title": "Новая сделка-допродажа",
+    "pipeline": "Воронка",
+    "name": "Название",
+    "defaultTitle": "{{title}} — допродажа",
+    "submit": "Создать"
+  },
+  "move": {
+    "title": "Воронка и этап",
+    "pipeline": "Воронка",
+    "stage": "Этап",
+    "submit": "Перенести"
+  },
+  "remove": {
+    "title": "Удалить сделку?",
+    "text": "Сделка «{{title}}» попадёт в корзину; оттуда её можно восстановить в течение 30 дней.",
+    "submit": "Удалить"
+  },
+  "conflict": {
+    "open": "Открыть ту сделку",
+    "manager": "Клиент уже в работе у {{name}}."
+  },
+  "focus": {
+    "title": "Фокус",
+    "next": "Что сделать дальше: здесь будет следующая задача сделки, когда появится раздел задач."
+  },
+  "side": {
+    "label": "Поля сделки",
+    "filter": "Фильтровать поля"
+  },
+  "toFill": {
+    "title": "Заполните"
+  },
+  "summary": {
+    "title": "Сводка",
+    "productsTotal": "Сумма по товарам",
+    "empty": "Не указано",
+    "products_one": "{{count}} товар",
+    "products_few": "{{count}} товара",
+    "products_many": "{{count}} товаров",
+    "products_other": "{{count}} товара",
+    "participants_one": "и ещё {{count}} участник",
+    "participants_few": "и ещё {{count}} участника",
+    "participants_many": "и ещё {{count}} участников",
+    "participants_other": "и ещё {{count}} участника"
+  },
+  "details": {
+    "title": "Детали",
+    "main": "Основное",
+    "filled": "{{filled}}/{{total}}",
+    "edit": "Изменить: {{field}}"
+  },
+  "fields": {
+    "title": "Название",
+    "pipelineId": "Воронка",
+    "stageId": "Этап",
+    "status": "Статус",
+    "lostReasonId": "Причина проигрыша",
+    "amount": "Сумма",
+    "currency": "Валюта",
+    "ownerId": "Ответственный",
+    "primaryContactId": "Контакт",
+    "organizationId": "Организация",
+    "wonAt": "Дата выигрыша",
+    "lostAt": "Дата проигрыша",
+    "expectedCloseDate": "Дата закрытия",
+    "archivedAt": "Архив",
+    "deletedAt": "Корзина",
+    "participants": "Участники",
+    "createdAt": "Создана"
+  },
+  "changes": {
+    "unknown": "(удалено)",
+    "record": "другая запись"
+  },
+  "contact": {
+    "title": "Контакт",
+    "hidden": "Контакт вне вашего доступа.",
+    "duplicate": "возможный дубль",
+    "phone": "Телефон",
+    "email": "Email",
+    "change": "Сменить основной контакт",
+    "search": "Найти контакт"
+  },
+  "organization": {
+    "title": "Организация",
+    "none": "Организация не указана.",
+    "hidden": "Организация вне вашего доступа.",
+    "name": "Название",
+    "address": "Адрес",
+    "website": "Сайт"
+  },
+  "participants": {
+    "title": "Участники",
+    "empty": "Участников нет.",
+    "add": "+ Участник",
+    "unknown": "Контакт",
+    "role": "Роль",
+    "roleOf": "Роль: {{name}}",
+    "rolePlaceholder": "Например, плательщик",
+    "saveRole": "Сохранить роль",
+    "remove": "Убрать {{name}}",
+    "search": "Найти контакт",
+    "notFound": "Ничего не найдено.",
+    "newContact": "Новый контакт",
+    "new": "Новый контакт-участник",
+    "firstName": "Имя",
+    "lastName": "Фамилия",
+    "phone": "Телефон",
+    "createAndAdd": "Создать и добавить",
+    "backToSearch": "К поиску",
+    "cancel": "Отмена"
+  },
+  "products": {
+    "title": "Товары",
+    "empty": "Товаров нет.",
+    "total": "Сумма по товарам",
+    "differs": "Сумма сделки — {{amount}}.",
+    "apply": "Подставить",
+    "line": "Строка «{{name}}»",
+    "product": "Товар",
+    "choose": "Выберите товар",
+    "quantity": "Количество",
+    "unitPrice": "Цена",
+    "priceHint": "Пусто — цена из каталога.",
+    "noCatalogPrice": "В каталоге нет цены в {{currency}} — введите цену.",
+    "save": "Сохранить",
+    "remove": "Убрать {{name}}",
+    "add": "Новая строка товара",
+    "addButton": "Добавить товар"
+  },
+  "payments": {
+    "title": "Платежи",
+    "stub": "Платежи появятся вместе с разделом платежей."
+  },
+  "registrations": {
+    "title": "Регистрации",
+    "stub": "Регистрации появятся вместе с приёмом заявок."
+  },
+  "errors": {
+    "unknown": "Не удалось выполнить действие. Попробуйте ещё раз.",
+    "PERMISSION_DENIED": "Нет права на это действие.",
+    "INVALID_DEAL": "Значение не подходит.",
+    "DEAL_NOT_FOUND": "Сделка не найдена.",
+    "PIPELINE_NOT_FOUND": "Воронка не найдена.",
+    "PIPELINE_ARCHIVED": "Воронка в архиве.",
+    "PIPELINE_HAS_NO_STAGES": "В воронке нет этапов.",
+    "UPSELL_PIPELINE_MISSING": "В проекте нет воронки допродаж — выберите другую.",
+    "STAGE_NOT_FOUND": "Этап не найден.",
+    "STAGE_DELETED": "Этап сделки удалён — сначала выберите другой.",
+    "CONTACT_NOT_FOUND": "Контакт не найден.",
+    "CONTACT_IN_TRASH": "Контакт в корзине.",
+    "ORGANIZATION_NOT_FOUND": "Организация не найдена.",
+    "OWNER_NOT_MEMBER": "Этот пользователь не работает в проекте.",
+    "LOST_REASON_REQUIRED": "Выберите причину проигрыша.",
+    "LOST_REASON_NOT_FOUND": "Причина не найдена.",
+    "LOST_REASON_ARCHIVED": "Причина в архиве — выберите другую.",
+    "OPEN_DEAL_EXISTS": "У клиента уже есть открытая сделка в этой воронке.",
+    "DEAL_ALREADY_TAKEN": "Сделку уже взял другой менеджер.",
+    "DEAL_NOT_WON": "Допродажа — только из выигранной сделки.",
+    "PARTICIPANT_EXISTS": "Этот контакт уже участник.",
+    "PARTICIPANT_NOT_FOUND": "Участник уже убран.",
+    "CONTACT_IS_PRIMARY": "Это основной контакт сделки.",
+    "CONTACT_IS_PARTICIPANT": "Этот контакт — участник сделки; сначала уберите его из участников.",
+    "PRODUCT_NOT_FOUND": "Товар не найден.",
+    "PRODUCT_ARCHIVED": "Товар в архиве.",
+    "PRICE_REQUIRED": "У товара нет цены в валюте сделки — введите цену.",
+    "LINE_NOT_FOUND": "Строка уже убрана.",
+    "DEAL_HAS_NO_PRODUCTS": "В сделке нет товаров.",
+    "PRODUCTS_TOTAL_TOO_LARGE": "Сумма по товарам слишком велика для сделки.",
+    "INVALID_PHONE": "Телефон не подходит.",
+    "INVALID_EMAIL": "Email не подходит.",
+    "INVALID_CONTACT": "Данные контакта не подходят."
+  }
+}

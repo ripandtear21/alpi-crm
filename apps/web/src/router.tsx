@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-router'
 import { CurrentProjectProvider } from './components/project-switcher/current-project.tsx'
 import { createProjectsApi, type ProjectsApi } from './components/project-switcher/projects-api.ts'
+import { createTimelineApi, type TimelineApi } from './components/timeline/timeline-api.ts'
 import { HomePage } from './home-page.tsx'
 import { AppLayout } from './layout/app-layout.tsx'
 import { SectionPlaceholder } from './layout/section-placeholder.tsx'
@@ -17,6 +18,8 @@ import { ChangePasswordPage } from './routes/auth/change-password-page.tsx'
 import { SignInPage } from './routes/auth/sign-in-page.tsx'
 import { TwoFactorPage } from './routes/auth/two-factor-page.tsx'
 import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
+import { createDealCardApi, type DealCardApi } from './routes/deals/$dealId/deal-card-api.ts'
+import { DealCardPage } from './routes/deals/$dealId/deal-card-page.tsx'
 import { createDealsApi, type DealsApi } from './routes/deals/deals-api.ts'
 import { KanbanPage } from './routes/deals/kanban-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
@@ -42,6 +45,8 @@ export interface RouterContext {
   pipelines: PipelinesApi
   products: ProductsApi
   deals: DealsApi
+  dealCard: DealCardApi
+  timeline: TimelineApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -225,6 +230,17 @@ const productsRoute = createRoute({
   },
 })
 
+// Карточка сделки (тикет crm-deals/13).
+const dealCardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/deals/$dealId',
+  component: function DealCardRoute() {
+    const { dealCard, timeline, session } = dealCardRoute.useRouteContext()
+    const { dealId } = dealCardRoute.useParams()
+    return <DealCardPage api={dealCard} timeline={timeline} dealId={dealId} user={session.user} />
+  },
+})
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   twoFactorRoute,
@@ -244,6 +260,7 @@ const routeTree = rootRoute.addChildren([
     pipelinesRoute,
     lostReasonsRoute,
     productsRoute,
+    dealCardRoute,
   ]),
 ])
 
@@ -266,6 +283,10 @@ export interface AppRouterOptions {
   products?: ProductsApi
   /** Только в тестах: подставной клиент канбана сделок. В браузере — запросы к API. */
   deals?: DealsApi
+  /** Только в тестах: подставной клиент карточки сделки. В браузере — запросы к API. */
+  dealCard?: DealCardApi
+  /** Только в тестах: подставной клиент ленты записи. В браузере — запросы к API. */
+  timeline?: TimelineApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -280,6 +301,8 @@ export function createAppRouter({
   pipelines = createPipelinesApi(),
   products = createProductsApi(),
   deals = createDealsApi(),
+  dealCard = createDealCardApi(),
+  timeline = createTimelineApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -291,6 +314,8 @@ export function createAppRouter({
     pipelines,
     products,
     deals,
+    dealCard,
+    timeline,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })

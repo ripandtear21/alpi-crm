@@ -1,7 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createDb, type Database, migrateToLatest } from '@alpi/db'
 import { startTestDatabase, type TestDatabase } from '@alpi/db/testing'
-import { PROJECT_HEADER, type ProjectSummary } from '@alpi/shared'
+import {
+  PROJECT_HEADER,
+  type ProjectAccess,
+  type ProjectSummary,
+  type RoleTemplateKey,
+} from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -185,9 +190,13 @@ describe('проекты и контекст проекта', () => {
 
   /**
    * Участие пользователя в проекте — служебной ролью, как его выдаст тикет 06; роль —
-   * шаблон «менеджер» этого проекта.
+   * шаблон этого проекта, по умолчанию «менеджер».
    */
-  async function addMember(projectId: string, userId: string): Promise<void> {
+  async function addMember(
+    projectId: string,
+    userId: string,
+    template: RoleTemplateKey = 'manager',
+  ): Promise<void> {
     await owner
       .insertInto('project_member')
       .values({
@@ -197,7 +206,7 @@ describe('проекты и контекст проекта', () => {
           .selectFrom('role')
           .select('id')
           .where('project_id', '=', projectId)
-          .where('template_key', '=', 'manager'),
+          .where('template_key', '=', template),
       })
       .execute()
   }
@@ -307,7 +316,8 @@ describe('проекты и контекст проекта', () => {
       projectA = await createProjectVia(systemOwner, 'A')
       projectB = await createProjectVia(systemOwner, 'B')
       await addMember(projectA.id, both.id)
-      await addMember(projectB.id, both.id)
+      // В B — другая роль: права в ответе /project/access берутся из роли текущего проекта.
+      await addMember(projectB.id, both.id, 'head')
       await addMember(projectA.id, onlyA.id)
       await owner
         .insertInto('external_link')
@@ -331,6 +341,34 @@ describe('проекты и контекст проекта', () => {
       const res = await onlyA.api('GET', '/project', { project: projectA.id })
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual(projectA)
+    })
+
+    it('права пользователя — по его роли в текущем проекте, без чужих данных', async () => {
+      const inA = await both.api('GET', '/project/access', { project: projectA.id })
+      expect(inA.status).toBe(200)
+      const accessA = (await inA.json()) as ProjectAccess
+      expect(Object.keys(accessA).sort()).toEqual(['permissions', 'userId'])
+      expect(accessA.userId).toBe(both.id)
+      // Менеджер: без «передачи сделок» и без удаления сделок.
+      expect(accessA.permissions.standalone).not.toContain('transfer_deals')
+      expect(accessA.permissions.actions.deals).toEqual(['view', 'create', 'edit'])
+
+      const inB = await both.api('GET', '/project/access', { project: projectB.id })
+      expect(inB.status).toBe(200)
+      const accessB = (await inB.json()) as ProjectAccess
+      expect(accessB.userId).toBe(both.id)
+      expect(accessB.permissions.standalone).toContain('transfer_deals')
+      expect(accessB.permissions.actions.deals).toContain('delete')
+
+      // Не участник B — тот же 403, что у любого запроса в контексте чужого проекта.
+      const outsider = await onlyA.api('GET', '/project/access', { project: projectB.id })
+      expect(outsider.status).toBe(403)
+      expect(await outsider.json()).toEqual({ code: 'PROJECT_FORBIDDEN' })
+
+      const anonymous = await app.request(`${ORIGIN}/project/access`, {
+        headers: { origin: ORIGIN, [PROJECT_HEADER]: projectA.id },
+      })
+      expect(anonymous.status).toBe(401)
     })
 
     it('без участия в проекте — 403 на любой запрос в его контексте', async () => {

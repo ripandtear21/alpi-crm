@@ -1,3 +1,5 @@
+import type { RolePermissions } from './permissions.ts'
+
 export * from './audit.ts'
 export * from './members.ts'
 export * from './permissions.ts'
@@ -18,6 +20,15 @@ export interface ProjectSummary {
   id: string
   code: string
   name: string
+}
+
+/**
+ * Ответ `GET /project/access`: права самого пользователя в текущем проекте (по роли участника).
+ * Интерфейс прячет по ним действия без права; проверяет каждый запрос всё равно сервер.
+ */
+export interface ProjectAccess {
+  userId: string
+  permissions: RolePermissions
 }
 
 /** Заголовок запроса с id выбранного проекта: по нему API выполняет запрос в контексте проекта. */

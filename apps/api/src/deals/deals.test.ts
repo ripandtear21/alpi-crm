@@ -258,6 +258,12 @@ describe('сделки', () => {
     return res
   }
 
+  /** 404 «сделки нет» — и в теле только код, без данных сделки. */
+  async function expectDealNotFound(res: Response) {
+    await expectStatus(res, 404)
+    expect(await res.json()).toEqual({ code: 'DEAL_NOT_FOUND' })
+  }
+
   async function createContact(
     user: SignedInUser,
     firstName: string,
@@ -529,9 +535,9 @@ describe('сделки', () => {
     it('«свои»: сделка коллеги — 404, сделка общей очереди — видна', async () => {
       const contact = await createContact(managerA1, 'Охват')
       const mine = await createDeal(managerA1, { pipelineId: dirA.main.id, contactId: contact.id })
-      await expectStatus(await call(managerA2, 'GET', `/v1/deals/${mine.id}`), 404)
-      await expectStatus(await call(managerA2, 'PUT', `/v1/deals/${mine.id}`, { title: 'Х' }), 404)
-      await expectStatus(await call(managerA2, 'GET', `/v1/deals/${mine.id}/history`), 404)
+      await expectDealNotFound(await call(managerA2, 'GET', `/v1/deals/${mine.id}`))
+      await expectDealNotFound(await call(managerA2, 'PUT', `/v1/deals/${mine.id}`, { title: 'Х' }))
+      await expectDealNotFound(await call(managerA2, 'GET', `/v1/deals/${mine.id}/history`))
 
       const queued = await createDeal(admin, {
         pipelineId: dirA.other.id,
@@ -1361,8 +1367,8 @@ describe('сделки', () => {
         204,
       )
       await expectStatus(await call(admin, 'GET', `/v1/contacts/${contact.id}`), 404)
-      await expectStatus(await call(admin, 'GET', `/v1/deals/${d1.id}`), 404)
-      await expectStatus(await call(admin, 'GET', `/v1/deals/${d2.id}`), 404)
+      await expectDealNotFound(await call(admin, 'GET', `/v1/deals/${d1.id}`))
+      await expectDealNotFound(await call(admin, 'GET', `/v1/deals/${d2.id}`))
       // Сделку не восстановить, пока её контакт в корзине.
       const blocked = await act(admin, d1.id, 'restore')
       expect(blocked.status).toBe(409)
@@ -1385,7 +1391,7 @@ describe('сделки', () => {
       )
       await expectStatus(await call(admin, 'POST', `/v1/contacts/${contact.id}/restore`), 200)
       await expectStatus(await call(admin, 'GET', `/v1/deals/${later.id}`), 200)
-      await expectStatus(await call(admin, 'GET', `/v1/deals/${early.id}`), 404)
+      await expectDealNotFound(await call(admin, 'GET', `/v1/deals/${early.id}`))
       const restored = await json<DealView>(await act(admin, early.id, 'restore'))
       expect(restored.deletedAt).toBeNull()
     })

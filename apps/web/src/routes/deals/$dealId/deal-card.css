@@ -1,0 +1,369 @@
+/* Карточка сделки (тикет crm-deals/13): раскладка Pipedrive, стиль Actum. Шапка на всю ширину
+   (≈148 px, три строки); слева колонка ≈480 px со своей прокруткой, справа лента до 1200 px с
+   отступом 24. На узком экране — одна колонка, блоки друг под другом. */
+
+.deal-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.deal-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.deal-card__row1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
+.deal-card__title-wrap,
+.deal-card__title-form {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.deal-card__title {
+  font-size: 25px;
+  line-height: 38px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.deal-card__title-form .ui-input {
+  flex: 1 1 auto;
+  font-size: 20px;
+}
+
+.deal-card__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.deal-card__head-actions .ui-button {
+  min-height: 32px;
+}
+
+.deal-card__win {
+  background: var(--win-solid);
+  border-color: var(--win-solid);
+  color: var(--on-solid);
+}
+
+.deal-card__owner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-right: var(--s-2);
+}
+
+.deal-card__avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.deal-card__owner-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 18px;
+}
+
+.deal-card__owner-name {
+  font-size: 14px;
+}
+
+.deal-card__owner-label,
+.deal-card__row3 {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.deal-card__row3 {
+  margin: 0;
+}
+
+/* Полоса этапов 24 px: равные шевроны с остриём 6 px, пройденные и текущий — зелёные. */
+.deal-card__path {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 2px;
+}
+
+.deal-card__path-item {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.deal-card__stage {
+  display: block;
+  width: 100%;
+  height: 24px;
+  border: 0;
+  padding: 0 var(--s-3);
+  background: var(--raised);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%, 6px 50%);
+  cursor: pointer;
+}
+
+.deal-card__path-item:first-child .deal-card__stage {
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%);
+}
+
+.deal-card__stage span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deal-card__stage--done,
+.deal-card__stage--current {
+  background: var(--win-solid);
+  color: var(--on-solid);
+}
+
+.deal-card__stage:disabled {
+  cursor: default;
+}
+
+.deal-card__stage:focus-visible {
+  outline: var(--focus-w) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+.deal-card__pipeline {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.deal-card__body {
+  display: grid;
+  grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.deal-card__side {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.deal-card__main {
+  overflow-y: auto;
+  padding: var(--s-6);
+}
+
+.deal-card__main > * {
+  max-width: 1200px;
+}
+
+.deal-card__filter {
+  margin-bottom: var(--s-2);
+}
+
+.deal-card__block {
+  border-bottom: 1px solid var(--line);
+}
+
+.deal-card__block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 56px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.deal-card__block-body {
+  padding-bottom: var(--s-4);
+}
+
+.deal-card__group {
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  padding: 0 var(--s-3);
+}
+
+.deal-card__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.deal-card__group-count {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.deal-card__rows {
+  margin: 0;
+}
+
+.deal-card__row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: center;
+  min-height: 32px;
+}
+
+.deal-card__row dt {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+}
+
+.deal-card__row dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+
+.deal-card__value {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-inner);
+}
+
+.deal-card__value:hover {
+  background: var(--hover);
+}
+
+.deal-card__value-form,
+.deal-card__contact-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.deal-card__value-form .ui-input,
+.deal-card__value-form .ui-select {
+  width: 150px;
+}
+
+.deal-card__contact-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 var(--s-2);
+}
+
+.deal-card__to-fill {
+  margin: 0;
+  padding-left: var(--s-5);
+  font-size: 14px;
+}
+
+.deal-card__stub {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+  margin: 0;
+}
+
+.deal-card__link {
+  color: var(--accent-text);
+  font-size: 12px;
+}
+
+.deal-card__focus {
+  border: 1px dashed var(--line-2);
+  border-radius: 8px;
+  padding: var(--s-3) var(--s-4);
+}
+
+.deal-card__focus-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 var(--s-2);
+}
+
+.deal-card__dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.deal-card__denied {
+  padding: var(--s-6);
+}
+
+@media (max-width: 900px) {
+  .deal-card__head {
+    padding: var(--s-3) var(--s-4);
+  }
+
+  .deal-card__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .deal-card__side {
+    border-right: 0;
+    overflow-y: visible;
+  }
+
+  .deal-card__main {
+    overflow-y: visible;
+    padding: var(--s-4);
+  }
+
+  /* На телефоне полоса этапов прокручивается вбок, подпись текущего видна целиком. */
+  .deal-card__path {
+    overflow-x: auto;
+  }
+
+  .deal-card__path-item {
+    flex: 0 0 auto;
+    min-width: 96px;
+  }
+}
