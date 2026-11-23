@@ -12,7 +12,8 @@
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json",
     "create-owner": "node --env-file-if-exists=../../.env src/cli/create-owner.ts",
-    "project-preset": "node --env-file-if-exists=../../.env src/cli/project-preset.ts"
+    "project-preset": "node --env-file-if-exists=../../.env src/cli/project-preset.ts",
+    "seed": "node --env-file-if-exists=../../.env src/cli/seed.ts"
   },
   "dependencies": {
     "@alpi/db": "workspace:*",
@@ -22,7 +23,8 @@
     "hono": "4.13.16",
     "kysely": "0.29.8",
     "pg": "8.23.1",
-    "pg-boss": "12.38.0"
+    "pg-boss": "12.38.0",
+    "pg-connection-string": "2.14.1"
   },
   "devDependencies": {
     "vite": "8.3.5"
