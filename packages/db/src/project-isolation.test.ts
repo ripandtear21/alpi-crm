@@ -26,6 +26,7 @@ const migrationNames = [
   '0010_deals',
   '0011_products',
   '0012_notes_files',
+  '0014_saved_filters',
 ]
 
 const tablesOfMigration = [
@@ -69,6 +70,8 @@ const tablesOfMigration = [
   // 0012_notes_files
   'note',
   'file',
+  // 0014_saved_filters
+  'saved_filter',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -330,6 +333,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'product', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },
+        { table: 'saved_filter', rls: true, policies: 1 },
         { table: 'stage', rls: true, policies: 1 },
         { table: 'team', rls: true, policies: 1 },
       ])

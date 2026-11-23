@@ -2,7 +2,13 @@ import type { Database } from '@alpi/db'
 import { can, hasStandalone } from '@alpi/shared'
 import { Hono } from 'hono'
 import { sql, type UpdateObject } from 'kysely'
-import { diffFields, type FieldChange, recordChanges } from '../change-log/record.ts'
+import { recordInRequest } from '../audit/record.ts'
+import {
+  diffFields,
+  type FieldChange,
+  purgeFromTrash,
+  recordChanges,
+} from '../change-log/record.ts'
 import { createContactInRequest } from '../contacts/contacts.ts'
 import {
   type Ctx,
@@ -754,6 +760,18 @@ async function restoreDeal(ctx: DealContext, id: string): Promise<Result<DealVie
   return ok(await dealView(ctx.db, await reloadDeal(ctx, id)))
 }
 
+/**
+ * Окончательное удаление из корзины (тикет 12): сделка уходит вместе с участниками, строками
+ * товаров, заметками, файлами и историей; в журнал опасных действий — только id.
+ */
+async function purgeDeal(ctx: DealContext, id: string): Promise<Result<null>> {
+  const found = await writableDeal(ctx, id, { inTrash: true })
+  if (!found.ok) return found
+  if (found.value.deleted_at === null) return refuse(409, 'NOT_IN_TRASH')
+  await purgeFromTrash(ctx, { type: 'deal', id })
+  return ok(null)
+}
+
 // ---- Участники ------------------------------------------------------------------------------
 
 function readRole(value: unknown): string | null | undefined {
@@ -974,6 +992,13 @@ export function dealsRoutes({
       .post('/:id/restore', requirePermission('trash', 'edit'), async (c) =>
         respond(c, await restoreDeal(await dealContext(c), c.req.param('id'))),
       )
+      .delete('/:id/permanent', requirePermission('trash', 'delete'), async (c) => {
+        const id = c.req.param('id')
+        const outcome = await purgeDeal(await dealContext(c), id)
+        if (!outcome.ok) return fail(c, outcome)
+        await recordInRequest(c, { action: 'deal.purged', entity: { type: 'deal', id } })
+        return c.body(null, 204)
+      })
       .post('/:id/participants', edit, async (c) =>
         respond(c, await addParticipant(c, await dealContext(c), c.req.param('id')), 201),
       )

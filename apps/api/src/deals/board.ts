@@ -1,7 +1,20 @@
 import type { Database } from '@alpi/db'
+import { type FilterGroup, type ListCount, type ListSort, parseSort } from '@alpi/shared'
 import { type Expression, type ExpressionBuilder, type SqlBool, sql } from 'kysely'
 import { type Ctx, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
+import { compileDealFilter, readFilterParam } from '../filters/compile.ts'
+import {
+  afterPosition,
+  countRows,
+  decodePageCursor,
+  encodePageCursor,
+  numericKey,
+  type PagePosition,
+  type SortKey,
+  textKey,
+  timeKey,
+} from '../filters/page.ts'
 import { dealInScope, ownerInScope } from './scope.ts'
 import type { DealContext, DealCurrency, DealStatus, Result } from './store.ts'
 
@@ -16,7 +29,12 @@ import type { DealContext, DealCurrency, DealStatus, Result } from './store.ts'
 //   status=open|won|lost|any   по умолчанию open;
 //   archived=false|true|any    по умолчанию false;
 //   limit=1…200        по умолчанию 50;
-//   cursor=<строка>    nextCursor предыдущей страницы, как есть.
+//   cursor=<строка>    nextCursor предыдущей страницы, как есть;
+//   filter=<JSON>      дерево условий фильтра (packages/shared/src/filters, тикет 12) — то же
+//                      для списка, канбана, агрегатов, счётчика, выгрузки и массовых действий;
+//                      без условия на архив архивные скрыты, если archived=any;
+//   sort=<колонка>:<asc|desc>  сортировка списка (title, amount, createdAt, stageChangedAt),
+//                      по умолчанию stageChangedAt:desc.
 // Ответ — { items: BoardDeal[], nextCursor: string | null }; null — страниц больше нет.
 // Порядок — (stage_changed_at desc, id desc); курсор — непрозрачная строка base64url с
 // временем смены этапа (до микросекунд) и id последней сделки страницы: следующая страница
@@ -48,6 +66,14 @@ export interface BoardDeal {
   /** «Ім'я Прізвище» основного контакта; null — контакт вне охвата контактов пользователя. */
   contactName: string | null
   stageChangedAt: string
+  // Колонки списка (тикет 12).
+  organizationId: string | null
+  organizationName: string | null
+  lostReasonId: string | null
+  createdAt: string
+  wonAt: string | null
+  lostAt: string | null
+  archivedAt: string | null
 }
 
 export interface DealsPage {
@@ -89,7 +115,12 @@ export interface DealFilters {
   organizationId?: string
   status: (typeof STATUS_FILTERS)[number]
   archived: (typeof ARCHIVED_FILTERS)[number]
+  /** Фильтр списка (тикет 12), уже проверенный parseFilter. */
+  filter?: FilterGroup
 }
+
+/** Кто смотрит: охват сделок и id пользователя (значение «я» в фильтре). */
+export type DealViewer = Pick<DealContext, 'actorId' | 'scope' | 'viewer'>
 
 const invalid = (path: string) => refuse(400, 'INVALID_DEAL', { path })
 
@@ -105,7 +136,7 @@ function readUuidParam(c: Ctx, name: string): Result<string | undefined> {
 }
 
 /** Фильтры из параметров запроса; `pipelineId` маршрута агрегатов передаёт вызывающий. */
-function readFilters(c: Ctx, ctx: DealContext): Result<DealFilters> {
+function readFilters(c: Ctx, ctx: DealViewer): Result<DealFilters> {
   const pipeline = readUuidParam(c, 'pipeline')
   if (!pipeline.ok) return pipeline
   const stage = readUuidParam(c, 'stage')
@@ -120,7 +151,10 @@ function readFilters(c: Ctx, ctx: DealContext): Result<DealFilters> {
   if (archived === undefined) return invalid('archived')
   const owner = c.req.query('owner')
   if (owner !== undefined && (owner === '' || owner.length > 100)) return invalid('owner')
+  const filter = readFilterParam('deals', c.req.query('filter'))
+  if (!filter.ok) return refuse(400, 'INVALID_DEAL', { path: filter.path, message: filter.message })
   const filters: DealFilters = { status, archived }
+  if (filter.filter !== undefined) filters.filter = filter.filter
   if (pipeline.value !== undefined) filters.pipelineId = pipeline.value
   if (stage.value !== undefined) filters.stageId = stage.value
   if (contact.value !== undefined) filters.contactId = contact.value
@@ -131,10 +165,13 @@ function readFilters(c: Ctx, ctx: DealContext): Result<DealFilters> {
   return ok(filters)
 }
 
-/** Условие WHERE выдачи: охват, не в корзине, фильтры и дополнительное условие `extra`. */
-function dealsWhere(
+/**
+ * Условие WHERE выдачи: охват, не в корзине, фильтры и дополнительное условие `extra`. Одно на
+ * канбан, список, агрегаты, счётчик, выгрузку и выбор массовой операции по фильтру.
+ */
+export function dealsWhere(
   eb: ExpressionBuilder<Database, 'deal'>,
-  ctx: DealContext,
+  ctx: DealViewer,
   filters: DealFilters,
   extra: DealCondition | undefined,
 ): Expression<SqlBool> {
@@ -172,26 +209,45 @@ function dealsWhere(
   if (filters.archived !== 'any') {
     conditions.push(eb('deal.archived_at', filters.archived === 'true' ? 'is not' : 'is', null))
   }
+  if (filters.filter !== undefined) {
+    conditions.push(
+      compileDealFilter(filters.filter, { actorId: ctx.actorId }, filters.archived === 'any'),
+    )
+  }
   if (extra) conditions.push(extra(eb))
   return eb.and(conditions)
 }
 
-// ---- Курсор ---------------------------------------------------------------------------------
+// ---- Сортировка и курсор --------------------------------------------------------------------
 
-/** Позиция в выдаче: время смены этапа (ISO 8601, UTC, микросекунды) и id сделки. */
-export interface Cursor {
-  t: string
-  id: string
+export type DealSort = ListSort<'deals'>
+
+/** Порядок канбана: недавно пришедшие на этап сверху. */
+export const DEFAULT_DEAL_SORT: DealSort = { column: 'stageChangedAt', direction: 'desc' }
+
+/** Колонки сортировки списка → столбцы сделки (белый список, имя из запроса в SQL не идёт). */
+const DEAL_SORT_KEYS: Record<DealSort['column'], SortKey> = {
+  title: textKey('deal.title'),
+  amount: numericKey('deal.amount'),
+  createdAt: timeKey('deal.created_at'),
+  stageChangedAt: timeKey('deal.stage_changed_at'),
 }
 
-const CURSOR_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/
+const sortName = (sort: DealSort) => `${sort.column}:${sort.direction}`
+const isDefaultSort = (sort: DealSort) => sortName(sort) === sortName(DEFAULT_DEAL_SORT)
 
-function encodeCursor(cursor: Cursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64url')
-}
+/** Позиция в выдаче: значение колонки сортировки и id сделки. */
+export type Cursor = PagePosition
 
-/** Курсор из строки запроса; не тот формат — undefined (ответ 400, а не ошибка базы). */
-export function decodeCursor(raw: string): Cursor | undefined {
+/**
+ * Курсор из строки запроса для сортировки `sort`; не тот формат — undefined (ответ 400, а не
+ * ошибка базы). У порядка канбана курсор прежний (тикет 11): `{ t, id }` — время смены этапа
+ * до микросекунд и id последней сделки.
+ */
+export function decodeCursor(raw: string, sort: DealSort = DEFAULT_DEAL_SORT): Cursor | undefined {
+  if (!isDefaultSort(sort)) {
+    return decodePageCursor(raw, sortName(sort), DEAL_SORT_KEYS[sort.column].cast)
+  }
   let value: unknown
   try {
     value = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'))
@@ -200,27 +256,41 @@ export function decodeCursor(raw: string): Cursor | undefined {
   }
   if (typeof value !== 'object' || value === null) return undefined
   const { t, id } = value as Record<string, unknown>
-  if (typeof t !== 'string' || typeof id !== 'string' || !UUID.test(id)) return undefined
-  if (!CURSOR_TIME.test(t)) return undefined
-  // Дата и время существуют (не 30 февраля и не 25 часов): иначе база отказала бы с ошибкой.
-  const date = new Date(t)
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 19) !== t.slice(0, 19)) {
-    return undefined
-  }
-  return { t, id: id.toLowerCase() }
+  if (typeof t !== 'string' || typeof id !== 'string') return undefined
+  // Та же проверка, что у курсоров списка: время существует, id — uuid.
+  return decodePageCursor(
+    encodePageCursor(sortName(sort), { v: t, id }),
+    sortName(sort),
+    'timestamptz',
+  )
+}
+
+function encodeCursor(sort: DealSort, position: Cursor): string {
+  return isDefaultSort(sort)
+    ? Buffer.from(JSON.stringify({ t: position.v, id: position.id })).toString('base64url')
+    : encodePageCursor(sortName(sort), position)
 }
 
 // ---- Выдача ---------------------------------------------------------------------------------
 
+const isoOrNull = (value: Date | string | null) =>
+  value === null ? null : new Date(value).toISOString()
+
 /**
- * Страница сделок по `filters` после курсора `cursor`, `limit` штук, с дополнительным условием
- * `extra` (фильтры списка, тикет 12).
+ * Страница сделок по `filters` после курсора `cursor`, `limit` штук, в порядке `sort` (по
+ * умолчанию — канбана), с дополнительным условием `extra`.
  */
 export async function listDealsPage(
   ctx: DealContext,
   filters: DealFilters,
-  { cursor, limit, extra }: { cursor?: Cursor; limit: number; extra?: DealCondition },
+  {
+    cursor,
+    limit,
+    extra,
+    sort = DEFAULT_DEAL_SORT,
+  }: { cursor?: Cursor; limit: number; extra?: DealCondition; sort?: DealSort },
 ): Promise<DealsPage> {
+  const key = DEAL_SORT_KEYS[sort.column]
   let query = ctx.db
     .selectFrom('deal')
     .select([
@@ -233,27 +303,26 @@ export async function listDealsPage(
       'deal.owner_id',
       'deal.status',
       'deal.primary_contact_id',
+      'deal.organization_id',
+      'deal.lost_reason_id',
+      'deal.created_at',
+      'deal.won_at',
+      'deal.lost_at',
+      'deal.archived_at',
     ])
-    .select(
-      sql<string>`to_char(deal.stage_changed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
-        'stage_changed_at',
-      ),
-    )
+    .select(timeKey('deal.stage_changed_at').text.as('stage_changed_at'))
+    .select(key.text.as('sort_value'))
     .where((eb) => dealsWhere(eb, ctx, filters, extra))
-    .orderBy('deal.stage_changed_at', 'desc')
-    .orderBy('deal.id', 'desc')
+    .orderBy(key.order, sort.direction)
+    .orderBy('deal.id', sort.direction)
     // Одна лишняя строка — узнать, есть ли следующая страница.
     .limit(limit + 1)
-  if (cursor) {
-    query = query.where(
-      sql<SqlBool>`(deal.stage_changed_at, deal.id) < (${cursor.t}::timestamptz, ${cursor.id}::uuid)`,
-    )
-  }
+  if (cursor) query = query.where(afterPosition(key, sort.direction, 'deal.id', cursor))
   const rows = await query.execute()
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   const nextCursor =
-    rows.length > limit && last ? encodeCursor({ t: last.stage_changed_at, id: last.id }) : null
+    rows.length > limit && last ? encodeCursor(sort, { v: last.sort_value, id: last.id }) : null
 
   const ownerIds = [...new Set(page.flatMap((row) => (row.owner_id ? [row.owner_id] : [])))]
   const owners = new Map(
@@ -283,6 +352,22 @@ export async function listDealsPage(
             .execute()
         ).map((row) => [row.id, [row.first_name, row.last_name].filter(Boolean).join(' ')]),
   )
+  // Организации охвата нет; организация в корзине — без имени, как удалённая.
+  const organizationIds = [
+    ...new Set(page.flatMap((row) => (row.organization_id ? [row.organization_id] : []))),
+  ]
+  const organizations = new Map(
+    organizationIds.length === 0
+      ? []
+      : (
+          await ctx.db
+            .selectFrom('organization')
+            .select(['id', 'name'])
+            .where('id', 'in', organizationIds)
+            .where('deleted_at', 'is', null)
+            .execute()
+        ).map((row) => [row.id, row.name]),
+  )
 
   return {
     items: page.map((row) => ({
@@ -298,21 +383,59 @@ export async function listDealsPage(
       primaryContactId: row.primary_contact_id,
       contactName: contacts.get(row.primary_contact_id) ?? null,
       stageChangedAt: row.stage_changed_at,
+      organizationId: row.organization_id,
+      organizationName:
+        row.organization_id === null ? null : (organizations.get(row.organization_id) ?? null),
+      lostReasonId: row.lost_reason_id,
+      createdAt: new Date(row.created_at).toISOString(),
+      wonAt: isoOrNull(row.won_at),
+      lostAt: isoOrNull(row.lost_at),
+      archivedAt: isoOrNull(row.archived_at),
     })),
     nextCursor,
   }
 }
 
-/** `GET /v1/deals`. */
-export async function listDeals(c: Ctx, ctx: DealContext): Promise<Result<DealsPage>> {
+/** Запрос выдачи: фильтры, сортировка, курсор и размер страницы из параметров. */
+export interface DealsQuery {
+  filters: DealFilters
+  sort: DealSort
+  cursor?: Cursor
+  limit: number
+}
+
+/** Параметры выдачи `GET /v1/deals` (их же читают счётчик и выгрузка). */
+export function readDealsQuery(c: Ctx, ctx: DealViewer): Result<DealsQuery> {
   const filters = readFilters(c, ctx)
   if (!filters.ok) return filters
   const limit = readLimit(c.req.query('limit'))
   if (limit === undefined) return invalid('limit')
+  const rawSort = c.req.query('sort')
+  const sort = rawSort === undefined ? DEFAULT_DEAL_SORT : parseSort('deals', rawSort)
+  if (!sort) return invalid('sort')
   const rawCursor = c.req.query('cursor')
-  const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor)
+  const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, sort)
   if (rawCursor !== undefined && cursor === undefined) return invalid('cursor')
-  return ok(await listDealsPage(ctx, filters.value, cursor ? { cursor, limit } : { limit }))
+  return ok({ filters: filters.value, sort, limit, ...(cursor ? { cursor } : {}) })
+}
+
+/** `GET /v1/deals`. */
+export async function listDeals(c: Ctx, ctx: DealContext): Promise<Result<DealsPage>> {
+  const query = readDealsQuery(c, ctx)
+  if (!query.ok) return query
+  const { filters, ...page } = query.value
+  return ok(await listDealsPage(ctx, filters, page))
+}
+
+/** `GET /v1/deals/count`: число сделок выдачи (до порога точно, выше — оценка). */
+export async function countDeals(c: Ctx, ctx: DealContext): Promise<Result<ListCount>> {
+  const filters = readFilters(c, ctx)
+  if (!filters.ok) return filters
+  const query = ctx.db
+    .selectFrom('deal')
+    .select('deal.id')
+    .where((eb) => dealsWhere(eb, ctx, filters.value, undefined))
+  return ok(await countRows(ctx.db, query))
 }
 
 // ---- Агрегаты -------------------------------------------------------------------------------

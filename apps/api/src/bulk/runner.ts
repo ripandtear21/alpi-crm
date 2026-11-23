@@ -1,5 +1,4 @@
 import { type Database, withProject } from '@alpi/db'
-import { can, hasStandalone } from '@alpi/shared'
 import { type Kysely, sql, type Transaction } from 'kysely'
 import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
 import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
@@ -8,6 +7,7 @@ import {
   type BulkActionRegistry,
   type BulkContext,
   BulkRecordError,
+  bulkAllowed,
 } from './registry.ts'
 
 // Выполнение массовой операции (тикет crm-deals/04). Вызывает обработчик очереди pg-boss
@@ -250,10 +250,7 @@ async function isBanned(trx: Transaction<Database>, userId: string): Promise<boo
 }
 
 function allowed(access: MemberAccess, action: BulkAction): boolean {
-  return (
-    hasStandalone(access.permissions, action.standalone ?? 'bulk_operations') &&
-    can(access.permissions, action.requires.resource, action.requires.action)
-  )
+  return bulkAllowed(access.permissions, action)
 }
 
 async function context(

@@ -9,16 +9,20 @@ import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
 import { type BulkDeps, bulkRoutes, NO_BULK } from './bulk/routes.ts'
 import { contactsRoutes } from './contacts/contacts.ts'
 import type { ContactDependents } from './contacts/dependents.ts'
+import { contactListRoutes } from './contacts/list.ts'
 import { dealsRoutes, pipelineAggregatesRoutes } from './deals/deals.ts'
 import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
+import { dealListRoutes } from './deals/list-routes.ts'
 import { NO_STAGE_REQUIREMENTS, type StageRequirements } from './deals/stage-requirements.ts'
 import { isFileUpload } from './files/files.ts'
+import { savedFiltersRoutes } from './filters/saved.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
 import { OPEN_MEMBER_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
 import { memberTransferRoutes } from './members/transfer.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
+import { organizationListRoutes } from './organizations/list.ts'
 import { organizationsRoutes } from './organizations/organizations.ts'
 import { pipelinesRoutes } from './pipelines/pipelines.ts'
 import { OPEN_STAGE_DEALS, type StageDealsChecker } from './pipelines/stage-deals.ts'
@@ -28,6 +32,7 @@ import { rolesRoutes } from './roles/roles.ts'
 import { type FileStorage, NO_FILE_STORAGE } from './storage/storage.ts'
 import { teamsRoutes } from './teams/teams.ts'
 import { entityRecordsRoutes } from './timeline/timeline.ts'
+import { trashRoutes } from './trash/routes.ts'
 
 /**
  * Наибольшее тело запроса. JSON API (роли, вход) — единицы килобайт; большие тела не должны
@@ -73,14 +78,24 @@ function v1Routes({
   contactDependents,
   storage,
   stageRequirements,
+  db,
 }: {
   stageDeals: StageDealsChecker
   contactDependents: ContactDependents
   storage: FileStorage
   stageRequirements: StageRequirements
+  /** Подключение ролью приложения: порции выгрузки CSV — в своих транзакциях проекта. */
+  db: Kysely<Database>
 }) {
   return (
     new Hono<PermissionsEnv>()
+      // Списки (тикет 12): счётчики и выгрузка — до разделов, иначе `count`, `list` и
+      // `export.csv` разобрались бы как id записи.
+      .route('/deals', dealListRoutes(db))
+      .route('/contacts', contactListRoutes(db))
+      .route('/organizations', organizationListRoutes(db))
+      .route('/saved-filters', savedFiltersRoutes())
+      .route('/trash', trashRoutes())
       .route('/deals', dealsRoutes({ stageRequirements }))
       .route('/pipelines', pipelinesRoutes({ stageDeals }))
       // Агрегаты колонок канбана: /v1/pipelines/:id/aggregates (deals/board.ts).
@@ -147,7 +162,7 @@ export function createApp({
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
       .route('/v1/members', memberTransferRoutes(bulk))
-      .route('/v1', v1Routes({ stageDeals, contactDependents, storage, stageRequirements }))
+      .route('/v1', v1Routes({ stageDeals, contactDependents, storage, stageRequirements, db }))
   )
 }
 

@@ -1,7 +1,7 @@
 # Списки сделок, контактов и организаций: фильтры, массовые действия, корзина
 
 Type: task
-Status: open
+Status: claimed 2026-11-23T20:03Z
 Blocked by: 01, 04, 05
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 4); .scratch/crm-mvp/spec.md, разделы 3.2 (`saved_filter`, удаление и архив), 4, 5.3, 5.5 (корзина), 13.0.2 (пункты 14, 35), 13.0.3 (пункты 7, 32)
 

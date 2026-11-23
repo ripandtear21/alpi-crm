@@ -37,6 +37,7 @@ export type {
   ProjectTable,
   RateLimitTable,
   RoleTable,
+  SavedFilterTable,
   SessionTable,
   StageTable,
   SystemAuditLogTable,
