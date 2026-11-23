@@ -32,12 +32,17 @@ apps/web/src/routes/deals/$dealId/**, apps/web/src/components/timeline/**, apps/
 ## Done when
 
 - [ ] Тест экрана: «Програно» без причины не отправляется; после проигрыша видна причина и кнопка «Відкрити знову»; после выигрыша — «Створити допродаж».
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
 - [ ] Тест экрана: «Підставити» видна только при расхождении суммы и «суми по товарах» и после нажатия сумма сделки равна сумме строк.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
 - [ ] Тест экрана: фильтр ленты «Нотатки» оставляет только заметки; новая заметка появляется сверху без перезагрузки.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
 - [ ] Тест прав: менеджер без права «передача сделок» не видит смены ответственного; без права удалять — кнопки удаления; прямой запрос чужой сделки показывает «немає доступу», и в ответе API нет её данных.
 - [ ] Тест: допродажа контакту, у которого уже есть открытая сделка в воронке допродаж, показывает подсказку со ссылкой и не создаёт сделку.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
 - [ ] Проверено в настоящем браузере на тестовых данных на 1280 и 375 px.
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 4971d6221628b81dba7229c96c75cbf69e156915
 
 ## Результат
 
