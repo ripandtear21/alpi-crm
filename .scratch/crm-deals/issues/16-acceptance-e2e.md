@@ -1,7 +1,8 @@
 # Приёмка: сценарий владельца автотестом Playwright
 
 Type: task
-Status: claimed 2026-11-23T22:08Z
+Status: done 2026-11-23T22:42Z
+PR: #17
 Blocked by: 11, 12, 13, 14, 15
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 6); .scratch/crm-deals/spec.md («Приёмка владельцем»); .scratch/crm-mvp/spec.md, раздел 12 («Эпик 2», «Готово, когда»)
 
@@ -29,12 +30,15 @@ e2e/** (сценарии и помощники Playwright), playwright.config.ts
 ## Done when
 
 - [ ] `pnpm e2e` проходит локально все 8 шагов и прогон на 375 px; вывод с кодом выхода приложен к отчёту.
-- [ ] Тест падает, если сломать охват: подмена предиката охвата на «все» делает шаг 8 красным (проверено один раз, результат записан в отчёт).
+- [x] Тест падает, если сломать охват: подмена предиката охвата на «все» делает шаг 8 красным (проверено один раз, результат записан в отчёт).
   - evidence: test-run pass · `pnpm exec playwright test --project desktop` with dealInScope replaced by true: exit 1, step 8 red (23 foreign owners on the manager kanban), mutant reverted · windows - · e5824c00916299dbaa73620794dd34c528b1553a
-- [ ] Задание CI зелёное на ветке (ссылка на запуск), при падении сохраняет трассировку как артефакт; `ci-ok` от него зависит.
+  - evidence: review pass · PR #17 · - - · 35c00c543e73ef2597ed3f64df36d390d3552c4e
+- [x] Задание CI зелёное на ветке (ссылка на запуск), при падении сохраняет трассировку как артефакт; `ci-ok` от него зависит.
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45279912651/job/138061342747 · ci - · 35c00c543e73ef2597ed3f64df36d390d3552c4e
 - [ ] Владелец прошёл сценарий руками на `pnpm seed` и подтвердил приёмку (отметка с датой в этом тикете).
-- [ ] `pnpm verify` зелёный.
+- [x] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e5824c00916299dbaa73620794dd34c528b1553a
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45279912651 · ci - · 35c00c543e73ef2597ed3f64df36d390d3552c4e
 
 ## Результат
 
@@ -46,5 +50,8 @@ e2e/** (сценарии и помощники Playwright), playwright.config.ts
 - Локальный прогон `pnpm e2e` (Windows, 2026-11-23): `8 passed, 2 skipped (fixme)`, exit 0.
 - Подмена охвата: `dealInScope` в `apps/api/src/deals/scope.ts` заменён на `true`, `pnpm exec playwright test --project desktop` — exit 1, шаг 8 красный (на канбане менеджера 23 карточки других ответственных), шаги 1–5 и 7 зелёные; подмена откачена, в коммиты не попала.
 - not verified: шаг 6 (поиск контакта по телефону в трёх форматах) и поисковая часть шага 8 написаны полностью, но помечены `test.fixme`: API поиска `GET /api/v1/search` из тикета 08 (PR #9) ещё не в `main`. Снять `fixme` после слияния PR #9. Поэтому пункт 1 «все 8 шагов» остаётся `[ ]`.
-- Задание CI `e2e (Playwright)` добавлено, `ci-ok` зависит от него; ссылка на зелёный запуск — после PR.
+- Задание CI `e2e (Playwright)` добавлено, `ci-ok` зависит от него. Зелёный запуск на ветке (голова 35c00c5): https://github.com/ripandtear21/alpi-crm/actions/runs/45279912651/job/138061342747 — «8 passed, 2 skipped». Выгрузка артефакта `e2e-traces` при падении проверена только по конфигурации (`ci.yml`): красного запуска в CI не было.
 - Ручная приёмка владельцем — за владельцем.
+- Проверка: VERIFIED (PR #17, проверяющий сам повторил `pnpm e2e` дважды, подмену охвата и остановку стенда после упавшего прогона), `GATE_SCOPE=all` gate full зелёный, слит squash-коммитом ab82d07; CI на `main`: https://github.com/ripandtear21/alpi-crm/actions/runs/45281522561 — success.
+- Noted: `pnpm test` (vitest со встроенным PostgreSQL из `packages/db/src/testing`) оставляет осиротевшие процессы `postgres.exe --forkchild="io_worker"` (11 после одного прогона gate у проверяющего); сам `pnpm e2e` их не оставляет. Вне этого тикета.
+- Шаг 6 и пометка `fixme` — решено без владельца, подтвердить.
