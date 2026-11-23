@@ -1,0 +1,229 @@
+{
+  "loading": "Завантаження угоди…",
+  "save": "Зберегти",
+  "cancel": "Скасувати",
+  "denied": {
+    "title": "Немає доступу",
+    "text": "Угоду не знайдено, її видалено або у вас немає до неї доступу.",
+    "back": "До списку угод"
+  },
+  "title": {
+    "label": "Назва угоди",
+    "rename": "Змінити назву"
+  },
+  "owner": {
+    "label": "Власник",
+    "change": "Змінити відповідального",
+    "queue": "Загальна черга",
+    "hidden": "Інший менеджер",
+    "take": "Взяти в роботу"
+  },
+  "status": {
+    "open": "Відкрита",
+    "won": "Виграно",
+    "lost": "Програно",
+    "lostWith": "Програно: {{reason}}",
+    "archived": "В архіві"
+  },
+  "actions": {
+    "win": "Виграно",
+    "lose": "Програно",
+    "reopen": "Відкрити знову",
+    "upsell": "Створити допродаж",
+    "more": "Інші дії з угодою",
+    "archive": "В архів",
+    "unarchive": "З архіву",
+    "remove": "Видалити угоду"
+  },
+  "stages": {
+    "label": "Етапи воронки",
+    "days_one": "{{count}} день",
+    "days_few": "{{count}} дні",
+    "days_many": "{{count}} днів",
+    "days_other": "{{count}} дня"
+  },
+  "lose": {
+    "title": "Угода програна",
+    "group": "Група причин",
+    "chooseGroup": "Оберіть групу",
+    "reason": "Причина",
+    "chooseReason": "Оберіть причину",
+    "required": "Оберіть причину програшу.",
+    "noReasons": "У проєкті немає діючих причин програшу — додайте їх у налаштуваннях.",
+    "submit": "Позначити програною"
+  },
+  "upsell": {
+    "title": "Нова угода-допродаж",
+    "pipeline": "Воронка",
+    "name": "Назва",
+    "defaultTitle": "{{title}} — допродаж",
+    "submit": "Створити"
+  },
+  "move": {
+    "title": "Воронка й етап",
+    "pipeline": "Воронка",
+    "stage": "Етап",
+    "submit": "Перенести"
+  },
+  "remove": {
+    "title": "Видалити угоду?",
+    "text": "Угода «{{title}}» потрапить у кошик; звідти її можна відновити протягом 30 днів.",
+    "submit": "Видалити"
+  },
+  "conflict": {
+    "open": "Відкрити ту угоду",
+    "manager": "Клієнт уже в роботі у {{name}}."
+  },
+  "focus": {
+    "title": "Фокус",
+    "next": "Що зробити далі: тут буде наступна задача угоди, коли з’явиться розділ задач."
+  },
+  "side": {
+    "label": "Поля угоди",
+    "filter": "Фільтрувати поля"
+  },
+  "toFill": {
+    "title": "Заповніть"
+  },
+  "summary": {
+    "title": "Підсумок",
+    "productsTotal": "Сума по товарах",
+    "empty": "Не вказано",
+    "products_one": "{{count}} товар",
+    "products_few": "{{count}} товари",
+    "products_many": "{{count}} товарів",
+    "products_other": "{{count}} товару",
+    "participants_one": "і ще {{count}} учасник",
+    "participants_few": "і ще {{count}} учасники",
+    "participants_many": "і ще {{count}} учасників",
+    "participants_other": "і ще {{count}} учасника"
+  },
+  "details": {
+    "title": "Деталі",
+    "main": "Основне",
+    "filled": "{{filled}}/{{total}}",
+    "edit": "Змінити: {{field}}"
+  },
+  "fields": {
+    "title": "Назва",
+    "pipelineId": "Воронка",
+    "stageId": "Етап",
+    "status": "Статус",
+    "lostReasonId": "Причина програшу",
+    "amount": "Сума",
+    "currency": "Валюта",
+    "ownerId": "Відповідальний",
+    "primaryContactId": "Контакт",
+    "organizationId": "Організація",
+    "wonAt": "Дата виграшу",
+    "lostAt": "Дата програшу",
+    "expectedCloseDate": "Дата закриття",
+    "archivedAt": "Архів",
+    "deletedAt": "Кошик",
+    "participants": "Учасники",
+    "createdAt": "Створена"
+  },
+  "changes": {
+    "unknown": "(видалено)",
+    "record": "інший запис"
+  },
+  "contact": {
+    "title": "Контакт",
+    "hidden": "Контакт поза вашим доступом.",
+    "duplicate": "можливий дубль",
+    "phone": "Телефон",
+    "email": "Email",
+    "change": "Змінити основний контакт",
+    "search": "Знайти контакт"
+  },
+  "organization": {
+    "title": "Організація",
+    "none": "Організацію не вказано.",
+    "hidden": "Організація поза вашим доступом.",
+    "name": "Назва",
+    "address": "Адреса",
+    "website": "Сайт"
+  },
+  "participants": {
+    "title": "Учасники",
+    "empty": "Учасників немає.",
+    "add": "+ Учасник",
+    "unknown": "Контакт",
+    "role": "Роль",
+    "roleOf": "Роль: {{name}}",
+    "rolePlaceholder": "Наприклад, платник",
+    "saveRole": "Зберегти роль",
+    "remove": "Прибрати {{name}}",
+    "search": "Знайти контакт",
+    "notFound": "Нічого не знайдено.",
+    "newContact": "Новий контакт",
+    "new": "Новий контакт-учасник",
+    "firstName": "Ім’я",
+    "lastName": "Прізвище",
+    "phone": "Телефон",
+    "createAndAdd": "Створити й додати",
+    "backToSearch": "До пошуку",
+    "cancel": "Скасувати"
+  },
+  "products": {
+    "title": "Товари",
+    "empty": "Товарів немає.",
+    "total": "Сума по товарах",
+    "differs": "Сума угоди — {{amount}}.",
+    "apply": "Підставити",
+    "line": "Рядок «{{name}}»",
+    "product": "Товар",
+    "choose": "Оберіть товар",
+    "quantity": "Кількість",
+    "unitPrice": "Ціна",
+    "priceHint": "Порожньо — ціна з каталогу.",
+    "noCatalogPrice": "У каталозі немає ціни в {{currency}} — введіть ціну.",
+    "save": "Зберегти",
+    "remove": "Прибрати {{name}}",
+    "add": "Новий рядок товару",
+    "addButton": "Додати товар"
+  },
+  "payments": {
+    "title": "Платежі",
+    "stub": "Платежі з’являться разом із розділом платежів."
+  },
+  "registrations": {
+    "title": "Реєстрації",
+    "stub": "Реєстрації з’являться разом із прийомом заявок."
+  },
+  "errors": {
+    "unknown": "Не вдалося виконати дію. Спробуйте ще раз.",
+    "PERMISSION_DENIED": "Немає права на цю дію.",
+    "INVALID_DEAL": "Значення не підходить.",
+    "DEAL_NOT_FOUND": "Угоду не знайдено.",
+    "PIPELINE_NOT_FOUND": "Воронку не знайдено.",
+    "PIPELINE_ARCHIVED": "Воронка в архіві.",
+    "PIPELINE_HAS_NO_STAGES": "У воронці немає етапів.",
+    "UPSELL_PIPELINE_MISSING": "У проєкті немає воронки допродажів — оберіть іншу.",
+    "STAGE_NOT_FOUND": "Етап не знайдено.",
+    "STAGE_DELETED": "Етап угоди видалено — спершу оберіть інший.",
+    "CONTACT_NOT_FOUND": "Контакт не знайдено.",
+    "CONTACT_IN_TRASH": "Контакт у кошику.",
+    "ORGANIZATION_NOT_FOUND": "Організацію не знайдено.",
+    "OWNER_NOT_MEMBER": "Цей користувач не працює в проєкті.",
+    "LOST_REASON_REQUIRED": "Оберіть причину програшу.",
+    "LOST_REASON_NOT_FOUND": "Причину не знайдено.",
+    "LOST_REASON_ARCHIVED": "Причина в архіві — оберіть іншу.",
+    "OPEN_DEAL_EXISTS": "У клієнта вже є відкрита угода в цій воронці.",
+    "DEAL_ALREADY_TAKEN": "Угоду вже взяв інший менеджер.",
+    "DEAL_NOT_WON": "Допродаж — тільки з виграної угоди.",
+    "PARTICIPANT_EXISTS": "Цей контакт уже учасник.",
+    "PARTICIPANT_NOT_FOUND": "Учасника вже прибрано.",
+    "CONTACT_IS_PRIMARY": "Це основний контакт угоди.",
+    "CONTACT_IS_PARTICIPANT": "Цей контакт — учасник угоди; спершу приберіть його з учасників.",
+    "PRODUCT_NOT_FOUND": "Товар не знайдено.",
+    "PRODUCT_ARCHIVED": "Товар в архіві.",
+    "PRICE_REQUIRED": "У товару немає ціни у валюті угоди — введіть ціну.",
+    "LINE_NOT_FOUND": "Рядок уже прибрано.",
+    "DEAL_HAS_NO_PRODUCTS": "В угоді немає товарів.",
+    "PRODUCTS_TOTAL_TOO_LARGE": "Сума по товарах завелика для угоди.",
+    "INVALID_PHONE": "Телефон не підходить.",
+    "INVALID_EMAIL": "Email не підходить.",
+    "INVALID_CONTACT": "Дані контакту не підходять."
+  }
+}
