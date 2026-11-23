@@ -41,6 +41,7 @@ export function NewDealDialog({
   pipelineId: initialPipelineId,
   owners,
   userId,
+  contact,
   onClose,
   onCreated,
 }: {
@@ -52,13 +53,15 @@ export function NewDealDialog({
   /** Возможные ответственные; пусто — только я. */
   owners: DealOwner[]
   userId: string
+  /** Контакт выбран заранее (кнопка «+ Угода» в карточке контакта, тикет crm-deals/14). */
+  contact?: ContactOption
   onClose: () => void
   onCreated: () => void
 }) {
   const { t } = useTranslation('deals')
   const formId = useId()
-  const [search, setSearch] = useState('')
-  const [chosen, setChosen] = useState<ContactOption | null>(null)
+  const [search, setSearch] = useState(contact ? contactName(contact) : '')
+  const [chosen, setChosen] = useState<ContactOption | null>(contact ?? null)
   const [isNewContact, setIsNewContact] = useState(false)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')

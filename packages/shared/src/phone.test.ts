@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeEmail, normalizePhone } from './phone.ts'
+import { formatPhone, normalizeEmail, normalizePhone } from './phone.ts'
 
 // Ключи поиска контакта (тикет crm-deals/03): телефон в E.164, email в нижнем регистре.
 // Номера вымышленные.
@@ -40,4 +40,20 @@ describe('normalizeEmail', () => {
       expect(normalizeEmail(input)).toBeNull()
     },
   )
+})
+
+describe('formatPhone', () => {
+  it('«067 123 45 67» после нормализации показывается как +380 67 123 4567', () => {
+    const e164 = normalizePhone('067 123 45 67')
+    expect(e164).toBe('+380671234567')
+    expect(formatPhone(e164 ?? '')).toBe('+380 67 123 4567')
+  })
+
+  it('номер другой страны — в международном виде своей страны', () => {
+    expect(formatPhone('+48601234567')).toBe('+48 601 234 567')
+  })
+
+  it.each(['', 'не номер', '+380'])('неразбираемая строка «%s» возвращается как есть', (input) => {
+    expect(formatPhone(input)).toBe(input)
+  })
 })
