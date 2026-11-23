@@ -25,17 +25,17 @@ apps/api/src/cli/seed.ts, apps/api/src/seed/**, package.json (скрипт `seed
 ## Done when
 
 - [ ] Тест (на уменьшенном объёме, например 1/10): после запуска в ALPI 3 воронки, 10 менеджеров в 2 командах, ожидаемое число контактов и сделок; во «Франче» сделки с организациями.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · fe3f805e751078452b0dd3164cf7f795598b16c4
 - [ ] Тест: повторный запуск не меняет числа записей; `--reset` удаляет созданное командой и не трогает записи, созданные руками.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · fe3f805e751078452b0dd3164cf7f795598b16c4
 - [ ] Тест: ни у одного контакта нет двух открытых неархивных сделок в одной воронке; все email на `example.com`.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · fe3f805e751078452b0dd3164cf7f795598b16c4
 - [ ] Тест: запуск с `NODE_ENV=production` завершается с ошибкой и ничего не пишет.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · fe3f805e751078452b0dd3164cf7f795598b16c4
 - [ ] Полный запуск на локальной базе проходит (время записано в отчёт), под менеджером «свои» в API видны только его сделки и общая очередь.
-  - evidence: test-run pass · `pnpm seed` twice at scale 1 on embedded PostgreSQL plus GET /v1/deals/:id for all 5000 ALPI deals as manager (scratch script full-run.mjs) exit 0 · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
+  - evidence: test-run pass · `pnpm seed` twice at scale 1 on embedded PostgreSQL plus GET /v1/deals/:id for all 5000 ALPI deals as manager (scratch script full-run.mjs) exit 0 · windows - · fe3f805e751078452b0dd3164cf7f795598b16c4
 - [ ] `pnpm verify` зелёный.
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · fe3f805e751078452b0dd3164cf7f795598b16c4
 
 ## Результат
 
@@ -48,4 +48,4 @@ apps/api/src/cli/seed.ts, apps/api/src/seed/**, package.json (скрипт `seed
 - Повторный запуск: всё созданное помечено `external_link` (система `seed`, ключ записи из плана) и досоздаётся только недостающее. Проект с кодом `alpi` или `franch`, созданный не командой, — отказ до любых записей.
 - `--reset` — **решено без владельца, подтвердить**: удаляет помеченные сделки, контакты, организации и товары. Остаётся запись seed, на которую ссылается запись, созданная не командой: сделка с ручной заметкой, файлом, строкой товара или участником; контакт с ручной заметкой, файлом, сделкой или участием в сделке; организация с ручной заметкой, файлом, сделкой или контактом; товар в ручной строке. Строки товаров и участники, созданные seed, тоже помечены `external_link`, чужие считаются ручными. Сколько записей seed оставлено, команда печатает. Проект seed удаляется целиком только если в нём не осталось записей не от seed (иначе остаются проект, его настройка, участники и команды). Пользователи seed удаляются вместе со своими записями журнала входов (`system_audit_log`) — вопреки правилу «пользователей не удаляют, а банят», раз это тестовые учётные записи; пользователь, на которого ещё ссылаются (участник оставленного проекта, автор заметки), остаётся. Файл учётных данных дописывается после каждого созданного пользователя и не попадает в образы (`.dockerignore`).
 - «Франч» ведут три менеджера ALPI (`manager02`, `manager03`, `manager07`) с ролью «менеджер» — **решено без владельца, подтвердить**.
-- Полный запуск (масштаб 1) на локальном embedded PostgreSQL через CLI: 11 пользователей, ALPI — 4 000 контактов и 5 000 сделок, «Франч» — 300 сделок, 255 организаций, 389 контактов; 6,3 с внутри команды, 13,4 с с запуском pnpm; повторный запуск — 0,2 с, числа записей не изменились. Под `seed.manager02` все 5 000 сделок ALPI через API: свои 443 и очередь 734 — 200, чужие 3 823 — 404, расхождений 0.
+- Полный запуск (масштаб 1) на локальном embedded PostgreSQL через CLI: 11 пользователей, ALPI — 4 000 контактов и 5 000 сделок, «Франч» — 300 сделок, 255 организаций, 389 контактов; 4,0 с внутри команды, 6,5 с с запуском pnpm (после доработки; в первом раунде 6,3 с); повторный запуск — 0,1 с, числа записей не изменились. Под `seed.manager02` все 5 000 сделок ALPI через API: свои 443 и очередь 734 — 200, чужие 3 823 — 404, расхождений 0.
