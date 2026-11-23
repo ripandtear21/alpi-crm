@@ -28,6 +28,16 @@ export function normalizePhone(input: string): string | null {
   return parsed.number
 }
 
+/**
+ * Телефон для показа в международном виде (`+380671234567` → `+380 67 123 4567`) по тем же
+ * метаданным, что normalizePhone. Строка, которая не разбирается как номер, возвращается как
+ * есть: показ не теряет то, что лежит в базе.
+ */
+export function formatPhone(e164: string): string {
+  const parsed = parsePhoneNumberFromString(e164, DEFAULT_COUNTRY)
+  return parsed?.isValid() ? parsed.formatInternational() : e164
+}
+
 /** Наибольшая длина адреса email (RFC 5321, путь письма). */
 const MAX_EMAIL_LENGTH = 254
 

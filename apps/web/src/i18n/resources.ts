@@ -1,19 +1,23 @@
 import ruAudit from '../locales/ru/audit.json'
 import ruAuth from '../locales/ru/auth.json'
 import ruCommon from '../locales/ru/common.json'
+import ruContactCard from '../locales/ru/contact-card.json'
 import ruDealCard from '../locales/ru/deal-card.json'
 import ruDeals from '../locales/ru/deals.json'
 import ruHome from '../locales/ru/home.json'
 import ruLayout from '../locales/ru/layout.json'
+import ruOrganizationCard from '../locales/ru/organization-card.json'
 import ruSettings from '../locales/ru/settings.json'
 import ruTimeline from '../locales/ru/timeline.json'
 import ukAudit from '../locales/uk/audit.json'
 import ukAuth from '../locales/uk/auth.json'
 import ukCommon from '../locales/uk/common.json'
+import ukContactCard from '../locales/uk/contact-card.json'
 import ukDealCard from '../locales/uk/deal-card.json'
 import ukDeals from '../locales/uk/deals.json'
 import ukHome from '../locales/uk/home.json'
 import ukLayout from '../locales/uk/layout.json'
+import ukOrganizationCard from '../locales/uk/organization-card.json'
 import ukSettings from '../locales/uk/settings.json'
 import ukTimeline from '../locales/uk/timeline.json'
 
@@ -28,6 +32,8 @@ const uk = {
   audit: ukAudit,
   'deal-card': ukDealCard,
   timeline: ukTimeline,
+  'contact-card': ukContactCard,
+  'organization-card': ukOrganizationCard,
 }
 
 // Русский обязан повторять структуру украинского: пропущенный ключ — ошибка typecheck.
@@ -41,6 +47,8 @@ const ru: typeof uk = {
   audit: ruAudit,
   'deal-card': ruDealCard,
   timeline: ruTimeline,
+  'contact-card': ruContactCard,
+  'organization-card': ruOrganizationCard,
 }
 
 export const resources = { uk, ru }

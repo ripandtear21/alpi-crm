@@ -7,6 +7,7 @@ import {
   type RouterHistory,
   redirect,
 } from '@tanstack/react-router'
+import { type ContactsApi, createContactsApi } from './components/contact-form/contacts-api.ts'
 import { CurrentProjectProvider } from './components/project-switcher/current-project.tsx'
 import { createProjectsApi, type ProjectsApi } from './components/project-switcher/projects-api.ts'
 import { createTimelineApi, type TimelineApi } from './components/timeline/timeline-api.ts'
@@ -18,10 +19,12 @@ import { ChangePasswordPage } from './routes/auth/change-password-page.tsx'
 import { SignInPage } from './routes/auth/sign-in-page.tsx'
 import { TwoFactorPage } from './routes/auth/two-factor-page.tsx'
 import { TwoFactorSetupPage } from './routes/auth/two-factor-setup-page.tsx'
+import { ContactCardPage } from './routes/contacts/$contactId/contact-card-page.tsx'
 import { createDealCardApi, type DealCardApi } from './routes/deals/$dealId/deal-card-api.ts'
 import { DealCardPage } from './routes/deals/$dealId/deal-card-page.tsx'
 import { createDealsApi, type DealsApi } from './routes/deals/deals-api.ts'
 import { KanbanPage } from './routes/deals/kanban-page.tsx'
+import { OrganizationCardPage } from './routes/organizations/$organizationId/organization-card-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
 import { AuditPage } from './routes/settings/audit-page.tsx'
 import { LostReasonsPage } from './routes/settings/lost-reasons-page.tsx'
@@ -47,6 +50,7 @@ export interface RouterContext {
   deals: DealsApi
   dealCard: DealCardApi
   timeline: TimelineApi
+  contacts: ContactsApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -241,6 +245,42 @@ const dealCardRoute = createRoute({
   },
 })
 
+// Карточки контакта и организации (тикет crm-deals/14). Сам список /contacts — тикет 12.
+const contactCardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/contacts/$contactId',
+  component: function ContactCardRoute() {
+    const { contacts, deals, timeline, session } = contactCardRoute.useRouteContext()
+    const { contactId } = contactCardRoute.useParams()
+    return (
+      <ContactCardPage
+        api={contacts}
+        deals={deals}
+        timeline={timeline}
+        contactId={contactId}
+        user={session.user}
+      />
+    )
+  },
+})
+
+const organizationCardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/organizations/$organizationId',
+  component: function OrganizationCardRoute() {
+    const { contacts, timeline, session } = organizationCardRoute.useRouteContext()
+    const { organizationId } = organizationCardRoute.useParams()
+    return (
+      <OrganizationCardPage
+        api={contacts}
+        timeline={timeline}
+        organizationId={organizationId}
+        user={session.user}
+      />
+    )
+  },
+})
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   twoFactorRoute,
@@ -261,6 +301,8 @@ const routeTree = rootRoute.addChildren([
     lostReasonsRoute,
     productsRoute,
     dealCardRoute,
+    contactCardRoute,
+    organizationCardRoute,
   ]),
 ])
 
@@ -287,6 +329,8 @@ export interface AppRouterOptions {
   dealCard?: DealCardApi
   /** Только в тестах: подставной клиент ленты записи. В браузере — запросы к API. */
   timeline?: TimelineApi
+  /** Только в тестах: подставной клиент карточек контакта и организации. В браузере — запросы к API. */
+  contacts?: ContactsApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -303,6 +347,7 @@ export function createAppRouter({
   deals = createDealsApi(),
   dealCard = createDealCardApi(),
   timeline = createTimelineApi(),
+  contacts = createContactsApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -316,6 +361,7 @@ export function createAppRouter({
     deals,
     dealCard,
     timeline,
+    contacts,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })

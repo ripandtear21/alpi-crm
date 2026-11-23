@@ -408,4 +408,163 @@ describe('канбан: выдача, агрегаты, требования э�
       expect((await json<{ stageId: string }>(res)).stageId).toBe(s2)
     })
   })
+
+  // Карточки контакта и организации (тикет crm-deals/14): сделки контакта (основной и
+  // участник), сделки организации, контакты организации — с охватом роли.
+  describe('сделки и контакты для карточек контакта и организации', () => {
+    let pipeline: Pipeline
+    /** Вторая воронка: у контакта одна открытая сделка в воронке. */
+    let otherPipeline: Pipeline
+    let organizationId: string
+    /** Основной в сделке менеджера и в сделке коллеги, участник в двух других. */
+    let client: string
+    /** Только основной в сделке коллеги: менеджеру «свои» не виден. */
+    let foreign: string
+    /** Создан менеджером, в организации. */
+    let created: string
+    /** Создан коллегой, в организации: менеджеру не виден. */
+    let colleagues: string
+    const deals: Record<
+      'mine' | 'theirs' | 'asParticipant' | 'mineWonArchived' | 'orgOnly',
+      string
+    > = { mine: '', theirs: '', asParticipant: '', mineWonArchived: '', orgOnly: '' }
+
+    async function contact(firstName: string, values: Record<string, unknown> = {}) {
+      const row = await h.owner
+        .insertInto('contact')
+        .values({ project_id: projectA, first_name: firstName, last_name: 'Вигаданий', ...values })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      return row.id
+    }
+
+    async function deal(
+      primary: string,
+      owner: string,
+      extra: {
+        organization?: string
+        participant?: string
+        wonArchived?: boolean
+        in?: Pipeline
+      } = {},
+    ) {
+      counter += 1
+      const where = extra.in ?? pipeline
+      const row = await h.owner
+        .insertInto('deal')
+        .values({
+          project_id: projectA,
+          title: `Угода картки ${counter}`,
+          pipeline_id: where.id,
+          stage_id: where.stages[0] ?? '',
+          amount: 0,
+          owner_id: owner,
+          primary_contact_id: primary,
+          organization_id: extra.organization ?? null,
+          status: extra.wonArchived ? 'won' : 'open',
+          won_at: extra.wonArchived ? new Date() : null,
+          archived_at: extra.wonArchived ? new Date() : null,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      if (extra.participant) {
+        await h.owner
+          .insertInto('deal_participant')
+          .values({ project_id: projectA, deal_id: row.id, contact_id: extra.participant })
+          .execute()
+      }
+      return row.id
+    }
+
+    beforeAll(async () => {
+      pipeline = await createPipeline(projectA)
+      otherPipeline = await createPipeline(projectA)
+      organizationId = (
+        await h.owner
+          .insertInto('organization')
+          .values({ project_id: projectA, name: 'ТОВ Вигадана' })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+      ).id
+      client = await contact('Клієнт', { organization_id: organizationId })
+      foreign = await contact('Чужинець')
+      await h.owner
+        .insertInto('contact_phone')
+        .values({
+          project_id: projectA,
+          contact_id: foreign,
+          phone: '+380679990011',
+          is_primary: true,
+        })
+        .execute()
+      created = await contact('Створений', {
+        organization_id: organizationId,
+        created_by: manager.id,
+      })
+      colleagues = await contact('Колегин', {
+        organization_id: organizationId,
+        created_by: colleague.id,
+      })
+      deals.mine = await deal(client, manager.id, { organization: organizationId })
+      deals.theirs = await deal(client, colleague.id, {
+        organization: organizationId,
+        in: otherPipeline,
+      })
+      deals.asParticipant = await deal(foreign, colleague.id, { participant: client })
+      deals.mineWonArchived = await deal(await contact('Інший'), manager.id, {
+        participant: client,
+        wonArchived: true,
+      })
+      deals.orgOnly = await deal(colleagues, colleague.id, { organization: organizationId })
+    })
+
+    const ids = (page: DealsPage) => page.items.map((item) => item.id).sort()
+
+    it('сделки контакта: основной и участник, все статусы; менеджер «свои» — только свои', async () => {
+      const all = await json<DealsPage>(
+        await get(admin, `/v1/deals?contact=${client}&status=any&archived=any`),
+      )
+      expect(ids(all)).toEqual(
+        [deals.mine, deals.theirs, deals.asParticipant, deals.mineWonArchived].sort(),
+      )
+      expect(all.items.find((item) => item.id === deals.mineWonArchived)?.status).toBe('won')
+
+      const own = await json<DealsPage>(
+        await get(manager, `/v1/deals?contact=${client}&status=any&archived=any`),
+      )
+      expect(ids(own)).toEqual([deals.mine, deals.mineWonArchived].sort())
+    })
+
+    it('сделки организации; менеджер «свои» — только свои; неверный id — 400', async () => {
+      const all = await json<DealsPage>(
+        await get(admin, `/v1/deals?organization=${organizationId}&status=any&archived=any`),
+      )
+      expect(ids(all)).toEqual([deals.mine, deals.theirs, deals.orgOnly].sort())
+      const own = await json<DealsPage>(
+        await get(manager, `/v1/deals?organization=${organizationId}&status=any&archived=any`),
+      )
+      expect(ids(own)).toEqual([deals.mine])
+      expect((await get(admin, '/v1/deals?contact=abc')).status).toBe(400)
+      expect((await get(admin, '/v1/deals?organization=abc')).status).toBe(400)
+    })
+
+    it('контакты организации: менеджер «свои» видит контакт своей сделки и созданный им', async () => {
+      const path = `/v1/contacts?organizationId=${organizationId}&limit=200`
+      const all = await json<{ id: string }[]>(await get(admin, path))
+      expect(all.map((c) => c.id).sort()).toEqual([client, created, colleagues].sort())
+      const own = await json<{ id: string }[]>(await get(manager, path))
+      expect(own.map((c) => c.id).sort()).toEqual([client, created].sort())
+    })
+
+    it('карточка: контакт своей сделки и созданный — открываются; только из чужой сделки — 404 без данных', async () => {
+      expect((await get(manager, `/v1/contacts/${client}`)).status).toBe(200)
+      expect((await get(manager, `/v1/contacts/${created}`)).status).toBe(200)
+      const denied = await get(manager, `/v1/contacts/${foreign}`)
+      const body = await denied.text()
+      expect(denied.status).toBe(404)
+      expect(body).not.toContain('Чужинець')
+      expect(body).not.toContain('380679990011')
+      expect(body).not.toContain(foreign)
+    })
+  })
 })

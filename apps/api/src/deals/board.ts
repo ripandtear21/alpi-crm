@@ -3,7 +3,7 @@ import { type Expression, type ExpressionBuilder, type SqlBool, sql } from 'kyse
 import { type Ctx, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
 import { dealInScope, ownerInScope } from './scope.ts'
-import type { DealContext, DealCurrency, Result } from './store.ts'
+import type { DealContext, DealCurrency, DealStatus, Result } from './store.ts'
 
 // Выдача сделок для канбана и агрегаты его колонок (тикет crm-deals/11).
 //
@@ -11,6 +11,8 @@ import type { DealContext, DealCurrency, Result } from './store.ts'
 //   pipeline=<uuid>    воронка (необязательно);
 //   stage=<uuid>       этап (необязательно);
 //   owner=me|none|<id> ответственный: я, без ответственного (общая очередь), участник;
+//   contact=<uuid>     контакт — основной или участник сделки (карточка контакта, тикет 14);
+//   organization=<uuid> организация сделки (карточка организации, тикет 14);
 //   status=open|won|lost|any   по умолчанию open;
 //   archived=false|true|any    по умолчанию false;
 //   limit=1…200        по умолчанию 50;
@@ -41,6 +43,7 @@ export interface BoardDeal {
   /** null — общая очередь. */
   ownerId: string | null
   ownerName: string | null
+  status: DealStatus
   primaryContactId: string
   /** «Ім'я Прізвище» основного контакта; null — контакт вне охвата контактов пользователя. */
   contactName: string | null
@@ -81,6 +84,9 @@ export interface DealFilters {
   stageId?: string
   /** Ответственный: id пользователя; null — общая очередь; undefined — любой в охвате. */
   ownerId?: string | null
+  /** Контакт — основной или участник сделки. */
+  contactId?: string
+  organizationId?: string
   status: (typeof STATUS_FILTERS)[number]
   archived: (typeof ARCHIVED_FILTERS)[number]
 }
@@ -104,6 +110,10 @@ function readFilters(c: Ctx, ctx: DealContext): Result<DealFilters> {
   if (!pipeline.ok) return pipeline
   const stage = readUuidParam(c, 'stage')
   if (!stage.ok) return stage
+  const contact = readUuidParam(c, 'contact')
+  if (!contact.ok) return contact
+  const organization = readUuidParam(c, 'organization')
+  if (!organization.ok) return organization
   const status = oneOf(STATUS_FILTERS, c.req.query('status'), 'open')
   if (status === undefined) return invalid('status')
   const archived = oneOf(ARCHIVED_FILTERS, c.req.query('archived'), 'false')
@@ -113,6 +123,8 @@ function readFilters(c: Ctx, ctx: DealContext): Result<DealFilters> {
   const filters: DealFilters = { status, archived }
   if (pipeline.value !== undefined) filters.pipelineId = pipeline.value
   if (stage.value !== undefined) filters.stageId = stage.value
+  if (contact.value !== undefined) filters.contactId = contact.value
+  if (organization.value !== undefined) filters.organizationId = organization.value
   if (owner !== undefined) {
     filters.ownerId = owner === 'me' ? ctx.actorId : owner === 'none' ? null : owner
   }
@@ -134,6 +146,24 @@ function dealsWhere(
     conditions.push(eb('deal.pipeline_id', '=', filters.pipelineId))
   }
   if (filters.stageId !== undefined) conditions.push(eb('deal.stage_id', '=', filters.stageId))
+  if (filters.contactId !== undefined) {
+    const contactId = filters.contactId
+    conditions.push(
+      eb.or([
+        eb('deal.primary_contact_id', '=', contactId),
+        eb.exists(
+          eb
+            .selectFrom('deal_participant as p')
+            .select('p.id')
+            .whereRef('p.deal_id', '=', 'deal.id')
+            .where('p.contact_id', '=', contactId),
+        ),
+      ]),
+    )
+  }
+  if (filters.organizationId !== undefined) {
+    conditions.push(eb('deal.organization_id', '=', filters.organizationId))
+  }
   if (filters.ownerId === null) conditions.push(eb('deal.owner_id', 'is', null))
   else if (filters.ownerId !== undefined) {
     conditions.push(eb('deal.owner_id', '=', filters.ownerId))
@@ -201,6 +231,7 @@ export async function listDealsPage(
       'deal.amount',
       'deal.currency',
       'deal.owner_id',
+      'deal.status',
       'deal.primary_contact_id',
     ])
     .select(
@@ -263,6 +294,7 @@ export async function listDealsPage(
       currency: row.currency as DealCurrency,
       ownerId: row.owner_id,
       ownerName: row.owner_id === null ? null : (owners.get(row.owner_id) ?? null),
+      status: row.status as DealStatus,
       primaryContactId: row.primary_contact_id,
       contactName: contacts.get(row.primary_contact_id) ?? null,
       stageChangedAt: row.stage_changed_at,

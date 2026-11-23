@@ -1,0 +1,247 @@
+/* Карточки контакта и организации (тикет crm-deals/14) и форма контакта: раскладка карточки
+   сделки (тикет 13) в стиле Actum — шапка на всю ширину, слева колонка полей и блоков ≈480 px,
+   справа лента. На узком экране — одна колонка, блоки друг под другом. */
+
+.record-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.record-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.record-card__title-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  flex: 1 1 280px;
+}
+
+.record-card__title {
+  font-size: 25px;
+  line-height: 38px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.record-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.record-card__body {
+  display: grid;
+  grid-template-columns: minmax(0, 480px) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.record-card__side {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.record-card__main {
+  overflow-y: auto;
+  padding: var(--s-6);
+}
+
+.record-card__main > * {
+  max-width: 1200px;
+}
+
+.record-card__block {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--s-4);
+}
+
+.record-card__block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 40px;
+  margin: 0 0 var(--s-2);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.record-card__rows {
+  margin: 0;
+}
+
+.record-card__row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: center;
+  min-height: 32px;
+}
+
+.record-card__row dt {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+}
+
+.record-card__row dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+
+.record-card__muted {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-left: var(--s-2);
+}
+
+.record-card__stub {
+  color: var(--ink-3);
+  font-size: 14px;
+  margin: 0;
+}
+
+.record-card__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.record-card__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-1) var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+}
+
+.record-card__item-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.record-card__item-meta {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.record-card__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.record-card__denied {
+  padding: var(--s-6);
+}
+
+.record-card__deps {
+  margin: var(--s-2) 0 0;
+  padding-left: var(--s-5);
+}
+
+.record-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.record-form__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+
+.record-form__keys {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+
+.record-form__key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-2);
+  width: 100%;
+}
+
+.record-form__key .ui-field {
+  flex: 1 1 220px;
+}
+
+.record-form__key-actions {
+  display: flex;
+  gap: var(--s-1);
+}
+
+.record-form__organization {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.record-form__organization .ui-field__label {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .record-card__head {
+    padding: var(--s-3) var(--s-4);
+  }
+
+  .record-card__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .record-card__side {
+    border-right: 0;
+    overflow-y: visible;
+  }
+
+  .record-card__main {
+    overflow-y: visible;
+    padding: var(--s-4);
+  }
+}
+
+@media (max-width: 480px) {
+  .record-form__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .record-card__row {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+}

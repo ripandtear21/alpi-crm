@@ -1,0 +1,88 @@
+{
+  "loading": "Загрузка контакта…",
+  "cancel": "Отмена",
+  "denied": {
+    "title": "Нет доступа",
+    "text": "Контакт не найден, удалён или у вас нет к нему доступа.",
+    "back": "К контактам"
+  },
+  "duplicate": "Возможный дубль",
+  "duplicateHint": "Email совпадает с другим контактом. Дубли сливаются при приёме заявок.",
+  "actions": {
+    "edit": "Изменить",
+    "remove": "Удалить",
+    "newDeal": "+ Сделка"
+  },
+  "side": {
+    "label": "Данные контакта",
+    "details": "Контакт",
+    "phone": "Телефон",
+    "email": "Email",
+    "primary": "основной",
+    "language": "Язык общения",
+    "organization": "Организация",
+    "none": "—"
+  },
+  "languages": {
+    "uk": "Украинский",
+    "ru": "Русский"
+  },
+  "deals": {
+    "title": "Сделки",
+    "empty": "Сделок нет.",
+    "more": "Показаны первые {{count}} сделок.",
+    "primary": "основной контакт",
+    "participant": "участник",
+    "hiddenStage": "—",
+    "status": {
+      "open": "Открыта",
+      "won": "Выиграна",
+      "lost": "Проиграна"
+    }
+  },
+  "remove": {
+    "title": "Удалить контакт?",
+    "text": "Контакт «{{name}}» будет перемещён в корзину. Восстановить его можно из корзины в течение 30 дней.",
+    "withDeals": "Вместе с контактом в корзину уйдут сделки, где он основной:",
+    "changed": "Список сделок изменился — проверьте его и подтвердите ещё раз.",
+    "submit": "Удалить",
+    "submitWithDeals": "Удалить вместе со сделками"
+  },
+  "form": {
+    "newTitle": "Новый контакт",
+    "editTitle": "Изменить контакт",
+    "firstName": "Имя",
+    "lastName": "Фамилия",
+    "phone": "Телефон",
+    "phonePrimary": "Телефон (основной)",
+    "addPhone": "+ Телефон",
+    "email": "Email",
+    "emailPrimary": "Email (основной)",
+    "addEmail": "+ Email",
+    "makePrimary": "Сделать основным",
+    "removeItem": "Убрать",
+    "language": "Язык общения",
+    "noLanguage": "Не указан",
+    "organization": "Организация",
+    "organizationSearch": "Найти организацию",
+    "organizationPlaceholder": "Название организации",
+    "noOrganizations": "Ничего не найдено",
+    "createOrganization": "Создать организацию «{{name}}»",
+    "clearOrganization": "Убрать организацию",
+    "save": "Сохранить",
+    "firstNameRequired": "Укажите имя.",
+    "invalidPhone": "Не похоже на номер телефона.",
+    "invalidEmail": "Не похоже на email."
+  },
+  "errors": {
+    "inWorkAt": "Клиент уже в работе у {{name}}.",
+    "inWorkElsewhere": "Клиент уже в работе у другого менеджера.",
+    "CONTACT_EXISTS": "Контакт с этим телефоном уже есть.",
+    "openExisting": "Открыть существующий",
+    "PERMISSION_DENIED": "Нет права на это действие.",
+    "ORGANIZATION_NOT_FOUND": "Организация не найдена или удалена.",
+    "CONTACT_NOT_FOUND": "Контакт не найден или удалён.",
+    "INVALID_CONTACT": "Проверьте поля контакта.",
+    "unknown": "Не удалось выполнить действие. Попробуйте ещё раз."
+  }
+}
