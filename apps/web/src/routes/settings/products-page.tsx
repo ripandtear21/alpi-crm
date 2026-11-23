@@ -12,6 +12,7 @@ import {
   projectQueryKey,
   useCurrentProject,
 } from '../../components/project-switcher/current-project.tsx'
+import { Button } from '../../ui/button.tsx'
 import { ArchiveButton, type Notice, NoticeLine } from './directory-controls.tsx'
 import type { ProductChange, ProductInput, ProductsApi } from './products-api.ts'
 import { RolesApiError } from './roles-api.ts'
@@ -68,7 +69,9 @@ function ProductsEditor({ api, projectId }: { api: ProductsApi; projectId: strin
     return (
       <section>
         <h1>{t('products.title')}</h1>
-        <p role="alert">{denied ? t('products.noAccess') : t('roles.errors.unknown')}</p>
+        <p className="ui-notice" role="alert">
+          {denied ? t('products.noAccess') : t('roles.errors.unknown')}
+        </p>
       </section>
     )
   }
@@ -193,6 +196,7 @@ function ProductForm({
       <label>
         {t('products.name')}{' '}
         <input
+          className="ui-input ui-input--sm"
           name="name"
           defaultValue={product?.name}
           maxLength={MAX_PRODUCT_NAME_LENGTH}
@@ -203,6 +207,7 @@ function ProductForm({
         <label key={currency}>
           {t('products.price', { currency })}{' '}
           <input
+            className="ui-input ui-input--sm"
             name={currency}
             type="number"
             inputMode="decimal"
@@ -214,9 +219,14 @@ function ProductForm({
           />
         </label>
       ))}
-      <button type="submit" disabled={pending}>
+      <Button
+        size="sm"
+        type="submit"
+        variant={resetOnSuccess ? 'primary' : 'secondary'}
+        disabled={pending}
+      >
         {submitLabel}
-      </button>
+      </Button>
     </form>
   )
 }

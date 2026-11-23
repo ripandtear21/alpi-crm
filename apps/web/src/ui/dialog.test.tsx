@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { configure, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { type ReactNode, useState } from 'react'
 import { I18nextProvider } from 'react-i18next'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from '../i18n/index.ts'
 import { Button } from './button.tsx'
 import { Combobox } from './combobox.tsx'
@@ -65,9 +65,18 @@ const OUTSIDE = { clientX: 200, clientY: 400 }
 
 afterEach(() => {
   vi.restoreAllMocks()
+  configure({ reactStrictMode: false })
 })
 
-describe('диалог', () => {
+// Приложение в разработке рендерится под <StrictMode> (main.tsx): весь набор — в обоих режимах.
+describe.each([
+  { mode: 'обычный рендер', strict: false },
+  { mode: 'React StrictMode', strict: true },
+])('диалог ($mode)', ({ strict }) => {
+  beforeEach(() => {
+    configure({ reactStrictMode: strict })
+  })
+
   it('открывается по кнопке, закрывается по Esc и возвращает фокус на кнопку', async () => {
     const user = userEvent.setup()
     render(<DialogDemo />)

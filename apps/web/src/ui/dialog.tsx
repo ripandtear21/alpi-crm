@@ -59,14 +59,22 @@ function DialogFrame({
   // Закрывая диалог, React убирает <dialog> со страницы раньше, чем запускает очистку useEffect,
   // и область уведомлений ушла бы вместе с ним. Очистка ref-колбэка идёт до удаления узла —
   // здесь область и отпускаем, чтобы она осталась на странице тем же узлом.
-  const attach = useCallback((node: HTMLDialogElement | null) => {
-    ref.current = node
-    return () => {
-      releaseToasts.current?.()
-      releaseToasts.current = undefined
-      ref.current = null
-    }
-  }, [])
+  //
+  // Под <StrictMode> (main.tsx) React 19 у только что вставленного <dialog> отсоединяет ref и
+  // присоединяет снова, а эффект ниже повторно не запускает: диалог открыт, а область уже
+  // отпущена. Поэтому ref, присоединённый к уже открытому диалогу, забирает её обратно.
+  const attach = useCallback(
+    (node: HTMLDialogElement | null) => {
+      ref.current = node
+      if (node?.open) releaseToasts.current = addToastLayer?.(node)
+      return () => {
+        releaseToasts.current?.()
+        releaseToasts.current = undefined
+        ref.current = null
+      }
+    },
+    [addToastLayer],
+  )
 
   useEffect(() => {
     const dialog = ref.current

@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, configure, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { type ReactNode, useState } from 'react'
 import { I18nextProvider } from 'react-i18next'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from '../i18n/index.ts'
 import { Button } from './button.tsx'
 import { Dialog } from './dialog.tsx'
@@ -13,8 +13,14 @@ function SaveButton() {
   return <Button onClick={() => toast('Сохранено')}>Сохранить</Button>
 }
 
-function DialogWithSave({ openerHiddenWhileOpen = false }: { openerHiddenWhileOpen?: boolean }) {
-  const [open, setOpen] = useState(false)
+function DialogWithSave({
+  openerHiddenWhileOpen = false,
+  openAtStart = false,
+}: {
+  openerHiddenWhileOpen?: boolean
+  openAtStart?: boolean
+}) {
+  const [open, setOpen] = useState(openAtStart)
   return (
     <>
       {!(open && openerHiddenWhileOpen) && <Button onClick={() => setOpen(true)}>Открыть</Button>}
@@ -88,9 +94,20 @@ function renderWithToasts() {
 
 afterEach(() => {
   vi.useRealTimers()
+  configure({ reactStrictMode: false })
 })
 
-describe('уведомления', () => {
+// Приложение в разработке рендерится под <StrictMode> (main.tsx): React 19 там отсоединяет
+// и снова присоединяет ref-колбэки и эффекты только что вставленных узлов. Весь набор
+// проверяется в обоих режимах.
+describe.each([
+  { mode: 'обычный рендер', strict: false },
+  { mode: 'React StrictMode', strict: true },
+])('уведомления ($mode)', ({ strict }) => {
+  beforeEach(() => {
+    configure({ reactStrictMode: strict })
+  })
+
   it('появляются в вежливой live-области и закрываются кнопкой', async () => {
     const user = userEvent.setup()
     renderWithToasts()
@@ -238,10 +255,20 @@ describe('уведомления', () => {
     try {
       const user = userEvent.setup()
       renderWithDialog(<DialogWithSave />)
-      expect(shown).toEqual(['область на странице'])
+      // Под StrictMode провайдер монтируется дважды — и область показывается дважды.
+      expect(shown).toEqual(
+        strict ? ['область на странице', 'область на странице'] : ['область на странице'],
+      )
 
+      const beforeOpen = shown.length
       await user.click(screen.getByRole('button', { name: 'Открыть' }))
-      expect(shown.slice(-2)).toEqual(['диалог', 'область в диалоге'])
+      // Под StrictMode ref диалога отсоединяется и присоединяется снова: область на миг уходит
+      // на страницу и возвращается — последней снова встаёт над открытым диалогом.
+      expect(shown.slice(beforeOpen)).toEqual(
+        strict
+          ? ['диалог', 'область в диалоге', 'область на странице', 'область в диалоге']
+          : ['диалог', 'область в диалоге'],
+      )
 
       await user.keyboard('{Escape}')
       expect(screen.queryByRole('dialog')).toBeNull()
@@ -278,6 +305,24 @@ describe('уведомления', () => {
     // ни одна запись после добавления уведомления не вставляет саму область.
     const regionMovedAfter = records.slice(toastAdded).some((record) => added(record, region))
     expect(regionMovedAfter).toBe(false)
+  })
+
+  it('диалог, открытый с первой отрисовки, принимает область; после закрытия она снова на странице', async () => {
+    // Под StrictMode здесь повторяется весь монтаж: и ref, и эффект диалога, который закрывает
+    // и снова открывает <dialog>.
+    const user = userEvent.setup()
+    renderWithDialog(<DialogWithSave openAtStart />)
+
+    const region = toastRegion()
+    expect(screen.getByRole('dialog', { name: 'Сделка' }).contains(region)).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }))
+    expect(region.contains(screen.getByText('Сохранено'))).toBe(true)
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(toastRegion()).toBe(region)
+    expect(region.closest('dialog')).toBeNull()
+    expect(region.isConnected).toBe(true)
   })
 
   it('во вложенном диалоге область переходит в верхний, после его закрытия — в нижний', async () => {
