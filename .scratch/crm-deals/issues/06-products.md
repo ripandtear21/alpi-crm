@@ -1,7 +1,8 @@
 # Товары и строки товаров в сделке
 
 Type: task
-Status: claimed 2026-11-04T17:22Z
+Status: done 2026-11-23T17:38Z
+PR: #7
 Blocked by: 05
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 3); .scratch/crm-mvp/spec.md, разделы 3.2 (`product`, `deal_product`), 5.5, 13.0.4
 
@@ -48,3 +49,4 @@ packages/db/migrations/**, packages/db/src/schema.ts, apps/api/src/products/**, 
 - Экран «Настройки → Товари», uk и ru.
 - Смена валюты сделки цены строк не пересчитывает — **решено без владельца, подтвердить**.
 - Решено исполнителем без владельца: введённая цена важнее каталожной; количество — целое до 1 000 000; «підставити» без строк — отказ 422.
+- Пункт 6 (экран 1280 и 375 px): not verified исполнителем; проверяющий снял экран Playwright на обеих ширинах, тёмной темы в приложении нет (снимки в папке прогона волны, verify-06/screens/products-{1280,375}-light.png). Проверка: VERIFIED, PR #7.
