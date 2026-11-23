@@ -225,7 +225,7 @@ export function FilterEditor({
     }
     if (spec.type === 'boolean') {
       return (
-        <Field label={label}>
+        <Field label={label} className="filter-condition__value">
           <Select
             size="sm"
             value={condition.value === undefined ? '' : String(condition.value)}
@@ -244,7 +244,7 @@ export function FilterEditor({
       if (list) {
         const selected = Array.isArray(condition.value) ? condition.value : []
         return (
-          <Field label={label}>
+          <Field label={label} className="filter-condition__value">
             <Select
               size="sm"
               multiple
@@ -264,7 +264,7 @@ export function FilterEditor({
         )
       }
       return (
-        <Field label={label}>
+        <Field label={label} className="filter-condition__value">
           <Select
             size="sm"
             value={typeof condition.value === 'string' ? condition.value : ''}
@@ -282,7 +282,7 @@ export function FilterEditor({
     }
     if (spec.type === 'date') {
       return (
-        <Field label={label}>
+        <Field label={label} className="filter-condition__value">
           <Input
             size="sm"
             type="date"
@@ -294,7 +294,7 @@ export function FilterEditor({
     }
     if (spec.type === 'number') {
       return (
-        <Field label={label}>
+        <Field label={label} className="filter-condition__value">
           <Input
             size="sm"
             type="number"
@@ -309,7 +309,7 @@ export function FilterEditor({
       )
     }
     return (
-      <Field label={label}>
+      <Field label={label} className="filter-condition__value">
         <Input
           size="sm"
           value={typeof condition.value === 'string' ? condition.value : ''}
@@ -324,7 +324,7 @@ export function FilterEditor({
     return (
       <fieldset key={condition.key} className="filter-condition">
         <legend className="visually-hidden">{fieldLabel(condition.field)}</legend>
-        <Field label={t('filter.field')}>
+        <Field label={t('filter.field')} className="filter-condition__field">
           <Select
             size="sm"
             value={condition.field}
@@ -337,7 +337,7 @@ export function FilterEditor({
             ))}
           </Select>
         </Field>
-        <Field label={t('filter.operator')}>
+        <Field label={t('filter.operator')} className="filter-condition__op">
           <Select
             size="sm"
             value={condition.op}
@@ -353,7 +353,12 @@ export function FilterEditor({
           </Select>
         </Field>
         {valueControl(condition)}
-        <Button size="sm" variant="quiet" onClick={() => removeCondition(condition.key)}>
+        <Button
+          size="sm"
+          variant="quiet"
+          className="filter-condition__remove"
+          onClick={() => removeCondition(condition.key)}
+        >
           {t('filter.remove')}
         </Button>
       </fieldset>
@@ -377,6 +382,7 @@ export function FilterEditor({
     <SidePanel
       open={open}
       onClose={onClose}
+      className="filter-panel"
       title={t('filter.title')}
       footer={
         <>

@@ -64,19 +64,53 @@
   gap: var(--s-3);
 }
 
+/* Панель фильтра шире обычной боковой (--side-w, 460 px): условию нужны три поля в ряд. */
+.ui-dialog--side.filter-panel {
+  width: min(520px, 100vw);
+}
+
+/* Условие — две строки: поле и оператор, под ними значение и «Прибрати умову». Колонки
+   0.5fr + auto второй строки дают оператору примерно ту же ширину, что у поля. Рамка
+   браузера у fieldset снята; рамка условия та же, что у группы, — токенами. */
+.filter-condition,
+.filter-group {
+  min-width: 0;
+  margin: 0;
+  padding: var(--s-3);
+  border: 0;
+  border-radius: var(--r-inner);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
 .filter-condition {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.5fr) auto;
+  grid-template-areas:
+    "field op op"
+    "value value remove";
   align-items: end;
   gap: var(--s-2);
+}
+
+.filter-condition__field {
+  grid-area: field;
+}
+
+.filter-condition__op {
+  grid-area: op;
+}
+
+.filter-condition__value {
+  grid-area: value;
+}
+
+.filter-condition__remove {
+  grid-area: remove;
 }
 
 .filter-group {
   display: grid;
   gap: var(--s-2);
-  padding: var(--s-3);
-  border-radius: var(--r-inner);
-  box-shadow: 0 0 0 1px var(--line);
 }
 
 .filter-editor__actions {
@@ -88,6 +122,15 @@
 @media (max-width: 600px) {
   .filter-condition {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "field"
+      "op"
+      "value"
+      "remove";
+  }
+
+  .filter-condition__remove {
+    justify-self: start;
   }
 }
 

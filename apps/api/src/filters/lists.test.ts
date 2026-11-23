@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import {
+  FILTER_ENTITIES,
+  FILTER_FIELDS,
+  FILTER_OPERATORS,
+  type FilterFieldSpec,
   type FilterGroup,
+  type FilterOperator,
   type ListCount,
+  operatorsOf,
+  parseFilter,
   ROLE_TEMPLATES,
   type SavedFilterSummary,
+  VALUELESS_OPERATORS,
 } from '@alpi/shared'
 import { sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -28,6 +36,7 @@ describe('списки и фильтры', () => {
   let colleague: SignedInUser
   let teamlead: SignedInUser
   let teamMember: SignedInUser
+  let otherTeamMember: SignedInUser
   let projectA: string
   let projectB: string
   let teamId: string
@@ -60,6 +69,22 @@ describe('списки и фильтры', () => {
         .where('user_id', 'in', [teamlead.id, teamMember.id])
         .execute()
       return team.id
+    })
+    // Другая команда того же проекта: её участник не должен видеть фильтр команды тимлида.
+    otherTeamMember = await h.signIn()
+    await h.addMember(projectA, otherTeamMember.id, 'manager')
+    await h.owner.transaction().execute(async (trx) => {
+      const team = await trx
+        .insertInto('team')
+        .values({ project_id: projectA, name: 'Команда Б', lead_user_id: otherTeamMember.id })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      await trx
+        .updateTable('project_member')
+        .set({ team_id: team.id })
+        .where('project_id', '=', projectA)
+        .where('user_id', '=', otherTeamMember.id)
+        .execute()
     })
   })
 
@@ -261,6 +286,80 @@ describe('списки и фильтры', () => {
       expect(compiled.sql).toMatch(/\$1/)
       expect(compiled.parameters).toContain(`%${injected}%`)
 
+      // Каждое поле каждого списка с каждым своим оператором: значение — только в параметрах,
+      // в тексте SQL его нет. Строки — с попыткой вставки SQL (поле-пользователь пропускает
+      // любую строку до 100 символов).
+      const tables = { deals: 'deal', contacts: 'contact', organizations: 'organization' } as const
+      const seen = new Set<FilterOperator>()
+      let n = 0
+      const scalar = (spec: FilterFieldSpec): string | number | boolean => {
+        n += 1
+        switch (spec.type) {
+          case 'id':
+            return randomUUID()
+          case 'user':
+            return `${injected} u${n}`
+          case 'enum':
+            return spec.values?.at(-1) ?? ''
+          case 'number':
+            return 4242.5 + n
+          case 'date':
+            return `2026-03-04T05:06:${String(n % 60).padStart(2, '0')}Z`
+          case 'text':
+            return `${injected} t${n}`
+          case 'boolean':
+            return true
+        }
+      }
+      for (const entity of FILTER_ENTITIES) {
+        const fields: Record<string, FilterFieldSpec> = FILTER_FIELDS[entity]
+        for (const [field, spec] of Object.entries(fields)) {
+          for (const op of operatorsOf(spec)) {
+            seen.add(op)
+            const one = scalar(spec)
+            const values = op === 'in' || op === 'not_in' ? [String(one)] : [one]
+            const condition = VALUELESS_OPERATORS.includes(op)
+              ? { field, op }
+              : { field, op, value: op === 'in' || op === 'not_in' ? values : one }
+            const label = `${entity}.${field} ${op}`
+            const parsed = parseFilter(entity, { and: [condition] })
+            expect(parsed.ok, label).toBe(true)
+            if (!parsed.ok) continue
+            const { sql: text, parameters } = h.appDb
+              .selectFrom(tables[entity])
+              .select('id')
+              .where(compileFilter(entity, parsed.filter, { actorId: 'me-id' }))
+              .compile()
+            if (VALUELESS_OPERATORS.includes(op) || spec.type === 'boolean') continue
+            const flat = parameters.flatMap((p) => (Array.isArray(p) ? p : [p]))
+            for (const value of values) {
+              expect(text, label).not.toContain(String(value))
+              expect(
+                flat.some((p) =>
+                  typeof value === 'string' ? String(p).includes(value) : p === value,
+                ),
+                `${label}: значения нет в параметрах ${JSON.stringify(parameters)}`,
+              ).toBe(true)
+            }
+          }
+        }
+      }
+      expect([...seen].sort()).toEqual([...FILTER_OPERATORS].sort())
+      // 'me' у поля-пользователя — id того, кто смотрит, тоже параметром.
+      const me = h.appDb
+        .selectFrom('deal')
+        .select('id')
+        .where(
+          compileFilter(
+            'deals',
+            { and: [{ field: 'owner', op: 'eq', value: 'me' }] },
+            { actorId: 'viewer-marker' },
+          ),
+        )
+        .compile()
+      expect(me.sql).not.toContain('viewer-marker')
+      expect(me.parameters).toContain('viewer-marker')
+
       // Неизвестное поле, оператор не того типа, значение не той формы — 400, без запроса.
       for (const filter of [
         { and: [{ field: 'title; drop table deal', op: 'contains', value: 'x' }] },
@@ -388,6 +487,8 @@ describe('списки и фильтры', () => {
       expect(await list(teamMember)).toEqual(expect.arrayContaining([team.id, shared.id]))
       expect(await list(teamMember)).not.toContain(personal.id)
       expect(await list(colleague)).toEqual([shared.id])
+      // Участник другой команды того же проекта фильтр этой команды тоже не видит.
+      expect(await list(otherTeamMember)).toEqual([shared.id])
       expect(await list(manager)).toEqual(expect.arrayContaining([personal.id, shared.id]))
       // Удалить чужой фильтр нельзя: не видно — 404, виден — 403.
       expect(

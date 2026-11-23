@@ -72,7 +72,7 @@ describe('массовые действия, выгрузка, корзина', 
 
   /** Участник с ролью шаблона `template`, где охват сделок и отдельные права заменены. */
   async function memberWithRole(
-    template: 'head' | 'manager',
+    template: 'head' | 'teamlead' | 'manager',
     scope: { read: 'own' | 'all'; write: 'own' | 'all' },
     standalone: RolePermissions['standalone'],
   ) {
@@ -412,6 +412,41 @@ describe('массовые действия, выгрузка, корзина', 
         .where('id', '=', a ?? '')
         .executeTakeFirstOrThrow()
       expect(deleted.deleted_by).toBe(initiator.id)
+    })
+
+    it('удаление в корзину без права «сделки: удалять» — 403, сделка не в корзине', async () => {
+      // Тимлид: «сделки» — смотреть, создавать, изменять, но не удалять.
+      const editor = await memberWithRole('teamlead', { read: 'all', write: 'all' }, [
+        'bulk_operations',
+      ])
+      const pipeline = await createPipeline(projectA)
+      const [deal] = await seed(projectA, {
+        pipeline: pipeline.id,
+        stage: pipeline.lead,
+        owner: editor.id,
+      })
+      const before = queued.length
+      const res = await call(editor, 'POST', '/v1/bulk-jobs', {
+        action: 'deals.trash',
+        selection: { ids: [deal] },
+      })
+      expect(res.status, await res.text()).toBe(403)
+      expect(queued).toHaveLength(before)
+      // То же право «изменять» пропускает массовую смену этапа: отказ — именно из-за «удалять».
+      await json<BulkJobSummary>(
+        await call(editor, 'POST', '/v1/bulk-jobs', {
+          action: 'deals.stage',
+          selection: { ids: [deal] },
+          params: { stageId: pipeline.call },
+        }),
+        202,
+      )
+      const row = await h.owner
+        .selectFrom('deal')
+        .select('deleted_at')
+        .where('id', '=', deal ?? '')
+        .executeTakeFirstOrThrow()
+      expect(row.deleted_at).toBeNull()
     })
   })
 
