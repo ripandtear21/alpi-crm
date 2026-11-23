@@ -7,7 +7,7 @@ import { Button } from '../../ui/button.tsx'
 import { Combobox, type ComboboxOption } from '../../ui/combobox.tsx'
 import { Dialog } from '../../ui/dialog.tsx'
 import { Field, Input, Select } from '../../ui/field.tsx'
-import { projectQueryKey } from '../project-switcher/current-project.tsx'
+import { projectQueryKey, useProjectCode } from '../project-switcher/current-project.tsx'
 import {
   CONTACT_LANGUAGES,
   type ContactInput,
@@ -74,6 +74,7 @@ export function FormErrorNotice({
   onOpenExisting?: () => void
 }) {
   const { t } = useTranslation('contact-card')
+  const code = useProjectCode()
   if (!error) return null
   return (
     <p className="ui-notice" role="alert">
@@ -82,8 +83,8 @@ export function FormErrorNotice({
         <>
           {' '}
           <Link
-            to="/contacts/$contactId"
-            params={{ contactId: error.contactId }}
+            to="/p/$code/contacts/$contactId"
+            params={{ code, contactId: error.contactId }}
             onClick={onOpenExisting}
           >
             {t('errors.openExisting')}

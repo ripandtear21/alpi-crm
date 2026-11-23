@@ -3,6 +3,10 @@ import { can, hasStandalone } from '@alpi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  projectHref,
+  useProjectCode,
+} from '../../../components/project-switcher/current-project.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
 import { Notice, Progress } from '../../../ui/feedback.tsx'
@@ -61,6 +65,7 @@ export function BulkDialog({
   onFinished: () => void
 }) {
   const { t } = useTranslation('lists')
+  const code = useProjectCode()
   const [action, setAction] = useState<BulkActionCode>(actions[0] ?? 'deals.archive')
   const [owner, setOwner] = useState('')
   const [stage, setStage] = useState('')
@@ -213,7 +218,7 @@ export function BulkDialog({
               <ul className="bulk-errors">
                 {current?.errors?.slice(0, 50).map((e) => (
                   <li key={e.position}>
-                    <a href={`/deals/${e.recordId}`}>{e.recordId.slice(0, 8)}</a>
+                    <a href={projectHref(code, `/deals/${e.recordId}`)}>{e.recordId.slice(0, 8)}</a>
                     {' — '}
                     {t(`bulk.errors.${e.code}` as 'bulk.errors.FAILED', { defaultValue: e.code })}
                   </li>

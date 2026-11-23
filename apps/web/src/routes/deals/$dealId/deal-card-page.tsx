@@ -1,6 +1,5 @@
 import type { LostReasonGroupSummary, MemberSummary, PipelineSummary } from '@alpi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import {
   projectQueryKey,
@@ -8,6 +7,7 @@ import {
 } from '../../../components/project-switcher/current-project.tsx'
 import { Timeline, timelineQueryKey } from '../../../components/timeline/timeline.tsx'
 import type { TimelineApi } from '../../../components/timeline/timeline-api.ts'
+import { NoAccess } from '../../../layout/no-access.tsx'
 import { Skeleton } from '../../../ui/feedback.tsx'
 import {
   type ContactCard,
@@ -84,18 +84,6 @@ export function DealCardPage({
       dealId={dealId}
       user={user}
     />
-  )
-}
-
-/** Сделки нет, она удалена или вне охвата: экран без каких-либо её данных. */
-function NoAccess() {
-  const { t } = useTranslation('deal-card')
-  return (
-    <section className="deal-card__denied">
-      <h1>{t('denied.title')}</h1>
-      <p>{t('denied.text')}</p>
-      <Link to="/deals">{t('denied.back')}</Link>
-    </section>
   )
 }
 

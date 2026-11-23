@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { useProjectCode } from '../../../components/project-switcher/current-project.tsx'
 import { DealCardApiError } from './deal-card-api.ts'
 
 // Отказы API на действия карточки. «Одна открытая сделка у человека в воронке» (409
@@ -18,6 +19,7 @@ export function useCardErrorText() {
 export function ActionError({ error }: { error: unknown }) {
   const { t } = useTranslation('deal-card')
   const errorText = useCardErrorText()
+  const code = useProjectCode()
   if (error === null || error === undefined) return null
   if (error instanceof DealCardApiError && error.code === 'OPEN_DEAL_EXISTS') {
     const dealId = typeof error.details?.dealId === 'string' ? error.details.dealId : null
@@ -27,7 +29,7 @@ export function ActionError({ error }: { error: unknown }) {
       <p className="ui-notice deal-card__conflict" role="alert">
         {t('errors.OPEN_DEAL_EXISTS')}{' '}
         {dealId ? (
-          <Link to="/deals/$dealId" params={{ dealId }}>
+          <Link to="/p/$code/deals/$dealId" params={{ code, dealId }}>
             {t('conflict.open')}
           </Link>
         ) : (

@@ -1,4 +1,5 @@
-import { QueryClient } from '@tanstack/react-query'
+import type { ProjectSummary } from '@alpi/shared'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createRootRouteWithContext,
   createRoute,
@@ -6,13 +7,23 @@ import {
   Outlet,
   type RouterHistory,
   redirect,
+  useRouterState,
 } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 import { type ContactsApi, createContactsApi } from './components/contact-form/contacts-api.ts'
-import { CurrentProjectProvider } from './components/project-switcher/current-project.tsx'
+import {
+  CurrentProjectProvider,
+  pickProject,
+  projectHref,
+  readStoredProjectId,
+  useCurrentProject,
+} from './components/project-switcher/current-project.tsx'
 import { createProjectsApi, type ProjectsApi } from './components/project-switcher/projects-api.ts'
+import { createSearchApi, type SearchApi } from './components/search-bar/search-api.ts'
 import { createTimelineApi, type TimelineApi } from './components/timeline/timeline-api.ts'
 import { HomePage } from './home-page.tsx'
 import { AppLayout } from './layout/app-layout.tsx'
+import { DelayedNoAccess, NoAccess } from './layout/no-access.tsx'
 import { SectionPlaceholder } from './layout/section-placeholder.tsx'
 import { type AuthApi, createAuthApi } from './routes/auth/auth-api.ts'
 import { ChangePasswordPage } from './routes/auth/change-password-page.tsx'
@@ -43,6 +54,7 @@ import { RolesPage } from './routes/settings/roles-page.tsx'
 import { SettingsPage } from './routes/settings/settings-page.tsx'
 import { TeamsPage } from './routes/settings/teams-page.tsx'
 import { TrashPage } from './routes/settings/trash-page.tsx'
+import { ToastProvider } from './ui/toast.tsx'
 
 export interface RouterContext {
   auth: AuthApi
@@ -57,6 +69,7 @@ export interface RouterContext {
   timeline: TimelineApi
   contacts: ContactsApi
   lists: ListsApi
+  search: SearchApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -127,36 +140,123 @@ const appRoute = createRoute({
 })
 
 function AppShell() {
-  const { projects, queryClient } = appRoute.useRouteContext()
+  const { projects, queryClient, search } = appRoute.useRouteContext()
+  // Код проекта — из адреса (`/p/<код>/…`); шапке он нужен так же, как экрану.
+  const code = useRouterState({
+    select: (state) =>
+      (
+        state.matches.find((match) => match.routeId === projectRoute.id)?.params as
+          | { code?: string }
+          | undefined
+      )?.code,
+  })
+  // Провайдер кэша — тот же клиент, что в main.tsx: каркас (строка поиска) работает и там,
+  // где выше провайдера нет (тесты маршрутов).
   return (
-    <CurrentProjectProvider projects={projects} queryClient={queryClient}>
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
-    </CurrentProjectProvider>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <CurrentProjectProvider projects={projects} code={code} queryClient={queryClient}>
+          <AppLayout search={search}>
+            <Outlet />
+          </AppLayout>
+        </CurrentProjectProvider>
+      </ToastProvider>
+    </QueryClientProvider>
   )
 }
 
-const indexRoute = createRoute({
+// Адрес без проекта (старые ссылки, «/» после входа) — тот же экран в проекте, открытом
+// в прошлый раз, или в первом доступном. Адрес `/p/…`, которому нет экрана, остаётся:
+// показывается «немає доступу».
+function toProjectAddress({
+  context,
+  location,
+}: {
+  context: { projects: ProjectSummary[] }
+  location: { pathname: string; searchStr: string; hash: string }
+}) {
+  if (location.pathname === '/p' || location.pathname.startsWith('/p/')) return
+  const project = pickProject(context.projects, readStoredProjectId())
+  if (!project) return
+  const path = location.pathname === '/' ? '' : location.pathname
+  const hash = location.hash ? `#${location.hash}` : ''
+  throw redirect({
+    href: projectHref(project.code, `${path}${location.searchStr}${hash}`),
+    replace: true,
+  })
+}
+
+const legacyIndexRoute = createRoute({
   getParentRoute: () => appRoute,
+  path: '/',
+  beforeLoad: toProjectAddress,
+  component: NoProjectsPage,
+})
+
+const legacyRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '$',
+  beforeLoad: toProjectAddress,
+  component: NoProjectsPage,
+})
+
+/** Сюда приводит адрес без проекта, когда проектов нет, или `/p/…` без экрана. */
+function NoProjectsPage() {
+  const { t } = useTranslation('layout')
+  const { projects } = useCurrentProject()
+  if (projects.length > 0) return <NoAccess />
+  return (
+    <section>
+      <h1>{t('project.none')}</h1>
+      <p>{t('project.noneHint')}</p>
+    </section>
+  )
+}
+
+// Экраны проекта: `/p/<код проекта>/…`. Код, которого нет среди проектов пользователя (не
+// участник или такого проекта нет), — нейтральный экран «немає доступу».
+const projectRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/p/$code',
+  component: function ProjectScreen() {
+    const { current } = useCurrentProject()
+    return current ? <Outlet /> : <DelayedNoAccess />
+  },
+})
+
+const indexRoute = createRoute({
+  getParentRoute: () => projectRoute,
   path: '/',
   component: HomePage,
 })
 
 // Разделы левого меню; у кого ещё нет экрана — временная страница-заглушка.
 const dealsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/deals',
+  getParentRoute: () => projectRoute,
+  path: 'deals',
+  // Воронка канбана — в адресе: ссылка открывает ту же воронку.
+  validateSearch: (search: Record<string, unknown>): { pipeline?: string } =>
+    typeof search.pipeline === 'string' ? { pipeline: search.pipeline } : {},
   component: function DealsRoute() {
     const { deals, session, queryClient } = dealsRoute.useRouteContext()
-    return <KanbanPage api={deals} userId={session.user.id} queryClient={queryClient} />
+    const { pipeline } = dealsRoute.useSearch()
+    const navigate = dealsRoute.useNavigate()
+    return (
+      <KanbanPage
+        api={deals}
+        userId={session.user.id}
+        queryClient={queryClient}
+        pipelineId={pipeline}
+        onPipelineChange={(id) => void navigate({ search: { pipeline: id }, replace: true })}
+      />
+    )
   },
 })
 
 // Списки сделок, контактов и организаций (тикет crm-deals/12).
 const dealsListRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/deals/list',
+  getParentRoute: () => projectRoute,
+  path: 'deals/list',
   validateSearch: (search: Record<string, unknown>): DealsListSearch => ({
     ...(typeof search.pipeline === 'string' ? { pipeline: search.pipeline } : {}),
     ...(typeof search.stage === 'string' ? { stage: search.stage } : {}),
@@ -182,8 +282,8 @@ const dealsListRoute = createRoute({
 })
 
 const contactsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/contacts',
+  getParentRoute: () => projectRoute,
+  path: 'contacts',
   component: function ContactsRoute() {
     const { lists, session, queryClient } = contactsRoute.useRouteContext()
     return <ContactsListPage api={lists} userId={session.user.id} queryClient={queryClient} />
@@ -191,8 +291,8 @@ const contactsRoute = createRoute({
 })
 
 const organizationsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/organizations',
+  getParentRoute: () => projectRoute,
+  path: 'organizations',
   component: function OrganizationsRoute() {
     const { lists, session, queryClient } = organizationsRoute.useRouteContext()
     return <OrganizationsListPage api={lists} userId={session.user.id} queryClient={queryClient} />
@@ -200,26 +300,26 @@ const organizationsRoute = createRoute({
 })
 
 const tasksRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/tasks',
+  getParentRoute: () => projectRoute,
+  path: 'tasks',
   component: () => <SectionPlaceholder title="nav.tasks" />,
 })
 
 const reportsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/reports',
+  getParentRoute: () => projectRoute,
+  path: 'reports',
   component: () => <SectionPlaceholder title="nav.reports" />,
 })
 
 const settingsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings',
+  getParentRoute: () => projectRoute,
+  path: 'settings',
   component: SettingsPage,
 })
 
 const rolesRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/roles',
+  getParentRoute: () => projectRoute,
+  path: 'settings/roles',
   component: function RolesRoute() {
     const { roles } = rolesRoute.useRouteContext()
     return <RolesPage api={roles} />
@@ -227,8 +327,8 @@ const rolesRoute = createRoute({
 })
 
 const auditRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/audit',
+  getParentRoute: () => projectRoute,
+  path: 'settings/audit',
   component: function AuditRoute() {
     const { audit } = auditRoute.useRouteContext()
     return <AuditPage api={audit} />
@@ -236,8 +336,8 @@ const auditRoute = createRoute({
 })
 
 const membersRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/users',
+  getParentRoute: () => projectRoute,
+  path: 'settings/users',
   component: function MembersRoute() {
     const { members, roles } = membersRoute.useRouteContext()
     return <MembersPage api={members} roles={roles} />
@@ -245,8 +345,8 @@ const membersRoute = createRoute({
 })
 
 const teamsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/teams',
+  getParentRoute: () => projectRoute,
+  path: 'settings/teams',
   component: function TeamsRoute() {
     const { members } = teamsRoute.useRouteContext()
     return <TeamsPage api={members} />
@@ -254,8 +354,8 @@ const teamsRoute = createRoute({
 })
 
 const pipelinesRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/pipelines',
+  getParentRoute: () => projectRoute,
+  path: 'settings/pipelines',
   component: function PipelinesRoute() {
     const { pipelines } = pipelinesRoute.useRouteContext()
     return <PipelinesPage api={pipelines} />
@@ -263,8 +363,8 @@ const pipelinesRoute = createRoute({
 })
 
 const lostReasonsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/lost-reasons',
+  getParentRoute: () => projectRoute,
+  path: 'settings/lost-reasons',
   component: function LostReasonsRoute() {
     const { pipelines } = lostReasonsRoute.useRouteContext()
     return <LostReasonsPage api={pipelines} />
@@ -272,8 +372,8 @@ const lostReasonsRoute = createRoute({
 })
 
 const productsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/products',
+  getParentRoute: () => projectRoute,
+  path: 'settings/products',
   component: function ProductsRoute() {
     const { products } = productsRoute.useRouteContext()
     return <ProductsPage api={products} />
@@ -281,8 +381,8 @@ const productsRoute = createRoute({
 })
 
 const trashRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/settings/trash',
+  getParentRoute: () => projectRoute,
+  path: 'settings/trash',
   component: function TrashRoute() {
     const { lists, queryClient } = trashRoute.useRouteContext()
     return <TrashPage api={lists} queryClient={queryClient} />
@@ -291,8 +391,8 @@ const trashRoute = createRoute({
 
 // Карточка сделки (тикет crm-deals/13).
 const dealCardRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/deals/$dealId',
+  getParentRoute: () => projectRoute,
+  path: 'deals/$dealId',
   component: function DealCardRoute() {
     const { dealCard, timeline, session } = dealCardRoute.useRouteContext()
     const { dealId } = dealCardRoute.useParams()
@@ -302,8 +402,8 @@ const dealCardRoute = createRoute({
 
 // Карточки контакта и организации (тикет crm-deals/14).
 const contactCardRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/contacts/$contactId',
+  getParentRoute: () => projectRoute,
+  path: 'contacts/$contactId',
   component: function ContactCardRoute() {
     const { contacts, deals, timeline, session } = contactCardRoute.useRouteContext()
     const { contactId } = contactCardRoute.useParams()
@@ -320,8 +420,8 @@ const contactCardRoute = createRoute({
 })
 
 const organizationCardRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/organizations/$organizationId',
+  getParentRoute: () => projectRoute,
+  path: 'organizations/$organizationId',
   component: function OrganizationCardRoute() {
     const { contacts, timeline, session } = organizationCardRoute.useRouteContext()
     const { organizationId } = organizationCardRoute.useParams()
@@ -342,25 +442,29 @@ const routeTree = rootRoute.addChildren([
   twoFactorSetupRoute,
   changePasswordRoute,
   appRoute.addChildren([
-    indexRoute,
-    dealsRoute,
-    dealsListRoute,
-    contactsRoute,
-    organizationsRoute,
-    tasksRoute,
-    reportsRoute,
-    settingsRoute,
-    rolesRoute,
-    auditRoute,
-    membersRoute,
-    teamsRoute,
-    pipelinesRoute,
-    lostReasonsRoute,
-    productsRoute,
-    trashRoute,
-    dealCardRoute,
-    contactCardRoute,
-    organizationCardRoute,
+    legacyIndexRoute,
+    legacyRoute,
+    projectRoute.addChildren([
+      indexRoute,
+      dealsRoute,
+      dealsListRoute,
+      contactsRoute,
+      organizationsRoute,
+      tasksRoute,
+      reportsRoute,
+      settingsRoute,
+      rolesRoute,
+      auditRoute,
+      membersRoute,
+      teamsRoute,
+      pipelinesRoute,
+      lostReasonsRoute,
+      productsRoute,
+      trashRoute,
+      dealCardRoute,
+      contactCardRoute,
+      organizationCardRoute,
+    ]),
   ]),
 ])
 
@@ -391,6 +495,8 @@ export interface AppRouterOptions {
   contacts?: ContactsApi
   /** Только в тестах: подставной клиент списков, массовых действий и корзины. В браузере — запросы к API. */
   lists?: ListsApi
+  /** Только в тестах: подставной клиент быстрого поиска. В браузере — запросы к API. */
+  search?: SearchApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -409,6 +515,7 @@ export function createAppRouter({
   timeline = createTimelineApi(),
   contacts = createContactsApi(),
   lists = createListsApi(),
+  search = createSearchApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -424,6 +531,7 @@ export function createAppRouter({
     timeline,
     contacts,
     lists,
+    search,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })

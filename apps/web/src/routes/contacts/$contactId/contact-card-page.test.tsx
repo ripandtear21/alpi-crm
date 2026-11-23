@@ -34,7 +34,7 @@ async function renderCard({
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
-    history: createMemoryHistory({ initialEntries: [`/contacts/${contactId}`] }),
+    history: createMemoryHistory({ initialEntries: [`/p/alpi/contacts/${contactId}`] }),
     auth: fakeAuthApi(),
     projects: fakeProjectsApi(),
     deals: kanban,
@@ -122,7 +122,7 @@ describe('карточка контакта: организация', () => {
     const created = api.organizations.find((org) => org.name === 'Нова Фірма')
     await waitFor(() => expect(api.contacts[0]?.organizationId).toBe(created?.id))
     const link = await within(details).findByRole('link', { name: 'Нова Фірма' })
-    expect(link.getAttribute('href')).toBe(`/organizations/${created?.id}`)
+    expect(link.getAttribute('href')).toBe(`/p/alpi/organizations/${created?.id}`)
   })
 })
 
@@ -170,7 +170,7 @@ describe('карточка контакта: совпадения', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }))
 
     const link = await within(form).findByRole('link', { name: 'Відкрити існуючий' })
-    expect(link.getAttribute('href')).toBe(`/contacts/${OTHER_CONTACT_ID}`)
+    expect(link.getAttribute('href')).toBe(`/p/alpi/contacts/${OTHER_CONTACT_ID}`)
   })
 
   it('пометка «можливий дубль» видна в шапке', async () => {
@@ -253,7 +253,7 @@ describe('карточка контакта: удаление', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Видалити контакт?' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Видалити разом з угодами' }))
 
-    await waitFor(() => expect(router.state.location.pathname).toBe('/contacts'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/p/alpi/contacts'))
     expect(api.calls).toEqual([`removeContact:${CONTACT_ID}:${ids.join(',')}`])
   })
 

@@ -2,7 +2,11 @@ import type { PipelineSummary } from '@alpi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, type ReactNode, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { projectQueryKey } from '../../components/project-switcher/current-project.tsx'
+import {
+  projectHref,
+  projectQueryKey,
+  useProjectCode,
+} from '../../components/project-switcher/current-project.tsx'
 import { Button } from '../../ui/button.tsx'
 import { Combobox } from '../../ui/combobox.tsx'
 import { Dialog } from '../../ui/dialog.tsx'
@@ -59,6 +63,7 @@ export function NewDealDialog({
   onCreated: () => void
 }) {
   const { t } = useTranslation('deals')
+  const code = useProjectCode()
   const formId = useId()
   const [search, setSearch] = useState(contact ? contactName(contact) : '')
   const [chosen, setChosen] = useState<ContactOption | null>(contact ?? null)
@@ -302,7 +307,7 @@ export function NewDealDialog({
             {error.dealId && (
               <>
                 {' '}
-                <a href={`/deals/${error.dealId}`}>{t('newDeal.openDeal')}</a>
+                <a href={projectHref(code, `/deals/${error.dealId}`)}>{t('newDeal.openDeal')}</a>
               </>
             )}
           </p>

@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useProjectCode } from '../../../components/project-switcher/current-project.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
 import { Field, Input, Select } from '../../../ui/field.tsx'
@@ -103,6 +104,7 @@ export function LoseDialog({ card, onClose }: { card: DealCardModel; onClose: ()
 export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: () => void }) {
   const { t } = useTranslation('deal-card')
   const navigate = useNavigate()
+  const code = useProjectCode()
   const pipelines = card.pipelines.filter((pipeline) => pipeline.archivedAt === null)
   const preferred =
     pipelines.find((pipeline) => pipeline.isUpsell) ??
@@ -137,7 +139,7 @@ export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: 
       return
     }
     onClose()
-    await navigate({ to: '/deals/$dealId', params: { dealId: created.id } })
+    await navigate({ to: '/p/$code/deals/$dealId', params: { code, dealId: created.id } })
   }
 
   return (
@@ -256,6 +258,7 @@ export function MoveDialog({ card, onClose }: { card: DealCardModel; onClose: ()
 export function DeleteDialog({ card, onClose }: { card: DealCardModel; onClose: () => void }) {
   const { t } = useTranslation('deal-card')
   const navigate = useNavigate()
+  const code = useProjectCode()
   const [error, setError] = useState<unknown>(null)
   const confirm = async () => {
     const { api, projectId, deal } = card
@@ -266,7 +269,7 @@ export function DeleteDialog({ card, onClose }: { card: DealCardModel; onClose: 
       return
     }
     onClose()
-    await navigate({ to: '/deals' })
+    await navigate({ to: '/p/$code/deals', params: { code } })
   }
   return (
     <Dialog

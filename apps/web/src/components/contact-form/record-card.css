@@ -160,10 +160,6 @@
   gap: var(--s-3);
 }
 
-.record-card__denied {
-  padding: var(--s-6);
-}
-
 .record-card__deps {
   margin: var(--s-2) 0 0;
   padding-left: var(--s-5);

@@ -78,7 +78,7 @@ describe('доступ к экрану настройки 2FA', () => {
   it('2FA уже включена — на главную', async () => {
     const router = renderAt('/two-factor-setup', fakeAuthApi())
     await screen.findByRole('navigation', { name: 'Головне меню' })
-    expect(router.state.location.pathname).toBe('/')
+    expect(router.state.location.pathname).toBe('/p/alpi')
   })
 
   it('2FA включена, но сессия без второго фактора — на экран входа', async () => {
@@ -116,7 +116,7 @@ describe('экран входа', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Підтвердити' }))
     await screen.findByRole('navigation', { name: 'Головне меню' })
     expect(verifyTotp).toHaveBeenCalledWith('123456')
-    expect(router.state.location.pathname).toBe('/')
+    expect(router.state.location.pathname).toBe('/p/alpi')
   })
 
   it('неверный пароль и лимит попыток — понятные ошибки', async () => {
@@ -192,7 +192,7 @@ describe('экран настройки 2FA', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Увімкнути' }))
     await screen.findByRole('navigation', { name: 'Головне меню' })
     expect(verifyTotp).toHaveBeenCalledWith('654321')
-    expect(router.state.location.pathname).toBe('/')
+    expect(router.state.location.pathname).toBe('/p/alpi')
   })
 
   it('неверный пароль — ошибка, QR не показан', async () => {
