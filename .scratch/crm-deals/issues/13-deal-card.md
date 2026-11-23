@@ -1,7 +1,7 @@
 # Карточка сделки
 
 Type: task
-Status: open
+Status: claimed 2026-11-23T18:46Z
 Blocked by: 01, 05, 06, 07
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 5); .scratch/crm-mvp/spec.md, разделы 5.2, 13.0.2 (пункт 41), 13.0.4; docs/prototypes/
 

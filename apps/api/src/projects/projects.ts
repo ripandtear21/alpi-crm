@@ -1,10 +1,11 @@
 import type { Database } from '@alpi/db'
-import type { ProjectSummary } from '@alpi/shared'
+import type { ProjectAccess, ProjectSummary } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import type { AccessEnv } from '../auth/access-guard.ts'
 import { OWNER_ROLE } from '../auth/owner.ts'
 import type { ProjectEnv } from '../middleware/project-context.ts'
+import { loadMemberAccess } from '../roles/access.ts'
 
 // Проекты: список «мои проекты» и создание проекта — вне контекста проекта; текущий проект —
 // внутри него (после projectContext). Роль приложения не может вставлять в project и не видит
@@ -73,13 +74,26 @@ export function projectsRoutes(db: Kysely<Database>) {
 
 /** Маршруты в контексте проекта: участие проверено, запросы — через транзакцию проекта. */
 export function currentProjectRoutes() {
-  return new Hono<ProjectEnv>().get('/', async (c) => {
-    const project = await c
-      .get('db')
-      .selectFrom('project')
-      .select(['id', 'code', 'name'])
-      .where('id', '=', c.get('projectId'))
-      .executeTakeFirstOrThrow()
-    return c.json<ProjectSummary>(project)
-  })
+  return (
+    new Hono<ProjectEnv>()
+      .get('/', async (c) => {
+        const project = await c
+          .get('db')
+          .selectFrom('project')
+          .select(['id', 'code', 'name'])
+          .where('id', '=', c.get('projectId'))
+          .executeTakeFirstOrThrow()
+        return c.json<ProjectSummary>(project)
+      })
+      // Права самого пользователя в текущем проекте (роль участника): интерфейс прячет по ним
+      // кнопки, на которые нет права. Только свои права и только этого проекта — сервер всё
+      // равно проверяет каждый запрос сам.
+      .get('/access', async (c) => {
+        const userId = c.get('session').user.id
+        const access = await loadMemberAccess(c.get('db'), userId)
+        // projectContext уже проверил участие; пропасть оно могло только в этой же транзакции.
+        if (!access) return c.json({ code: 'PERMISSION_DENIED' }, 403)
+        return c.json<ProjectAccess>({ userId, permissions: access.permissions })
+      })
+  )
 }
