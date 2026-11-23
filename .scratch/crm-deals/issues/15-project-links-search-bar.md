@@ -23,11 +23,17 @@ apps/web/src/router.tsx, apps/web/src/routes/**, apps/web/src/components/project
 ## Done when
 
 - [ ] Тест: ссылка на сделку проекта Б у участника обоих проектов, работающего в проекте А, открывает сделку и переключает проект в шапке; данные проекта А из кэша не показываются.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/components/project-switcher/project-links.test.tsx` exit 0 · windows - · 8609b2d61eb3dd771ecee8aa011e91790851ea20
 - [ ] Тест: ссылка на проект, где пользователь не участник, на несуществующий код, на несуществующую сделку и на сделку вне охвата показывают одинаковый экран «немає доступу» без названия проекта и сделки.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/components/project-switcher/project-links.test.tsx` exit 0 · windows - · 8609b2d61eb3dd771ecee8aa011e91790851ea20
 - [ ] Тест: смена проекта переключателем меняет адрес; обновление страницы остаётся в том же проекте.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/components/project-switcher/project-links.test.tsx` exit 0 · windows - · 8609b2d61eb3dd771ecee8aa011e91790851ea20
 - [ ] Тест строки поиска: ввод `067 123 45 67` показывает контакт с этим номером; стрелки и Enter открывают результат по ссылке с проектом; менеджер «свои» не видит в выпадающем списке чужих сделок.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/components/search-bar/search-bar.test.tsx` exit 0 · windows - · 8609b2d61eb3dd771ecee8aa011e91790851ea20
 - [ ] Проверено в настоящем браузере на 1280 и 375 px.
 - [ ] `pnpm verify` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 8609b2d61eb3dd771ecee8aa011e91790851ea20
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 8609b2d61eb3dd771ecee8aa011e91790851ea20
 
 ## Результат
 
