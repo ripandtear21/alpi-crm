@@ -3,9 +3,9 @@ import type { ResourceScope, RolePermissions, Scope } from '@alpi/shared'
 import { type Kysely, sql } from 'kysely'
 import type { ChangeAuthor } from '../change-log/record.ts'
 import type { ContactsErrorCode } from '../contacts/contacts.ts'
-import { type Outcome, ok, refuse } from '../contacts/http.ts'
+import { type Ctx, type Outcome, ok, refuse } from '../contacts/http.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
-import type { Viewer } from '../roles/scope.ts'
+import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
 
 // Сделки в базе (тикет crm-deals/05): чтение строки в охвате, ответ API, запись с переводом
@@ -69,6 +69,11 @@ export type DealsErrorCode =
   | 'DEAL_HAS_NO_PRODUCTS'
   /** «Підставити»: сумма строк больше наибольшей суммы сделки. */
   | 'PRODUCTS_TOTAL_TOO_LARGE'
+  /**
+   * Смена этапа: не заполнены поля, которых требует этап (deals/stage-requirements.ts);
+   * `details.fields` — их имена. Сделка остаётся на месте.
+   */
+  | 'STAGE_REQUIREMENTS_MISSING'
 
 export type Result<T> = Outcome<T, DealsErrorCode | ContactsErrorCode>
 
@@ -79,6 +84,20 @@ export interface DealContext extends ChangeAuthor {
   /** Охват сделок. */
   scope: ResourceScope
   viewer: Viewer
+}
+
+export async function dealContext(c: Ctx): Promise<DealContext> {
+  const db = c.get('db')
+  const userId = c.get('session').user.id
+  const { permissions } = c.get('access')
+  return {
+    db,
+    projectId: c.get('projectId'),
+    actorId: userId,
+    permissions,
+    scope: permissions.scopes.deals,
+    viewer: await resolveViewer(db, userId, PROJECT_TEAMS),
+  }
 }
 
 /** Участник сделки в ответах API. */
