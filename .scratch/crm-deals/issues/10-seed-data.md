@@ -25,11 +25,17 @@ apps/api/src/cli/seed.ts, apps/api/src/seed/**, package.json (скрипт `seed
 ## Done when
 
 - [ ] Тест (на уменьшенном объёме, например 1/10): после запуска в ALPI 3 воронки, 10 менеджеров в 2 командах, ожидаемое число контактов и сделок; во «Франче» сделки с организациями.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
 - [ ] Тест: повторный запуск не меняет числа записей; `--reset` удаляет созданное командой и не трогает записи, созданные руками.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
 - [ ] Тест: ни у одного контакта нет двух открытых неархивных сделок в одной воронке; все email на `example.com`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
 - [ ] Тест: запуск с `NODE_ENV=production` завершается с ошибкой и ничего не пишет.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed.test.ts` exit 0 (in pnpm verify) · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
 - [ ] Полный запуск на локальной базе проходит (время записано в отчёт), под менеджером «свои» в API видны только его сделки и общая очередь.
+  - evidence: test-run pass · `pnpm seed` twice at scale 1 on embedded PostgreSQL plus GET /v1/deals/:id for all 5000 ALPI deals as manager (scratch script full-run.mjs) exit 0 · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ec6abe57d50d323c3263ebc4bd16ea19e780fae2
 
 ## Результат
 
