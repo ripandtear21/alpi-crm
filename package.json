@@ -9,16 +9,18 @@
   "scripts": {
     "lint": "biome check .",
     "format": "biome check --write .",
-    "typecheck": "pnpm -r --no-bail typecheck",
+    "typecheck": "pnpm -r --no-bail typecheck && tsc -p e2e/tsconfig.json",
     "test": "vitest run",
     "build": "pnpm -r build",
     "verify": "pnpm lint && pnpm typecheck && pnpm test",
+    "e2e": "pnpm --filter @alpi/web build && playwright test",
     "create-owner": "pnpm --filter @alpi/api create-owner",
     "project-preset": "pnpm --filter @alpi/api project-preset",
     "seed": "pnpm --filter @alpi/api seed"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
+    "@playwright/test": "1.65.1",
     "@types/node": "24.19.2",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
