@@ -29,10 +29,11 @@ packages/db/migrations/**, packages/shared/src/permissions.ts, packages/shared/s
 
 - [ ] Тест фильтра: группа «(этап = Новий лід И создана раньше даты) ИЛИ ответственный пуст» даёт те же строки, что прямой SQL; архивные скрыты без условия «архив».
   - evidence: test-run pass · `pnpm vitest run apps/api/src/filters/lists.test.ts` exit 0 · windows - · 8f8885f8bddb975ce366132a60ec0d216627fccd
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/filters/lists.test.ts` exit 0 · windows - · a58cd55aa7a35768bfe3aee55865179bd71d2c53
 - [ ] Тест изоляции: список, сохранённые фильтры, выгрузка и корзина проекта A не показывают записей B; фильтр, сохранённый в A, не виден в B.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/filters/lists.test.ts apps/api/src/deals/list-actions.test.ts packages/db/src/project-isolation.test.ts` exit 0 · windows - · 8f8885f8bddb975ce366132a60ec0d216627fccd
 - [ ] Тест прав и охвата: менеджер «свои» видит в списке только свои сделки и общую очередь; без «общих фильтров» сохранить фильтр для проекта — 403; тимлид сохраняет фильтр для своей команды, а не для проекта; без права «выгрузка в файл» CSV — 403; без «массовых операций» — 403.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/filters/lists.test.ts` exit 0 · windows - · 8f8885f8bddb975ce366132a60ec0d216627fccd
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/filters/lists.test.ts apps/api/src/deals/list-actions.test.ts` exit 0 · windows - · a58cd55aa7a35768bfe3aee55865179bd71d2c53
 - [ ] Тест курсора: сортировка по сумме с равными значениями отдаёт все строки ровно по одному разу.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/filters/lists.test.ts` exit 0 · windows - · 8f8885f8bddb975ce366132a60ec0d216627fccd
 - [ ] Тест массового архива: 2 000 сделок «Новий лід» по фильтру архивируются с прогрессом; сделка вне охвата инициатора не тронута и записана в журнал операции.
@@ -44,6 +45,7 @@ packages/db/migrations/**, packages/shared/src/permissions.ts, packages/shared/s
 - [ ] Экраны проверены в настоящем браузере на 1280 и 375 px.
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · windows - · 8f8885f8bddb975ce366132a60ec0d216627fccd
+  - evidence: gate pass · `gate fast` exit 0 · windows - · a58cd55aa7a35768bfe3aee55865179bd71d2c53
 
 ## Результат
 
@@ -55,7 +57,7 @@ packages/db/migrations/**, packages/shared/src/permissions.ts, packages/shared/s
 - Выгрузка CSV: `GET /v1/{deals,contacts,organizations}/export.csv` с правом «експорт», текущими фильтром, сортировкой и колонками; UTF-8 с BOM, ячейки, похожие на формулу, экранированы; выгрузка пишется в журнал действий (`export.downloaded`). Данные идут порциями по 500, каждая — в своей транзакции проекта.
 - Корзина: `GET /v1/trash?type=deal|contact|organization` (охват роли), экран «Налаштування → Кошик» со вкладками, восстановлением (конфликт «одной открытой сделки» — с подсказкой) и окончательным удалением с подтверждением; новый `DELETE /v1/deals/:id/permanent` (право «Кошик: видаляти», журнал `deal.purged`). Очистка старше 30 дней — задачей по расписанию тикета 04, для сделок, контактов и организаций (`apps/api/src/trash/purgers.ts`).
 - Номер миграции: `0014_saved_filters`. Номер 0013 занят открытым PR тикета 08 (быстрый поиск); если тикет 08 сливается после этого, его миграция переименовывается в `0015`.
-- не проверено: пункт 8 «Done when» (настоящий браузер на 1280 и 375 px) — проверка в браузере не входила в задачу исполнителя; вёрстка проверена только тестами экрана, которые ширину не отрисовывают.
+- не проверено: пункт 8 «Done when» (настоящий браузер на 1280 и 375 px) — проверка в браузере не входила в задачу исполнителя; вёрстка проверена только тестами экрана, которые ширину не отрисовывают. В доработке (раунд 1) редактор фильтра снят Playwright на собранном клиенте с подменённым API — 1280 и 375 px, светлая и тёмная темы; остальные экраны в браузере не смотрели.
 
 Решено без владельца — подтвердить:
 
