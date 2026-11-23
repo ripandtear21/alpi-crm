@@ -29,13 +29,21 @@ apps/web/src/routes/deals/** (канбан, форма создания), apps/w
 ## Done when
 
 - [ ] Тест API агрегатов: числа и суммы по валютам совпадают с прямым SQL-запросом на тестовых данных; менеджер «свои» получает агрегаты только своих сделок и общей очереди; агрегаты проекта B не попадают в A.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/board.test.ts` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
 - [ ] Тест API: выдача колонки отдаёт 50 карточек и курсор; следующая страница без повторов и пропусков при равных датах.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/board.test.ts` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
 - [ ] Тест: точка расширения требований этапа, вернувшая поле, делает смену этапа 422 и сделка остаётся на месте.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/board.test.ts` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
 - [ ] Тест экрана: перетаскивание вызывает смену этапа; ошибка API возвращает карточку; «Програно» без выбранной причины не отправляется.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
 - [ ] Тест экрана: на 375 px одна колонка с вкладками этапов и без перетаскивания; смена этапа через меню карточки.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
 - [ ] Тест экрана: «Взяти в роботу» ставит ответственным текущего пользователя; при 409 показывается «угоду вже взяли».
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
 - [ ] Проверено в настоящем браузере на тестовых данных `pnpm seed` (тикет 10, если слит; иначе на данных теста) на 1280 и 375 px: прокрутка колонки «Новий лід» подгружает карточки.
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
+  - evidence: gate pass · `gate fast` exit 0 · windows - · a373e8c566e64c4ee244a6111b9b8bc2d5007902
 
 ## Результат
 
