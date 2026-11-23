@@ -43,6 +43,11 @@ export const PROJECT_AUDIT_ACTIONS = [
   // Тикет crm-deals/03: окончательное удаление из корзины (в подробностях — ничего, только id).
   'contact.purged',
   'organization.purged',
+  // Тикет crm-deals/12: списки, выгрузка, корзина.
+  /** Сделка удалена из корзины окончательно (в подробностях — ничего, только id). */
+  'deal.purged',
+  /** Выгрузка списка в CSV (details — список, колонки, фильтр и сортировка). */
+  'export.downloaded',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 

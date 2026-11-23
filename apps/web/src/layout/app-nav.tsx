@@ -6,6 +6,7 @@ export const NAV_ID = 'app-nav'
 export const NAV_SECTIONS = [
   { to: '/deals', label: 'nav.deals' },
   { to: '/contacts', label: 'nav.contacts' },
+  { to: '/organizations', label: 'nav.organizations' },
   { to: '/tasks', label: 'nav.tasks' },
   { to: '/reports', label: 'nav.reports' },
   { to: '/settings', label: 'nav.settings' },

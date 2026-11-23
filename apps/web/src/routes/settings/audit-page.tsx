@@ -88,7 +88,11 @@ function useSummary() {
         return text(before.name)
       case 'contact.purged':
       case 'organization.purged':
+      case 'deal.purged':
         return entry.entityId ?? ''
+      // Тикет crm-deals/12: выгрузка списка в CSV.
+      case 'export.downloaded':
+        return text(entry.details.list)
       case 'team.lead_assigned':
         return t('summary.leadAssigned', {
           team: text(entry.details.team),

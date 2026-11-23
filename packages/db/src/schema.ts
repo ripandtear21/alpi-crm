@@ -487,6 +487,24 @@ export interface FileTable {
   created_at: Timestamp
 }
 
+/**
+ * Сохранённый фильтр списка (migrations/0014_saved_filters.ts): дерево условий формата
+ * packages/shared/src/filters. Видимость team — у фильтра есть team_id.
+ */
+export interface SavedFilterTable {
+  id: Generated<string>
+  project_id: string
+  entity: 'deals' | 'contacts' | 'organizations'
+  name: string
+  visibility: 'personal' | 'team' | 'project'
+  team_id: string | null
+  owner_id: string
+  /** Читается объектом, пишется строкой JSON. */
+  filter: ColumnType<Record<string, unknown>, string, string>
+  created_at: Timestamp
+  updated_at: Timestamp
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -519,4 +537,5 @@ export interface Database {
   deal_product: DealProductTable
   note: NoteTable
   file: FileTable
+  saved_filter: SavedFilterTable
 }

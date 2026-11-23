@@ -4,10 +4,11 @@ import { createApp } from './app.ts'
 import { createAuth } from './auth/auth.ts'
 import type { BulkActionRegistry } from './bulk/registry.ts'
 import { readApiEnv } from './config.ts'
+import { DEAL_BULK_REGISTRY } from './deals/bulk.ts'
 import { TRANSFER_DEALS_ACTION, transferDeals } from './deals/transfer.ts'
 import { startJobs } from './jobs/jobs.ts'
 import { localDiskStorage } from './storage/storage.ts'
-import { NO_TRASH_PURGERS } from './trash/purge.ts'
+import { TRASH_PURGERS } from './trash/purgers.ts'
 
 const env = readApiEnv()
 const port = Number(process.env.PORT ?? 3000)
@@ -25,12 +26,17 @@ const auth = createAuth({
 })
 // Фоновые задачи — в процессе API, той же ролью приложения (apps/api/src/jobs/jobs.ts).
 // Реестр массовых действий (bulk/registry.ts): код «раздел.действие» → действие.
-const bulkActions: BulkActionRegistry = new Map([[TRANSFER_DEALS_ACTION, transferDeals]])
+// Действия списка сделок (тикет 12) — deals/bulk.ts.
+const bulkActions: BulkActionRegistry = new Map([
+  [TRANSFER_DEALS_ACTION, transferDeals],
+  ...DEAL_BULK_REGISTRY,
+])
 const jobs = await startJobs({
   connectionString: env.databaseUrl,
   db,
   bulkActions,
-  trashPurgers: NO_TRASH_PURGERS,
+  // Корзина: сделки, контакты и организации через 30 дней (тикет 12) — trash/purgers.ts.
+  trashPurgers: TRASH_PURGERS,
 })
 const app = createApp({
   auth,

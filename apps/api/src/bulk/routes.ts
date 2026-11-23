@@ -1,12 +1,12 @@
 import type { BulkJobStatus, Database } from '@alpi/db'
-import { can, hasStandalone } from '@alpi/shared'
+import { hasStandalone } from '@alpi/shared'
 import { Hono } from 'hono'
 import type { Transaction } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
 import type { PermissionsEnv } from '../middleware/permissions.ts'
 import type { ProjectEnv } from '../middleware/project-context.ts'
 import { loadMemberAccess } from '../roles/access.ts'
-import { type BulkActionRegistry, NO_BULK_ACTIONS } from './registry.ts'
+import { type BulkActionRegistry, bulkAllowed, NO_BULK_ACTIONS } from './registry.ts'
 import type { BulkJobMessage } from './runner.ts'
 
 // Массовые операции (тикет crm-deals/04): `/api/v1/bulk-jobs` (API видит путь без /api).
@@ -215,10 +215,7 @@ export function bulkRoutes({ actions, enqueue }: BulkDeps) {
           : fail(403, 'PERMISSION_DENIED')
       }
       // Право запуска — то же, что каркас проверяет на каждой порции (runner.ts, allowed).
-      if (
-        !hasStandalone(permissions, action.standalone ?? 'bulk_operations') ||
-        !can(permissions, action.requires.resource, action.requires.action)
-      ) {
+      if (!bulkAllowed(permissions, action)) {
         return fail(403, 'PERMISSION_DENIED')
       }
       const selection = parseSelection(body.selection)

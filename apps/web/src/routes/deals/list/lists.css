@@ -1,0 +1,161 @@
+/* Списки сделок, контактов и организаций, фильтр, массовые действия и корзина (тикет crm-deals/12).
+   Таблица на узком экране прокручивается по горизонтали — это делает .ui-table-wrap. */
+.list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3) var(--s-5);
+  margin-bottom: var(--s-3);
+}
+
+.list-head h1 {
+  margin: 0;
+}
+
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-3);
+}
+
+.list-count {
+  margin-left: auto;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.list-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-inner);
+  background: var(--hover);
+}
+
+.list-table__check {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.list-table__check .ui-check {
+  margin: 0;
+}
+
+.list-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s-2);
+}
+
+.list-page > .ui-button {
+  margin-top: var(--s-3);
+}
+
+/* Редактор фильтра. */
+.filter-editor {
+  display: grid;
+  gap: var(--s-3);
+}
+
+/* Панель фильтра шире обычной боковой (--side-w, 460 px): условию нужны три поля в ряд. */
+.ui-dialog--side.filter-panel {
+  width: min(520px, 100vw);
+}
+
+/* Условие — две строки: поле и оператор, под ними значение и «Прибрати умову». Колонки
+   0.5fr + auto второй строки дают оператору примерно ту же ширину, что у поля. Рамка
+   браузера у fieldset снята; рамка условия та же, что у группы, — токенами. */
+.filter-condition,
+.filter-group {
+  min-width: 0;
+  margin: 0;
+  padding: var(--s-3);
+  border: 0;
+  border-radius: var(--r-inner);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.filter-condition {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.5fr) auto;
+  grid-template-areas:
+    "field op op"
+    "value value remove";
+  align-items: end;
+  gap: var(--s-2);
+}
+
+.filter-condition__field {
+  grid-area: field;
+}
+
+.filter-condition__op {
+  grid-area: op;
+}
+
+.filter-condition__value {
+  grid-area: value;
+}
+
+.filter-condition__remove {
+  grid-area: remove;
+}
+
+.filter-group {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.filter-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+@media (max-width: 600px) {
+  .filter-condition {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "field"
+      "op"
+      "value"
+      "remove";
+  }
+
+  .filter-condition__remove {
+    justify-self: start;
+  }
+}
+
+/* Массовое действие. */
+.bulk-form,
+.bulk-progress {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.bulk-errors {
+  margin: 0;
+  padding-left: var(--s-4);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* Корзина. */
+.trash-tab {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.trash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}

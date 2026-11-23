@@ -7,6 +7,7 @@ import './settings.css'
 export function SettingsPage() {
   const { t } = useTranslation('settings')
   const { t: tAudit } = useTranslation('audit')
+  const { t: tLists } = useTranslation('lists')
 
   return (
     <section>
@@ -33,6 +34,9 @@ export function SettingsPage() {
           </li>
           <li>
             <Link to="/settings/products">{t('products.title')}</Link>
+          </li>
+          <li>
+            <Link to="/settings/trash">{tLists('trash.title')}</Link>
           </li>
         </ul>
       </nav>

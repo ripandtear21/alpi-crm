@@ -50,12 +50,17 @@ export interface ResourceScope {
   write: Scope
 }
 
-/** Отдельные права — вне таблицы «часть системы × действие». */
+/**
+ * Отдельные права — вне таблицы «часть системы × действие». `shared_filters` — сохранять
+ * фильтры для команды и проекта (тикет crm-deals/12, ответ владельца, пункт 32): для проекта —
+ * с охватом сделок «все», для команды — только своей (apps/api/src/filters/saved.ts).
+ */
 export const STANDALONE_PERMISSIONS = [
   'export',
   'bulk_operations',
   'transfer_deals',
   'project_settings',
+  'shared_filters',
 ] as const
 export type StandalonePermission = (typeof STANDALONE_PERMISSIONS)[number]
 
@@ -237,8 +242,9 @@ export interface RoleTemplate {
 
 /**
  * Шаблоны ролей (spec.md, раздел 4, таблица шаблонов). Решено с владельцем: выгрузка только у
- * администратора; удаление и массовые операции — у администратора и руководителя. Остальное —
- * допущение спецификации.
+ * администратора; удаление и массовые операции — у администратора и руководителя; общие
+ * фильтры — у администратора и руководителя (для проекта) и тимлида (для команды), у менеджера
+ * нет (пункт 32). Остальное — допущение спецификации.
  *
  * Миграция базы хранит свой снимок этих значений (миграция не должна меняться вместе с кодом);
  * тест apps/api/src/roles/roles.test.ts сверяет роли нового проекта с этим списком.
@@ -260,7 +266,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
         trash: ['view', 'edit'],
       }),
       scopes: scoped('all'),
-      standalone: ['bulk_operations', 'transfer_deals'],
+      standalone: ['bulk_operations', 'transfer_deals', 'shared_filters'],
       fieldGroups: {},
     },
   },
@@ -279,7 +285,8 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       }),
       scopes: scoped('team'),
       // Передача — в пределах охвата «команда»: чужие сделки тимлид не видит и не меняет.
-      standalone: ['transfer_deals'],
+      // Общие фильтры — только для своей команды: у тимлида нет охвата «все».
+      standalone: ['transfer_deals', 'shared_filters'],
       fieldGroups: {},
     },
   },

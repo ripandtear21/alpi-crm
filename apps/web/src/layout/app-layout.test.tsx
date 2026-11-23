@@ -40,7 +40,7 @@ describe('каркас интерфейса', () => {
       within(nav)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Угоди', 'Контакти', 'Задачі', 'Звіти', 'Налаштування'])
+    ).toEqual(['Угоди', 'Контакти', 'Організації', 'Задачі', 'Звіти', 'Налаштування'])
     expect(screen.getByRole('main').textContent).toContain('Угоди')
   })
 

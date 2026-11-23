@@ -1,5 +1,12 @@
 import type { Database } from '@alpi/db'
-import type { Action, Resource, StandalonePermission } from '@alpi/shared'
+import {
+  type Action,
+  can,
+  hasStandalone,
+  type Resource,
+  type RolePermissions,
+  type StandalonePermission,
+} from '@alpi/shared'
 import type { Transaction } from 'kysely'
 import type { MemberAccess } from '../roles/access.ts'
 import type { Viewer } from '../roles/scope.ts'
@@ -8,7 +15,8 @@ import type { Viewer } from '../roles/scope.ts'
 // записи на порции, на каждой порции заново читает роль инициатора и проверяет права; действие
 // отвечает только за свои записи: какие попадают под фильтр, какие в охвате, что сделать с
 // одной записью. Конкретные действия (архив, передача, смена этапа, удаление) регистрируют
-// тикеты 09 и 12 эпика crm-deals.
+// тикеты 09 и 12 эпика crm-deals. Право запуска и продолжения — bulkAllowed ниже: его
+// проверяют и маршрут запуска, и каждая порция.
 
 /** С чем действие работает: инициатор и его права на момент текущей порции. */
 export interface BulkContext {
@@ -43,6 +51,11 @@ export interface BulkAction {
    * подтвердить.
    */
   standalone?: StandalonePermission
+  /**
+   * Отдельное право сверх «массовых операций» (или `standalone`): массовая передача сделок из
+   * списка (тикет 12) требует и «массовые операции», и «передачу сделок».
+   */
+  alsoRequires?: StandalonePermission
   /** Проверка параметров и фильтра при запуске: текст ошибки — 400, null — годится. */
   validate?(input: {
     params: Record<string, unknown>
@@ -62,6 +75,15 @@ export interface BulkAction {
   ): Promise<ReadonlySet<string>>
   /** Изменить одну запись. Исключение откатывает только эту запись, остальные идут дальше. */
   apply(trx: Transaction<Database>, id: string, ctx: BulkContext): Promise<void>
+}
+
+/** Разрешено ли действие правами `permissions`: отдельное право, право части системы, ещё одно. */
+export function bulkAllowed(permissions: RolePermissions, action: BulkAction): boolean {
+  return (
+    hasStandalone(permissions, action.standalone ?? 'bulk_operations') &&
+    (action.alsoRequires === undefined || hasStandalone(permissions, action.alsoRequires)) &&
+    can(permissions, action.requires.resource, action.requires.action)
+  )
 }
 
 /** Код действия («раздел.действие») → действие. */
