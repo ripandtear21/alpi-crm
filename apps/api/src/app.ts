@@ -14,7 +14,8 @@ import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
 import { isFileUpload } from './files/files.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
-import { NO_OPEN_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
+import { OPEN_MEMBER_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
+import { memberTransferRoutes } from './members/transfer.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
 import { organizationsRoutes } from './organizations/organizations.ts'
@@ -47,7 +48,7 @@ export interface AppDeps {
   auth: Auth
   /** Подключение ролью приложения (член alpi_app): под ней действует изоляция проектов. */
   db: Kysely<Database>
-  /** Открытые сделки участника — для отключения участия; до эпика сделок — заглушка «нет». */
+  /** Открытые сделки участника — для отключения участия; по умолчанию — по таблице deal. */
   openDeals?: OpenDealsChecker
   /** Массовые действия и очередь pg-boss (apps/api/src/jobs/jobs.ts); без них действий нет. */
   bulk?: BulkDeps
@@ -98,7 +99,7 @@ function v1Routes({
 export function createApp({
   auth,
   db,
-  openDeals = NO_OPEN_DEALS,
+  openDeals = OPEN_MEMBER_DEALS,
   bulk = NO_BULK,
   stageDeals = OPEN_STAGE_DEALS,
   contactDependents = DEAL_CONTACT_DEPENDENTS,
@@ -137,6 +138,7 @@ export function createApp({
       .route('/audit', auditRoutes())
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
+      .route('/v1/members', memberTransferRoutes(bulk))
       .route('/v1', v1Routes({ stageDeals, contactDependents, storage }))
   )
 }

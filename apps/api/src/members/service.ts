@@ -90,11 +90,20 @@ export type MemberErrorCode = RolesErrorCode | MembersErrorCode | GuardFailure
 
 export type Outcome<T> =
   | { ok: true; value: T }
-  | { ok: false; status: 400 | 403 | 404 | 409; code: MemberErrorCode }
+  | {
+      ok: false
+      status: 400 | 403 | 404 | 409
+      code: MemberErrorCode
+      /** Подробности отказа в ответе (`details`), например число открытых сделок. */
+      details?: Record<string, unknown>
+    }
 
 export const ok = <T>(value: T): Outcome<T> => ({ ok: true, value })
-export const refuse = (status: 400 | 403 | 404 | 409, code: MemberErrorCode) =>
-  ({ ok: false, status, code }) as const
+export const refuse = (
+  status: 400 | 403 | 404 | 409,
+  code: MemberErrorCode,
+  details?: Record<string, unknown>,
+) => ({ ok: false, status, code, ...(details === undefined ? {} : { details }) }) as const
 
 /** Наибольшие длины: email — RFC 5321, имя — с запасом для ФИО. */
 const MAX_EMAIL_LENGTH = 254
@@ -532,7 +541,10 @@ export async function disableMember(
   const failure = checkMemberChange(ctx.actor, target)
   if (failure) return refuse(403, failure)
   if (target.disabled) return ok(await memberSummary(ctx.db, userId))
-  if (await openDeals.hasOpenDeals(ctx.db, userId)) return refuse(409, 'HAS_OPEN_DEALS')
+  // Проверка — заново при каждом отключении: сделки, полученные участником, пока шла передача,
+  // попадают в это число, и отказ сообщает его.
+  const count = await openDeals.countOpenDeals(ctx.db, userId)
+  if (count > 0) return refuse(409, 'HAS_OPEN_DEALS', { count })
   try {
     await inSavepoint(ctx.db, () =>
       ctx.db

@@ -92,8 +92,12 @@ const malformed: BulkAction = {
   },
 }
 
+/** То же действие, но вместо «массовых операций» — своё отдельное право (как передача сделок). */
+const standalone: BulkAction = { ...increment, standalone: 'transfer_deals' }
+
 const ACTIONS = new Map([
   ['probe.increment', increment],
+  ['probe.standalone', standalone],
   ['probe.crash', crash],
   ['probe.malformed', malformed],
 ])
@@ -194,8 +198,10 @@ describe('массовые операции', () => {
   /** Участник с ролью: права шаблона `template`, охват изменений — `writeScope`. */
   async function memberWithRole(
     projectId: string,
-    template: 'head' | 'manager',
+    template: 'head' | 'manager' | 'teamlead',
     writeScope: 'own' | 'all',
+    /** Отдельные права вместо шаблонных. */
+    standalone?: string[],
   ) {
     const user = await h.signIn()
     const base = ROLE_TEMPLATES.find((t) => t.key === template)?.permissions
@@ -203,6 +209,7 @@ describe('массовые операции', () => {
     const permissions = {
       ...base,
       scopes: { ...base.scopes, deals: { read: 'all', write: writeScope } },
+      standalone: standalone ?? base.standalone,
     }
     const role = await h.owner
       .insertInto('role')
@@ -304,6 +311,36 @@ describe('массовые операции', () => {
       expect(res.status).toBe(403)
       expect(await res.json()).toEqual({ code: 'PERMISSION_DENIED' })
       expect(await values(ids)).toEqual(new Map([[ids[0], 0]]))
+    })
+
+    it('своё отдельное право действия заменяет «массовые операции» при запуске и на порциях', async () => {
+      // Тимлид: «передача сделок» есть, «массовых операций» нет.
+      const { user } = await memberWithRole(projectA, 'teamlead', 'own')
+      const ids = await insertProbe(projectA, 2, user.id)
+      const denied = await start(user, projectA, { action: 'probe.increment', selection: { ids } })
+      expect(denied.status).toBe(403)
+      const res = await start(user, projectA, { action: 'probe.standalone', selection: { ids } })
+      expect(res.status).toBe(202)
+      const job = await waitFinished(user, projectA, ((await res.json()) as BulkJobSummary).id)
+      expect(job).toMatchObject({ status: 'done', processed: 2, failed: 0 })
+      expect(new Set((await values(ids)).values())).toEqual(new Set([1]))
+
+      // «Массовые операции» без своего права действия его не заменяют — 403.
+      const { user: bulkOnly } = await memberWithRole(projectA, 'head', 'all', ['bulk_operations'])
+      const other = await insertProbe(projectA, 1, bulkOnly.id)
+      const refused = await start(bulkOnly, projectA, {
+        action: 'probe.standalone',
+        selection: { ids: other },
+      })
+      expect(refused.status).toBe(403)
+      expect(await values(other)).toEqual(new Map([[other[0], 0]]))
+      // Неизвестное действие без «массовых операций» — 403: ответ не выдаёт список действий.
+      const { user: manager } = await memberWithRole(projectA, 'manager', 'all')
+      const unknown = await start(manager, projectA, {
+        action: 'deal.nope',
+        selection: { ids: other },
+      })
+      expect(unknown.status).toBe(403)
     })
 
     it('неизвестное действие и пустой выбор — 400', async () => {

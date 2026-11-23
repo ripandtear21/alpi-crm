@@ -1,19 +1,24 @@
 import type { Database } from '@alpi/db'
 import type { Kysely } from 'kysely'
+import { openDealsOf } from '../deals/transfer.ts'
 
 // Правило «нельзя отключить участника с открытыми сделками, пока они не переданы» (spec.md,
-// раздел 4, «Уход сотрудника»). Сделок ещё нет: интерфейс реализует эпик сделок, а до него
-// действует заглушка «открытых сделок нет».
+// раздел 4, «Уход сотрудника»; тикет crm-deals/09). Открытая сделка участника — он
+// ответственный, статус open, в том числе в архиве (архив — отметка, а не статус); удалённые в
+// корзину не считаются. Передаёт их POST /v1/members/:userId/transfer-deals (transfer.ts).
 
-/** Есть ли у участника открытые сделки в текущем проекте. */
+/** Сколько открытых сделок у участника в текущем проекте. */
 export interface OpenDealsChecker {
   /** `db` — транзакция проекта (row-level security показывает только его сделки). */
-  hasOpenDeals(db: Kysely<Database>, userId: string): Promise<boolean>
+  countOpenDeals(db: Kysely<Database>, userId: string): Promise<number>
 }
 
-/** Заглушка до эпика сделок: открытых сделок нет ни у кого. */
-export const NO_OPEN_DEALS: OpenDealsChecker = {
-  async hasOpenDeals() {
-    return false
+/** Открытые сделки участника — по таблице deal. */
+export const OPEN_MEMBER_DEALS: OpenDealsChecker = {
+  async countOpenDeals(db, userId) {
+    const row = await openDealsOf(db, userId)
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .executeTakeFirstOrThrow()
+    return Number(row.count)
   },
 }

@@ -6,14 +6,16 @@ import {
   projectQueryKey,
   useCurrentProject,
 } from '../../components/project-switcher/current-project.tsx'
-import type { MembersApi } from './members-api.ts'
+import { type MembersApi, MembersApiError } from './members-api.ts'
 import { type RolesApi, RolesApiError } from './roles-api.ts'
 import { useRoleName } from './roles-page.tsx'
+import { TransferDealsDialog } from './transfer-deals-dialog.tsx'
 import './members.css'
 
 // Настройки → пользователи: участники проекта с ролью, командой, приёмом новых сделок и
-// отключением; добавление существующего пользователя или новой учётной записи с временным
-// паролем (показывается один раз). Что кому можно, решает API (права и правила guard.ts):
+// отключением; передача открытых сделок перед отключением (тикет crm-deals/09, диалог
+// transfer-deals-dialog.tsx); добавление существующего пользователя или новой учётной записи с
+// временным паролем (показывается один раз). Что кому можно, решает API (права и правила guard.ts):
 // экран показывает его отказ текстом.
 
 /** Текст ошибки API: сначала коды участников, затем коды ролей. */
@@ -21,6 +23,10 @@ export function useApiErrorText() {
   const { t } = useTranslation('settings')
   return (error: unknown) => {
     const code = error instanceof RolesApiError ? error.code : ''
+    const count = error instanceof MembersApiError ? error.details?.count : undefined
+    if (code === 'HAS_OPEN_DEALS' && typeof count === 'number') {
+      return t('members.errors.HAS_OPEN_DEALS_NUMBER', { number: count })
+    }
     return t(`members.errors.${code}`, {
       defaultValue: t(`roles.errors.${code}`, { defaultValue: t('roles.errors.unknown') }),
     })
@@ -74,6 +80,8 @@ function MembersEditor({
   })
   const [message, setMessage] = useState<string | null>(null)
   const [password, setPassword] = useState<{ email: string; value: string } | null>(null)
+  /** Чьи сделки передаются: открыт диалог передачи. */
+  const [transferOf, setTransferOf] = useState<MemberSummary | null>(null)
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: membersKey })
@@ -155,12 +163,40 @@ function MembersEditor({
                       : api.disable(projectId, member.userId),
                   )
                 }
+                onTransfer={() => {
+                  setMessage(null)
+                  setTransferOf(member)
+                }}
               />
             ))}
           </tbody>
         </table>
       </div>
       {message && <p role="status">{message}</p>}
+
+      {transferOf && (
+        <TransferDealsDialog
+          // Новый участник — новый диалог: шаг и ход операции прежнего не переходят к нему.
+          key={transferOf.userId}
+          api={api}
+          projectId={projectId}
+          member={transferOf}
+          members={members.data}
+          errorText={errorText}
+          onClose={() => {
+            setTransferOf(null)
+            // Сделки могли уйти и без отключения: список участников — заново.
+            void refresh()
+          }}
+          onDisabled={async (userId) => {
+            // Отключение могло закончиться, когда диалог уже закрыт и открыт для другого
+            // участника: закрываем только диалог того, кого отключили.
+            setTransferOf((current) => (current?.userId === userId ? null : current))
+            await refresh()
+            setMessage(t('members.saved'))
+          }}
+        />
+      )}
 
       <AddMemberForm
         roles={roleList.data}
@@ -199,6 +235,7 @@ function MemberRow({
   onTeam,
   onAccepts,
   onToggle,
+  onTransfer,
 }: {
   member: MemberSummary
   roles: RoleSummary[]
@@ -209,6 +246,7 @@ function MemberRow({
   onTeam: (teamId: string | null) => void
   onAccepts: (value: boolean) => void
   onToggle: () => void
+  onTransfer: () => void
 }) {
   const { t } = useTranslation('settings')
   const who = member.name || member.email
@@ -263,6 +301,14 @@ function MemberRow({
             ? t('members.enable', { name: who })
             : t('members.disable', { name: who })}
         </button>
+        {!member.disabled && (
+          <>
+            {' '}
+            <button type="button" disabled={pending} onClick={onTransfer}>
+              {t('members.transfer.open', { name: who })}
+            </button>
+          </>
+        )}
       </td>
     </tr>
   )

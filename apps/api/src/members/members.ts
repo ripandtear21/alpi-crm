@@ -39,7 +39,9 @@ function fail(c: Ctx, status: 400 | 403 | 404 | 409, code: MemberErrorCode, deta
 }
 
 function respond<T>(c: Ctx, outcome: Outcome<T>, status: 200 | 201 = 200) {
-  return outcome.ok ? c.json(outcome.value, status) : fail(c, outcome.status, outcome.code)
+  return outcome.ok
+    ? c.json(outcome.value, status)
+    : fail(c, outcome.status, outcome.code, outcome.details)
 }
 
 /** Транзакция проекта, проект, тот, кто меняет, и его адрес (для журнала) — из запроса. */
