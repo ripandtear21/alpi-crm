@@ -180,8 +180,7 @@ test.describe
       }
     })
 
-    test.fixme('6. Поиск в шапке находит контакт по телефону в трёх форматах', async () => {
-      // fixme: API поиска GET /api/v1/search (тикет crm-deals/08, PR #9) ещё не в main.
+    test('6. Поиск в шапке находит контакт по телефону в трёх форматах', async () => {
       for (const query of ['067 123 45 67', '+380671234567', '(067) 123-45-67']) {
         const search = page.getByRole('combobox', { name: 'Швидкий пошук' })
         await search.fill(query)
@@ -295,8 +294,7 @@ test.describe
       await expect(own.getByRole('heading', { name: 'Немає доступу' })).toBeVisible()
     })
 
-    test.fixme('8. (поиск) Менеджер с охватом «свои» не находит чужих сделок в поиске', async () => {
-      // fixme: API поиска GET /api/v1/search (тикет crm-deals/08, PR #9) ещё не в main.
+    test('8. (поиск) Менеджер с охватом «свои» не находит чужих сделок в поиске', async () => {
       await own.goto('/p/alpi/deals')
       const search = own.getByRole('combobox', { name: 'Швидкий пошук' })
       const checked = foreign.filter((deal) => !ownTitles.has(deal.title)).slice(0, 3)

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { down as downDeals } from '../../../../packages/db/migrations/0010_deals.ts'
 import { down as downProducts } from '../../../../packages/db/migrations/0011_products.ts'
 import { down as downNotesFiles } from '../../../../packages/db/migrations/0012_notes_files.ts'
+import { down as downSearch } from '../../../../packages/db/migrations/0015_search.ts'
 import type { ContactView } from '../contacts/contacts.ts'
 import {
   type ApiHarness,
@@ -1575,7 +1576,9 @@ describe('сделки', () => {
       // Откат — в транзакции, которая потом откатывается: схема остальных тестов не меняется.
       await expect(
         h.owner.transaction().execute(async (trx) => {
-          // Сначала миграции, чьи таблицы ссылаются на deal (откат идёт в обратном порядке).
+          // Сначала миграции, чьи таблицы и представления ссылаются на deal (откат идёт в
+          // обратном порядке): представление deal_search (0015_search) читает deal.
+          await downSearch(trx as unknown as Kysely<unknown>)
           await downNotesFiles(trx as unknown as Kysely<unknown>)
           // Затем 0011_products: её строки товаров ссылаются на сделки.
           await downProducts(trx as unknown as Kysely<unknown>)

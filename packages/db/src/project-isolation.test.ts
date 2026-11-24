@@ -27,6 +27,7 @@ const migrationNames = [
   '0011_products',
   '0012_notes_files',
   '0014_saved_filters',
+  '0015_search',
 ]
 
 const tablesOfMigration = [
@@ -341,6 +342,101 @@ describe('схема и изоляция проектов', () => {
 
     it('withProject отказывает при id проекта не в формате uuid', async () => {
       await expect(withProject(app, 'alpi', async () => 1)).rejects.toThrow(/uuid/)
+    })
+  })
+
+  // Представления *_search (0015_search) выполняются с правами владельца таблиц, и политика
+  // RLS на них не действует: проект ограничивает только условие в самом представлении.
+  describe('представления поиска *_search для роли приложения', () => {
+    /** Для каждого представления — id, которые оно должно отдать в проекте. */
+    type SearchIds = Record<string, string[]>
+    const seeded = new Map<string, SearchIds>()
+
+    /** По одной строке в каждую таблицу поиска проекта; текст одинаков у обоих проектов. */
+    async function seedSearchRows(projectId: string): Promise<SearchIds> {
+      const organization = await owner
+        .insertInto('organization')
+        .values({ project_id: projectId, name: 'Поиск Тов' })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const contact = await owner
+        .insertInto('contact')
+        .values({ project_id: projectId, first_name: 'Поиск', last_name: 'Тестовий' })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      await owner
+        .insertInto('contact_phone')
+        .values({ project_id: projectId, contact_id: contact.id, phone: '+380501112233' })
+        .execute()
+      await owner
+        .insertInto('contact_email')
+        .values({ project_id: projectId, contact_id: contact.id, email: 'poshuk@example.test' })
+        .execute()
+      const pipeline = await owner
+        .insertInto('pipeline')
+        .values({ project_id: projectId, code: 'search_iso', name: 'Пошук', position: 1 })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const stage = await owner
+        .insertInto('stage')
+        .values({ project_id: projectId, pipeline_id: pipeline.id, name: 'Новий', position: 1 })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const deal = await owner
+        .insertInto('deal')
+        .values({
+          project_id: projectId,
+          title: 'Поиск сделка',
+          pipeline_id: pipeline.id,
+          stage_id: stage.id,
+          primary_contact_id: contact.id,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      return {
+        contact_email_search: [contact.id],
+        contact_phone_search: [contact.id],
+        contact_search: [contact.id],
+        deal_search: [deal.id],
+        organization_search: [organization.id],
+      }
+    }
+
+    /** id из представления под ролью приложения (внутри withProject или без проекта). */
+    async function idsOf(view: string, projectId: string | null): Promise<string[]> {
+      const query = (db: Kysely<Database>) =>
+        sql<{ id: string }>`select id from ${sql.table(view)}`.execute(db)
+      const { rows } =
+        projectId === null ? await query(app) : await withProject(app, projectId, query)
+      return rows.map((r) => r.id).sort()
+    }
+
+    beforeAll(async () => {
+      seeded.set(projectA, await seedSearchRows(projectA))
+      seeded.set(projectB, await seedSearchRows(projectB))
+    })
+
+    it('в схеме ровно эти представления поиска — каждое проверено ниже', async () => {
+      const { rows } = await sql<{ viewname: string }>`
+        select viewname from pg_views
+        where schemaname = 'public' and viewname like '%\\_search'
+        order by viewname
+      `.execute(owner)
+      expect(rows.map((r) => r.viewname)).toEqual(Object.keys(seeded.get(projectA) ?? {}).sort())
+    })
+
+    it('внутри withProject(A) каждое отдаёт только строки A, внутри withProject(B) — только B', async () => {
+      for (const project of [projectA, projectB]) {
+        for (const [view, ids] of Object.entries(seeded.get(project) ?? {})) {
+          expect({ view, ids: await idsOf(view, project) }).toEqual({ view, ids: [...ids].sort() })
+        }
+      }
+    })
+
+    it('без выставленного app.project_id каждое отдаёт ноль строк', async () => {
+      for (const view of Object.keys(seeded.get(projectA) ?? {})) {
+        expect({ view, ids: await idsOf(view, null) }).toEqual({ view, ids: [] })
+      }
     })
   })
 
