@@ -29,7 +29,8 @@ e2e/** (сценарии и помощники Playwright), playwright.config.ts
 
 ## Done when
 
-- [ ] `pnpm e2e` проходит локально все 8 шагов и прогон на 375 px; вывод с кодом выхода приложен к отчёту.
+- [x] `pnpm e2e` проходит локально все 8 шагов и прогон на 375 px; вывод с кодом выхода приложен к отчёту.
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45336591460 · ci - · 972043ae1ef605d98dc3b8b1c5f4f63bbf553012
 - [x] Тест падает, если сломать охват: подмена предиката охвата на «все» делает шаг 8 красным (проверено один раз, результат записан в отчёт).
   - evidence: test-run pass · `pnpm exec playwright test --project desktop` with dealInScope replaced by true: exit 1, step 8 red (23 foreign owners on the manager kanban), mutant reverted · windows - · e5824c00916299dbaa73620794dd34c528b1553a
   - evidence: review pass · PR #17 · - - · 35c00c543e73ef2597ed3f64df36d390d3552c4e
@@ -54,4 +55,5 @@ e2e/** (сценарии и помощники Playwright), playwright.config.ts
 - Ручная приёмка владельцем — за владельцем.
 - Проверка: VERIFIED (PR #17, проверяющий сам повторил `pnpm e2e` дважды, подмену охвата и остановку стенда после упавшего прогона), `GATE_SCOPE=all` gate full зелёный, слит squash-коммитом ab82d07; CI на `main`: https://github.com/ripandtear21/alpi-crm/actions/runs/45281522561 — success.
 - Noted: `pnpm test` (vitest со встроенным PostgreSQL из `packages/db/src/testing`) оставляет осиротевшие процессы `postgres.exe --forkchild="io_worker"` (11 после одного прогона gate у проверяющего); сам `pnpm e2e` их не оставляет. Вне этого тикета.
-- Шаг 6 и пометка `fixme` — решено без владельца, подтвердить.
+- Шаг 6 и пометка `fixme` — решено без владельца; снято 2026-11-24 вместе со слиянием тикета 08 (PR #9).
+- 2026-11-24: после слияния тикета 08 (PR #9, 972043a) `test.fixme` сняты с шага 6 и поисковой части шага 8; `pnpm e2e` — 10 passed (локально у исполнителя и проверяющего), задание e2e в CI на `main` зелёное: https://github.com/ripandtear21/alpi-crm/actions/runs/45336591460. Остаётся только ручная приёмка владельцем.

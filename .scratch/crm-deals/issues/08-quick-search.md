@@ -1,7 +1,8 @@
 # Быстрый поиск
 
 Type: task
-Status: claimed 2026-11-04T17:23Z
+Status: done 2026-11-24T05:59Z
+PR: #9
 Blocked by: 05
 Source: .scratch/crm-build/issues/01-deals-epic-scope.md (Answer, волна 3); .scratch/crm-mvp/spec.md, разделы 5.4, 9.1, 13.0.3 (пункты 7 и 32)
 
@@ -25,31 +26,31 @@ packages/db/migrations/**, apps/api/src/search/**, apps/api/src/app.ts.
 
 ## Done when
 
-- [ ] Тест: контакт с номером `+380671234567` находится по `0671234567`, `067 123 45 67`, `(067) 123-45-67`, `+38 067 123 4567`; по email в другом регистре; по части фамилии с опечаткой в одну букву (триграммы).
+- [x] Тест: контакт с номером `+380671234567` находится по `0671234567`, `067 123 45 67`, `(067) 123-45-67`, `+38 067 123 4567`; по email в другом регистре; по части фамилии с опечаткой в одну букву (триграммы).
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 3f9afa1cea75b3f8f7af96b8266d2e7a5b051484
-- [ ] Тест изоляции: контакт проекта B с тем же телефоном не находится в проекте A.
+  - evidence: review pass · PR #9 · - - · df8e8f521d024fcc78e06e2716764cc9cfa7aa29
+- [x] Тест изоляции: контакт проекта B с тем же телефоном не находится в проекте A.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts packages/db/src/project-isolation.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts packages/db/src/project-isolation.test.ts` exit 0 · windows - · 3f9afa1cea75b3f8f7af96b8266d2e7a5b051484
-- [ ] Тест охвата: менеджер «свои» не находит сделку и контакт коллеги, находит сделку общей очереди; счётчик «есть ещё» не учитывает скрытое.
+  - evidence: review pass · PR #9 · - - · df8e8f521d024fcc78e06e2716764cc9cfa7aa29
+- [x] Тест охвата: менеджер «свои» не находит сделку и контакт коллеги, находит сделку общей очереди; счётчик «есть ещё» не учитывает скрытое.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 3f9afa1cea75b3f8f7af96b8266d2e7a5b051484
-- [ ] Тест: архивная сделка находится с пометкой; сделка в корзине — нет.
+  - evidence: review pass · PR #9 · - - · df8e8f521d024fcc78e06e2716764cc9cfa7aa29
+- [x] Тест: архивная сделка находится с пометкой; сделка в корзине — нет.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 3f9afa1cea75b3f8f7af96b8266d2e7a5b051484
-- [ ] Тест: `EXPLAIN` поиска по телефону и по имени на 10 000 сгенерированных контактах использует индекс, а не полный просмотр таблицы.
+  - evidence: review pass · PR #9 · - - · df8e8f521d024fcc78e06e2716764cc9cfa7aa29
+- [x] Тест: `EXPLAIN` поиска по телефону и по имени на 10 000 сгенерированных контактах использует индекс, а не полный просмотр таблицы.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
   - evidence: test-run pass · `pnpm vitest run apps/api/src/search/search.test.ts` exit 0 · windows - · 3f9afa1cea75b3f8f7af96b8266d2e7a5b051484
-- [ ] `pnpm verify` зелёный.
+  - evidence: review pass · PR #9 · - - · df8e8f521d024fcc78e06e2716764cc9cfa7aa29
+- [x] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 9012c6901ac240cdee69b19f90ce1366038e1b2e
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · bdac89af60b8be70e2f8b64e94fef5c384fdd13f
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 3f9afa1cea75b3f8f7af96b8266d2e7a5b051484
   - evidence: gate pass · `gate fast` exit 0 · windows - · 3f9afa1cea75b3f8f7af96b8266d2e7a5b051484
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45335379163 · ci - · df8e8f521d024fcc78e06e2716764cc9cfa7aa29
 
 ## Результат
 
@@ -69,3 +70,10 @@ packages/db/migrations/**, apps/api/src/search/**, apps/api/src/app.ts.
 - Неполный номер (`067123`, `45 67` — то, что `normalizePhone` не приводит к E.164) ищется по цифрам как подстроке номера в E.164 через триграммы `contact_phone.phone`.
 - Запрос-телефон и запрос с «@» ищут только контакты; сделки и организации по ним не ищутся (сделку по телефону её контакта поиск не находит).
 - Порог похожести 0.4 (см. выше); «Петренко» к «Вигаданенко» — 0.3, не находится.
+
+### Доведение PR #9 (2026-11-24)
+
+- Ветка перебазирована на main 3677c1a (конфликты в `apps/api/src/app.ts`, `apps/api/src/deals/deals.test.ts`, `packages/db/src/project-isolation.test.ts` решены без потерь кода main). Миграция переименована в `0015_search`: мигратор не принимает миграции не по порядку, а `0014_saved_filters` уже в main. Локальные базы с выполненной `0013_search` нужно пересоздать.
+- В тесте приёмки (тикет 16) сняты `test.fixme` с шага 6 и поисковой части шага 8: `pnpm e2e` — 10 passed, CI-задание e2e проверяет поиск.
+- Второй раунд проверки: VERIFIED (замечание первого раунда исправлено: подмена условия проекта в `*_search` на `true` краснит 2 теста изоляции). `GATE_SCOPE=all` gate full зелёный, слит squash-коммитом 972043a; CI на `main`: https://github.com/ripandtear21/alpi-crm/actions/runs/45336591460 — success.
+- Noted: строки evidence с SHA до перебазирования (bdac89a) убраны этим коммитом документов.
