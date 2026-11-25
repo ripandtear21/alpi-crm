@@ -1,4 +1,5 @@
-// Стартовая настройка проекта (тикет crm-deals/02) — воронки с этапами и причины проигрыша:
+// Стартовая настройка проекта (тикет crm-deals/02) — воронки с этапами и причины проигрыша, у
+// ALPI ещё пользовательские поля (тикет crm-fields/08):
 //   pnpm project-preset <alpi|franch> <id проекта>
 // Работает служебной ролью (владелец таблиц) из MIGRATION_DATABASE_URL, как мигратор.
 // Повторный запуск ничего не дублирует: что уже есть в проекте, не трогается.
@@ -10,6 +11,7 @@ import {
   type Database,
   isPresetKey,
   PRESET_KEYS,
+  presetCreatedAnything,
   withProject,
 } from '@alpi/db'
 import type { Kysely } from 'kysely'
@@ -49,7 +51,7 @@ export async function runProjectPreset(
   }
   const created = await withProject(serviceDb, project.id, async (trx) => {
     const result = await applyProjectPreset(trx, project.id, key)
-    if (result.pipelines.length > 0 || result.lostReasonGroups.length > 0) {
+    if (presetCreatedAnything(result)) {
       await audit.record(trx, project.id, {
         action: 'project.preset_applied',
         actorId: null,
@@ -60,11 +62,13 @@ export async function runProjectPreset(
     }
     return result
   })
+  const list = (items: string[]) => items.join(', ') || '—'
   out.log(
-    created.pipelines.length + created.lostReasonGroups.length === 0
-      ? `«${project.name}»: настройка ${key} уже применена, ничего не создано`
-      : `«${project.name}»: созданы воронки ${created.pipelines.join(', ') || '—'}, группы причин ${created.lostReasonGroups.join(', ') || '—'}`,
+    presetCreatedAnything(created)
+      ? `«${project.name}»: созданы воронки ${list(created.pipelines)}, группы причин ${list(created.lostReasonGroups)}, группы полей ${list(created.fieldGroups)}, поля ${list(created.fields)}`
+      : `«${project.name}»: настройка ${key} уже применена, ничего не создано`,
   )
+  for (const warning of created.warnings) out.error(`Внимание: ${warning}`)
   return 0
 }
 

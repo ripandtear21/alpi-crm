@@ -1,4 +1,4 @@
-import type { PresetKey } from '@alpi/db'
+import { type FieldPreset, PROJECT_PRESETS, type PresetKey } from '@alpi/db'
 import type { ProductCurrency } from '@alpi/shared'
 import {
   BUSINESS_KINDS,
@@ -16,6 +16,10 @@ import { createRandom, type Random } from './random.ts'
 //
 // Распределение — по docs/research/our-pipedrive.md, раздел 1, сжатое: в Pipedrive на «Новий
 // лід» 84 тыс. сделок из 86, здесь — большинство, но не все, чтобы остальные этапы не пустовали.
+//
+// Стартовые поля ALPI (тикет crm-fields/08) заполнены выдуманными значениями у части сделок
+// (alpiCustom); поля, обязательные по правилу «з етапу X» / при выигрыше, — у сделок, которые
+// до этого этапа дошли или выиграны.
 
 /** Зерно по умолчанию: менять — значит получить других людей при следующем запуске. */
 export const DEFAULT_SEED = 20261123
@@ -85,7 +89,19 @@ export interface PlannedDeal {
   archived: boolean
   lines: { productKey: string; quantity: number; unitPrice: number }[]
   participants: { contactKey: string; role: string }[]
+  /** Значения пользовательских полей по коду (стартовые поля проекта); пусто — не заполнены. */
+  custom: Record<string, PlannedFieldValue>
 }
+
+/**
+ * Значение пользовательского поля в плане: id варианта и пользователя появляются только в
+ * базе, поэтому вариант — по названию, пользователь — по ключу плана (store.ts переводит в id и
+ * проверяет packages/shared/src/fields/values.ts).
+ */
+export type PlannedFieldValue =
+  | { kind: 'value'; value: string | number | boolean | { from: string; to: string } }
+  | { kind: 'option'; name: string }
+  | { kind: 'user'; userKey: string }
 
 export interface ProjectPlan {
   code: string
@@ -167,6 +183,10 @@ export function buildSeedPlan(options: PlanOptions = {}): SeedPlan {
     managerKeys: managers.map((u) => u.key),
     now,
   })
+  // Значения полей — своим генератором: люди, этапы и суммы при том же зерне не меняются.
+  const fieldRandom = createRandom((options.seed ?? DEFAULT_SEED) + FIELD_SEED_OFFSET)
+  const managerKeys = managers.map((u) => u.key)
+  for (const deal of alpi.deals) deal.custom = alpiCustom(fieldRandom, deal, managerKeys)
   alpi.members = managers.map((u) => ({
     userKey: u.key,
     role: u.role === 'teamlead' ? 'teamlead' : 'manager',
@@ -345,6 +365,7 @@ function alpiPlan(
       ...dealDates(random, now, status, 365),
       archived: random.chance(0.04),
       participants: [],
+      custom: {},
     })
     if (status === 'won' && !wonContacts.has(contact.key)) wonContacts.set(contact.key, ownerKey)
   }
@@ -383,6 +404,7 @@ function alpiPlan(
       ...dealDates(random, now, status, 120),
       archived: false,
       participants: [],
+      custom: {},
     })
   }
 
@@ -405,6 +427,7 @@ function alpiPlan(
       ...dealDates(random, now, 'open', 60),
       archived: false,
       participants: [],
+      custom: {},
     })
   }
 
@@ -418,6 +441,94 @@ function alpiPlan(
     organizations: [],
     contacts,
     deals,
+  }
+}
+
+/** Сдвиг зерна генератора значений полей. */
+const FIELD_SEED_OFFSET = 8
+/** Доля сделок на первом этапе (лид ещё не обработан) с заполненными полями. */
+const UNTOUCHED_FILLED = 0.1
+/** Вероятность, что необязательное поле обработанной сделки заполнено. */
+const OPTIONAL_FILLED = 0.4
+/** Выдуманные профессии для «Професія клієнта». */
+const PROFESSIONS = [
+  'Бухгалтер',
+  'Вчитель',
+  'Дизайнер',
+  'Маркетолог',
+  'Продавець',
+  'Інженер',
+  'Перекладач',
+  'Фотограф',
+  'Психолог',
+  'Кондитер',
+]
+/** «Тип закриття» — процент из набора Pipedrive. */
+const CLOSING_PERCENTS = [0, 5, 8, 10, 15]
+
+const isoDay = (date: Date) => date.toISOString().slice(0, 10)
+
+/**
+ * Значения стартовых полей ALPI для сделки `deal`: поля, видимые в её воронке. Обязательное по
+ * правилу (сделка выиграна или дошла до этапа правила) заполнено всегда, остальные — у части
+ * обработанных сделок; на первом этапе поля заполнены у немногих.
+ */
+export function alpiCustom(
+  random: Random,
+  deal: PlannedDeal,
+  managerKeys: readonly string[],
+): Record<string, PlannedFieldValue> {
+  const preset = PROJECT_PRESETS.alpi
+  const stages = preset.pipelines.find((p) => p.code === deal.pipelineCode)?.stages ?? []
+  const untouched = deal.status === 'open' && deal.stageIndex === 0
+  if (untouched && !random.chance(UNTOUCHED_FILLED)) return {}
+  const custom: Record<string, PlannedFieldValue> = {}
+  for (const field of preset.fields) {
+    if (field.entity !== 'deal') continue
+    if (field.pipelines && !field.pipelines.includes(deal.pipelineCode)) continue
+    const rule = field.required?.find((r) => r.pipeline === deal.pipelineCode)
+    if (!(rule && isRequired(rule.stage, stages, deal)) && !random.chance(OPTIONAL_FILLED)) {
+      continue
+    }
+    custom[field.code] = fieldValue(random, field, deal, managerKeys)
+  }
+  return custom
+}
+
+/** Обязательно ли поле по правилу с этапа `stage` (null — при выигрыше). */
+function isRequired(stage: string | null, stages: readonly string[], deal: PlannedDeal): boolean {
+  if (deal.status === 'won') return true
+  if (stage === null) return false
+  const from = stages.indexOf(stage)
+  if (from === -1) throw new Error(`в воронке ${deal.pipelineCode} нет этапа «${stage}»`)
+  return deal.stageIndex >= from
+}
+
+function fieldValue(
+  random: Random,
+  field: FieldPreset,
+  deal: PlannedDeal,
+  managerKeys: readonly string[],
+): PlannedFieldValue {
+  const value = (v: string | number | boolean | { from: string; to: string }) =>
+    ({ kind: 'value', value: v }) as const
+  switch (field.type) {
+    case 'single_option':
+      return { kind: 'option', name: random.pick(field.options ?? []) }
+    case 'boolean':
+      return value(random.chance(0.5))
+    case 'number':
+      return value(
+        field.code === 'typ_zakryttia' ? random.pick(CLOSING_PERCENTS) : random.int(1, 100),
+      )
+    case 'text':
+      return value(random.pick(PROFESSIONS))
+    case 'date_range':
+      return value({ from: isoDay(deal.createdAt), to: isoDay(deal.stageChangedAt) })
+    case 'user':
+      return { kind: 'user', userKey: random.pick(managerKeys) }
+    default:
+      throw new Error(`seed: нет выдуманного значения для поля ${field.code} типа ${field.type}`)
   }
 }
 
@@ -512,6 +623,7 @@ function franchPlan(
       ...dealDates(random, now, status, 365),
       archived: random.chance(0.03),
       participants,
+      custom: {},
     })
   }
 
