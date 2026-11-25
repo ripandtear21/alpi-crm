@@ -97,7 +97,7 @@ describe('каталог товаров', () => {
     const bad = async (body: unknown, path: string) => {
       const res = await call(admin, 'POST', '/v1/products', body)
       await expectStatus(res, 400)
-      expect(await res.json()).toEqual({ code: 'INVALID_PRODUCT', details: { path } })
+      expect(await res.json()).toMatchObject({ code: 'INVALID_PRODUCT', details: { path } })
     }
     await bad({ name: '   ' }, 'name')
     await bad({ name: 'x'.repeat(201) }, 'name')
@@ -140,7 +140,7 @@ describe('каталог товаров', () => {
     const missing = '00000000-0000-4000-8000-000000000000'
     const res = await call(admin, 'PUT', `/v1/products/${missing}`, { name: 'Х' })
     await expectStatus(res, 404)
-    expect(await res.json()).toEqual({ code: 'PRODUCT_NOT_FOUND' })
+    expect(await res.json()).toMatchObject({ code: 'PRODUCT_NOT_FOUND' })
     await expectStatus(await call(admin, 'PUT', '/v1/products/abc', { name: 'Х' }), 404)
   })
 
@@ -171,7 +171,7 @@ describe('каталог товаров', () => {
 
       const denied = async (res: Response) => {
         await expectStatus(res, 403)
-        expect(await res.json()).toEqual({ code: 'PERMISSION_DENIED' })
+        expect(await res.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
       }
       await denied(await call(manager, 'POST', '/v1/products', { name: 'Мій товар' }))
       await denied(await call(manager, 'PUT', `/v1/products/${product.id}`, { name: 'Інша назва' }))

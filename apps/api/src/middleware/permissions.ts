@@ -7,6 +7,7 @@ import {
 } from '@alpi/shared'
 import type { Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
+import { problem } from '../http/problem.ts'
 import { loadApiKeyAccess, loadMemberAccess, type MemberAccess } from '../roles/access.ts'
 import type { ProjectEnv } from './project-context.ts'
 
@@ -50,7 +51,7 @@ export function requirePermission(resource: Resource, action: Action) {
   return createMiddleware<PermissionsEnv>(async (c, next) => {
     const access = await requestAccess(c)
     if (!access || !can(access.permissions, resource, action)) {
-      return c.json({ code: 'PERMISSION_DENIED' }, 403)
+      return problem(c, 403, 'PERMISSION_DENIED')
     }
     await next()
   })
@@ -65,7 +66,7 @@ export function requireStandalone(permission: StandalonePermission) {
   return createMiddleware<PermissionsEnv>(async (c, next) => {
     const access = await requestAccess(c)
     if (!access || !hasStandalone(access.permissions, permission)) {
-      return c.json({ code: 'PERMISSION_DENIED' }, 403)
+      return problem(c, 403, 'PERMISSION_DENIED')
     }
     await next()
   })

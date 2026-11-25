@@ -1,5 +1,5 @@
 import { type Database, withProject } from '@alpi/db'
-import { type FilterGroup, type ListCount, type ListSort, parseSort } from '@alpi/shared'
+import { type FilterGroup, type ListCount, type ListSort, type Page, parseSort } from '@alpi/shared'
 import { Hono } from 'hono'
 import type { Kysely } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
@@ -59,10 +59,8 @@ export interface OrganizationListItem {
   updatedAt: string
 }
 
-export interface OrganizationListPage {
-  items: OrganizationListItem[]
-  nextCursor: string | null
-}
+/** Страница выдачи `/api/v1` (packages/shared, Page). */
+export type OrganizationListPage = Page<OrganizationListItem>
 
 type OrganizationSort = ListSort<'organizations'>
 const DEFAULT_SORT: OrganizationSort = { column: 'name', direction: 'asc' }
@@ -168,7 +166,7 @@ export async function listOrganizationsPage(
     page.map((row) => row.custom),
   )
   return {
-    items: page.map((row, index) => ({
+    data: page.map((row, index) => ({
       id: row.id,
       name: row.name,
       address: row.address,
@@ -177,7 +175,7 @@ export async function listOrganizationsPage(
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
     })),
-    nextCursor:
+    next_cursor:
       rows.length > limit && last
         ? encodePageCursor(sortName(sort), { v: last.sort_value, id: last.id })
         : null,
@@ -259,19 +257,19 @@ export async function exportOrganizations(c: Ctx, rootDb: Kysely<Database>): Pro
           limit: EXPORT_BATCH,
           ...(cursor ? { cursor } : {}),
         })
-        const values = page.items.map((item) => item.custom)
+        const values = page.data.map((item) => item.custom)
         return { page, names: await loadCustomNames(trx, customFields, values) }
       })
       const custom = { fields: customFields, names }
-      if (page.items.length > 0) {
-        yield page.items
+      if (page.data.length > 0) {
+        yield page.data
           .map((item) =>
             csvRow(columns.map((column) => organizationCell(item, column, language, custom))),
           )
           .join('')
       }
-      if (page.nextCursor === null) return
-      cursor = decodePageCursor(page.nextCursor, sortName(sort), sortKey(sort, catalog).cast)
+      if (page.next_cursor === null) return
+      cursor = decodePageCursor(page.next_cursor, sortName(sort), sortKey(sort, catalog).cast)
       if (!cursor) throw new Error('выгрузка: курсор своей же страницы не разобрался')
     }
   }

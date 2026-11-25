@@ -6,6 +6,7 @@ import { type Ctx, fail, likePattern, refuse } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
 import { dealInScope } from '../deals/scope.ts'
 import type { DealStatus } from '../deals/store.ts'
+import { problem } from '../http/problem.ts'
 import type { PermissionsEnv } from '../middleware/permissions.ts'
 import { isoOrNull } from '../pipelines/directory.ts'
 import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
@@ -233,7 +234,7 @@ export function searchRoutes() {
       return c.json<SearchResponse>({ deals: empty(), contacts: empty(), organizations: empty() })
     }
     const result = await search(c, parseQuery(q))
-    if (!result) return c.json({ code: 'PERMISSION_DENIED' }, 403)
+    if (!result) return problem(c, 403, 'PERMISSION_DENIED')
     return c.json<SearchResponse>(result)
   })
 }

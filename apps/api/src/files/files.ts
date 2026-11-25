@@ -3,6 +3,7 @@ import type { Database } from '@alpi/db'
 import { Hono } from 'hono'
 import type { Selectable } from 'kysely'
 import { type Ctx, fail, type Outcome, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
+import { problem } from '../http/problem.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { type FileStorage, objectKey } from '../storage/storage.ts'
 import {
@@ -155,10 +156,9 @@ function concat(chunks: readonly Uint8Array[], length: number): Uint8Array {
 }
 
 const tooLarge = (c: Ctx) =>
-  c.json(
-    { code: 'FILE_TOO_LARGE' satisfies FilesErrorCode, details: { maxBytes: MAX_FILE_BYTES } },
-    413,
-  )
+  problem(c, 413, 'FILE_TOO_LARGE' satisfies FilesErrorCode, {
+    details: { maxBytes: MAX_FILE_BYTES },
+  })
 
 async function uploadFile(c: Ctx, type: EntityType, storage: FileStorage): Promise<Response> {
   const name = readFileName(c.req.query('name'))
@@ -192,7 +192,7 @@ async function uploadFile(c: Ctx, type: EntityType, storage: FileStorage): Promi
   const contentType = detectContentType(concat(head, counter.bytes).subarray(0, SNIFF_BYTES), name)
   if (!contentType) {
     await chunks.return()
-    return c.json({ code: 'UNSUPPORTED_FILE_TYPE' satisfies FilesErrorCode }, 415)
+    return problem(c, 415, 'UNSUPPORTED_FILE_TYPE' satisfies FilesErrorCode)
   }
 
   async function* whole(): AsyncGenerator<Uint8Array> {

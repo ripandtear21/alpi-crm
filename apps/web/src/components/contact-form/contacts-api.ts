@@ -1,4 +1,4 @@
-import type { PipelineSummary, ProjectAccess } from '@alpi/shared'
+import type { Page, PipelineSummary, ProjectAccess } from '@alpi/shared'
 import { projectHeaders } from '../project-switcher/projects-api.ts'
 
 // Запросы карточек контакта и организации (тикет crm-deals/14) к API: контакты
@@ -165,14 +165,14 @@ export function createContactsApi(
   const organization = (id: string) => `/v1/organizations/${encodeURIComponent(id)}`
   const query = (params: Record<string, string>) => new URLSearchParams(params).toString()
   // shortcut: одна страница из RECORD_LIST_LIMIT сделок, без «показать ещё»; добавить
-  // подгрузку по nextCursor, когда у контакта или организации бывает больше 200 сделок.
+  // подгрузку по next_cursor, когда у контакта или организации бывает больше 200 сделок.
   const deals = async (projectId: string, filter: Record<string, string>) => {
-    const page = await send<{ items: RecordDeal[]; nextCursor: string | null }>(
+    const page = await send<Page<RecordDeal>>(
       projectId,
       'GET',
       `/v1/deals?${query({ ...filter, status: 'any', archived: 'any', limit: String(RECORD_LIST_LIMIT) })}`,
     )
-    return { items: page.items, more: page.nextCursor !== null }
+    return { items: page.data, more: page.next_cursor !== null }
   }
 
   return {

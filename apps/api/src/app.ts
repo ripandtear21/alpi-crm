@@ -1,7 +1,9 @@
 import type { Database } from '@alpi/db'
 import type { HealthResponse } from '@alpi/shared'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import { HTTPException } from 'hono/http-exception'
 import type { Kysely } from 'kysely'
 import { apiKeysRoutes } from './api-keys/routes.ts'
 import { auditRoutes, systemAuditRoutes } from './audit/routes.ts'
@@ -20,6 +22,9 @@ import { fieldsRoutes } from './fields/fields.ts'
 import { fieldGroupsRoutes } from './fields/groups.ts'
 import { isFileUpload } from './files/files.ts'
 import { savedFiltersRoutes } from './filters/saved.ts'
+import { idempotency } from './http/idempotency.ts'
+import { problem } from './http/problem.ts'
+import { createRateLimiter, type RateLimitOptions } from './http/rate-limit.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
 import { OPEN_MEMBER_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
@@ -27,6 +32,7 @@ import { memberTransferRoutes } from './members/transfer.ts'
 import { apiKeyAuth } from './middleware/api-key.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
+import { DOCS_HTML, v1Document, validationHook } from './openapi/openapi.ts'
 import { organizationListRoutes } from './organizations/list.ts'
 import { organizationsRoutes } from './organizations/organizations.ts'
 import { pipelinesRoutes } from './pipelines/pipelines.ts'
@@ -80,6 +86,18 @@ export interface AppDeps {
    * без очереди окончательное удаление поля с данными — ошибка 500.
    */
   fields?: FieldsDeps
+  /** Лимит запросов ключа API (http/rate-limit.ts): по умолчанию 600 в минуту, часы — Date.now. */
+  rateLimit?: RateLimitOptions
+}
+
+/** Код ошибки ответа на HTTPException (её бросают промежуточные слои Hono и @hono/zod-openapi). */
+const HTTP_EXCEPTION_CODES: Partial<Record<number, string>> = {
+  400: 'INVALID_INPUT',
+  401: 'UNAUTHORIZED',
+  403: 'FORBIDDEN',
+  404: 'NOT_FOUND',
+  413: 'PAYLOAD_TOO_LARGE',
+  415: 'UNSUPPORTED_MEDIA_TYPE',
 }
 
 /**
@@ -104,7 +122,9 @@ function v1Routes({
   db: Kysely<Database>
 }) {
   return (
-    new Hono<PermissionsEnv>()
+    // OpenAPIHono (@hono/zod-openapi): маршруты, объявленные через keyRoute (openapi/openapi.ts),
+    // попадают в описание /api/v1/openapi.json; ошибка проверки их схемы — 400 INVALID_INPUT.
+    new OpenAPIHono<PermissionsEnv>({ defaultHook: validationHook })
       // Списки (тикет 12): счётчики и выгрузка — до разделов, иначе `count`, `list` и
       // `export.csv` разобрались бы как id записи.
       .route('/deals', dealListRoutes(db))
@@ -152,22 +172,29 @@ export function createApp({
   storage = NO_FILE_STORAGE,
   stageRequirements = CUSTOM_FIELD_REQUIREMENTS,
   fields = NO_FIELD_JOBS,
+  rateLimit,
 }: AppDeps) {
   const jsonBodyLimit = bodyLimit({
     maxSize: MAX_BODY_BYTES,
-    onError: (c) => c.json({ code: 'PAYLOAD_TOO_LARGE' }, 413),
+    onError: (c) => problem(c, 413, 'PAYLOAD_TOO_LARGE'),
   })
   const sessionGuard = accessGuard(auth)
+  const v1 = v1Routes({ stageDeals, contactDependents, storage, stageRequirements, fields, db })
+  // Описание строится один раз: маршруты приложения после создания не меняются.
+  const openApiDocument = v1Document(v1)
   return (
     new Hono<AccessEnv>()
       .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
+      // Описание API (тикет crm-api/02): открыто без входа и без ключа, данных не содержит.
+      .get('/v1/openapi.json', (c) => c.json(openApiDocument))
+      .get('/v1/docs', (c) => c.html(DOCS_HTML))
       // До входа и до контекста проекта: большое тело отклоняется, не дойдя ни до Better Auth,
       // ни до базы.
       .use('*', (c, next) =>
         isFileUpload(c.req.method, c.req.path) ? next() : jsonBodyLimit(c, next),
       )
       // Запрос с ключом API: ключ и маршрут проверены здесь, сессия (cookie) не читается.
-      .use('*', apiKeyAuth(db, auth))
+      .use('*', apiKeyAuth(db, auth, createRateLimiter(rateLimit)))
       .use('*', (c, next) => (c.get('apiKey') ? next() : sessionGuard(c, next)))
       .on(['GET', 'POST'], `${AUTH_BASE_PATH}/*`, (c) => auth.handler(c.req.raw))
       .get('/me', (c) => {
@@ -188,12 +215,21 @@ export function createApp({
       .route('/teams', teamsRoutes())
       .route('/audit', auditRoutes())
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
+      // Idempotency-Key у POST и PATCH (http/idempotency.ts) — в транзакции проекта.
+      .use('/v1/*', idempotency())
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
       .route('/v1/members', memberTransferRoutes(bulk))
-      .route(
-        '/v1',
-        v1Routes({ stageDeals, contactDependents, storage, stageRequirements, fields, db }),
-      )
+      .route('/v1', v1)
+      // Ошибки в формате RFC 9457 (http/problem.ts): неизвестный путь — 404 NOT_FOUND,
+      // необработанная ошибка — 500 INTERNAL без подробностей (они — только в журнал процесса).
+      .notFound((c) => problem(c, 404, 'NOT_FOUND'))
+      .onError((error, c) => {
+        if (error instanceof HTTPException && error.status < 500) {
+          return problem(c, error.status, HTTP_EXCEPTION_CODES[error.status] ?? 'HTTP_ERROR')
+        }
+        console.error('API: необработанная ошибка', error)
+        return problem(c, 500, 'INTERNAL')
+      })
   )
 }
 

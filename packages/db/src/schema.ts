@@ -658,6 +658,24 @@ export interface ApiKeyTable {
   last_used_at: Date | null
 }
 
+/**
+ * Ответ для повтора по `Idempotency-Key` (migrations/0020_idempotency.ts). Виден только в
+ * контексте своего проекта. Пока запрос выполняется — без ответа; ответы 5xx не хранятся.
+ */
+export interface IdempotencyRecordTable {
+  id: Generated<string>
+  project_id: string
+  author_type: 'user' | 'api_key'
+  author_id: string
+  key: string
+  /** SHA-256 метода, пути и тела запроса, hex. */
+  fingerprint: string
+  response_status: number | null
+  response_content_type: string | null
+  response_body: string | null
+  created_at: Timestamp
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -698,4 +716,5 @@ export interface Database {
   custom_value: CustomValueTable
   pipeline_card_field: PipelineCardFieldTable
   api_key: ApiKeyTable
+  idempotency_record: IdempotencyRecordTable
 }

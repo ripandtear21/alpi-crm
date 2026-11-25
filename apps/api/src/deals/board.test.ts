@@ -258,17 +258,17 @@ describe('канбан: выдача, агрегаты, требования э�
       const first = await json<DealsPage>(
         await get(admin, `/v1/deals?pipeline=${pipeline.id}&stage=${stage}`),
       )
-      expect(first.items).toHaveLength(50)
-      expect(first.nextCursor).toEqual(expect.any(String))
+      expect(first.data).toHaveLength(50)
+      expect(first.next_cursor).toEqual(expect.any(String))
       const second = await json<DealsPage>(
         await get(
           admin,
-          `/v1/deals?pipeline=${pipeline.id}&stage=${stage}&cursor=${encodeURIComponent(first.nextCursor ?? '')}`,
+          `/v1/deals?pipeline=${pipeline.id}&stage=${stage}&cursor=${encodeURIComponent(first.next_cursor ?? '')}`,
         ),
       )
-      expect(second.items).toHaveLength(10)
-      expect(second.nextCursor).toBeNull()
-      const seen = [...first.items, ...second.items].map((d) => d.id)
+      expect(second.data).toHaveLength(10)
+      expect(second.next_cursor).toBeNull()
+      const seen = [...first.data, ...second.data].map((d) => d.id)
       expect(new Set(seen).size).toBe(60)
       expect([...seen].sort()).toEqual([...ids].sort())
     })
@@ -292,10 +292,10 @@ describe('канбан: выдача, агрегаты, требования э�
       const page = await json<DealsPage>(
         await get(admin, `/v1/deals?pipeline=${pipeline.id}&stage=${s1}`),
       )
-      expect(page.items.map((d) => d.id)).toHaveLength(3)
-      expect(page.items.at(-1)?.id).toBe(older)
-      expect(page.items.map((d) => d.id)).toContain(newer)
-      const card = page.items.find((d) => d.id === older) as BoardDeal
+      expect(page.data.map((d) => d.id)).toHaveLength(3)
+      expect(page.data.at(-1)?.id).toBe(older)
+      expect(page.data.map((d) => d.id)).toContain(newer)
+      const card = page.data.find((d) => d.id === older) as BoardDeal
       expect(card).toMatchObject({
         pipelineId: pipeline.id,
         stageId: s1,
@@ -305,7 +305,7 @@ describe('канбан: выдача, агрегаты, требования э�
         ownerName: 'Ганна Вигадана',
         contactName: expect.stringMatching(/^Клієнт\d+ Вигаданий$/),
       })
-      expect(page.items.find((d) => d.id === queued)).toMatchObject({
+      expect(page.data.find((d) => d.id === queued)).toMatchObject({
         ownerId: null,
         ownerName: null,
       })
@@ -313,16 +313,16 @@ describe('канбан: выдача, агрегаты, требования э�
       const queue = await json<DealsPage>(
         await get(admin, `/v1/deals?pipeline=${pipeline.id}&stage=${s1}&owner=none`),
       )
-      expect(queue.items.map((d) => d.id)).toEqual([queued])
+      expect(queue.data.map((d) => d.id)).toEqual([queued])
       const mine = await json<DealsPage>(
         await get(manager, `/v1/deals?pipeline=${pipeline.id}&stage=${s1}&owner=me`),
       )
-      expect(mine.items.map((d) => d.id)).toEqual([older])
+      expect(mine.data.map((d) => d.id)).toEqual([older])
       // «Свои»: своя и очередь, чужие (администратора) — нет.
       const scoped = await json<DealsPage>(
         await get(manager, `/v1/deals?pipeline=${pipeline.id}&stage=${s1}`),
       )
-      expect(scoped.items.map((d) => d.id).sort()).toEqual([older, queued].sort())
+      expect(scoped.data.map((d) => d.id).sort()).toEqual([older, queued].sort())
     })
 
     it('неверные параметры — 400; сделки проекта B из A не видны', async () => {
@@ -336,7 +336,7 @@ describe('канбан: выдача, агрегаты, требования э�
       const pipelineB = await createPipeline(projectB)
       await seed(projectB, pipelineB, [{ stage: pipelineB.stages[0] ?? '' }])
       const fromA = await json<DealsPage>(await get(admin, `/v1/deals?pipeline=${pipelineB.id}`))
-      expect(fromA.items).toEqual([])
+      expect(fromA.data).toEqual([])
     })
   })
 
@@ -377,7 +377,7 @@ describe('канбан: выдача, агрегаты, требования э�
         project: projectA,
         body: { stageId: s2 },
       })
-      expect(await json(refused, 422)).toEqual({
+      expect(await json(refused, 422)).toMatchObject({
         code: 'STAGE_REQUIREMENTS_MISSING',
         details: {
           fields: ['budget', 'contract'],
@@ -533,7 +533,7 @@ describe('канбан: выдача, агрегаты, требования э�
       deals.orgOnly = await deal(colleagues, colleague.id, { organization: organizationId })
     })
 
-    const ids = (page: DealsPage) => page.items.map((item) => item.id).sort()
+    const ids = (page: DealsPage) => page.data.map((item) => item.id).sort()
 
     it('сделки контакта: основной и участник, все статусы; менеджер «свои» — только свои', async () => {
       const all = await json<DealsPage>(
@@ -542,7 +542,7 @@ describe('канбан: выдача, агрегаты, требования э�
       expect(ids(all)).toEqual(
         [deals.mine, deals.theirs, deals.asParticipant, deals.mineWonArchived].sort(),
       )
-      expect(all.items.find((item) => item.id === deals.mineWonArchived)?.status).toBe('won')
+      expect(all.data.find((item) => item.id === deals.mineWonArchived)?.status).toBe('won')
 
       const own = await json<DealsPage>(
         await get(manager, `/v1/deals?contact=${client}&status=any&archived=any`),

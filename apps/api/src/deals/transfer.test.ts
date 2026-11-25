@@ -197,7 +197,7 @@ describe('передача сделок участника', () => {
     it('открытая сделка — отказ с их числом', async () => {
       const user = await member(projectA)
       await insertDeals(projectA, user, 2)
-      expect(await reply(await disable(admin, projectA, user))).toEqual({
+      expect(await reply(await disable(admin, projectA, user))).toMatchObject({
         status: 409,
         body: { code: 'HAS_OPEN_DEALS', details: { count: 2 } },
       })
@@ -206,7 +206,7 @@ describe('передача сделок участника', () => {
     it('одна только архивная открытая сделка — отказ: архив — отметка, а не статус', async () => {
       const user = await member(projectA)
       await insertDeals(projectA, user, 1, 'archived')
-      expect(await reply(await disable(admin, projectA, user))).toEqual({
+      expect(await reply(await disable(admin, projectA, user))).toMatchObject({
         status: 409,
         body: { code: 'HAS_OPEN_DEALS', details: { count: 1 } },
       })
@@ -282,7 +282,7 @@ describe('передача сделок участника', () => {
     await insertDeals(projectA, from, 3)
     expect(await transferAndWait(admin, projectA, from, to)).toMatchObject({ processed: 3 })
     await insertDeals(projectA, from, 1)
-    expect(await reply(await disable(admin, projectA, from))).toEqual({
+    expect(await reply(await disable(admin, projectA, from))).toMatchObject({
       status: 409,
       body: { code: 'HAS_OPEN_DEALS', details: { count: 1 } },
     })
@@ -349,7 +349,9 @@ describe('передача сделок участника', () => {
       await h.addMember(projectA, manager.id, 'manager')
       const from = await member(projectA)
       const deals = await insertDeals(projectA, from, 1)
-      expect(await reply(await transfer(manager, projectA, from, { toUserId: null }))).toEqual({
+      expect(
+        await reply(await transfer(manager, projectA, from, { toUserId: null })),
+      ).toMatchObject({
         status: 403,
         body: { code: 'PERMISSION_DENIED' },
       })
@@ -367,11 +369,15 @@ describe('передача сделок участника', () => {
     it('тимлид не передаёт сделки участнику другой команды и не трогает сделки вне охвата', async () => {
       const own = await insertDeals(projectA, mate, 1)
       const foreign = await insertDeals(projectA, outsider, 1)
-      expect(await reply(await transfer(lead, projectA, mate, { toUserId: outsider }))).toEqual({
+      expect(
+        await reply(await transfer(lead, projectA, mate, { toUserId: outsider })),
+      ).toMatchObject({
         status: 403,
         body: { code: 'PERMISSION_DENIED' },
       })
-      expect(await reply(await transfer(lead, projectA, outsider, { toUserId: mate }))).toEqual({
+      expect(
+        await reply(await transfer(lead, projectA, outsider, { toUserId: mate })),
+      ).toMatchObject({
         status: 403,
         body: { code: 'PERMISSION_DENIED' },
       })
@@ -426,13 +432,15 @@ describe('передача сделок участника', () => {
       const from = await member(projectA)
       const deals = await insertDeals(projectA, from, 1)
       const elsewhere = await member(projectB)
-      expect(await reply(await transfer(admin, projectA, from, { toUserId: elsewhere }))).toEqual({
+      expect(
+        await reply(await transfer(admin, projectA, from, { toUserId: elsewhere })),
+      ).toMatchObject({
         status: 422,
         body: { code: 'OWNER_NOT_MEMBER' },
       })
       const gone = await member(projectA)
       expect((await disable(admin, projectA, gone)).status).toBe(200)
-      expect(await reply(await transfer(admin, projectA, from, { toUserId: gone }))).toEqual({
+      expect(await reply(await transfer(admin, projectA, from, { toUserId: gone }))).toMatchObject({
         status: 422,
         body: { code: 'OWNER_NOT_MEMBER' },
       })
@@ -445,7 +453,9 @@ describe('передача сделок участника', () => {
       expect((await transfer(admin, projectA, from, { toUserId: 5 })).status).toBe(400)
       expect((await transfer(admin, projectA, from, { toUserId: from })).status).toBe(400)
       const elsewhere = await member(projectB)
-      expect(await reply(await transfer(admin, projectA, elsewhere, { toUserId: null }))).toEqual({
+      expect(
+        await reply(await transfer(admin, projectA, elsewhere, { toUserId: null })),
+      ).toMatchObject({
         status: 404,
         body: { code: 'MEMBER_NOT_FOUND' },
       })
@@ -460,7 +470,7 @@ describe('передача сделок участника', () => {
     const inB = await insertDeals(projectB, user, 3)
     const to = await member(projectA)
 
-    expect(await reply(await disable(admin, projectA, user))).toEqual({
+    expect(await reply(await disable(admin, projectA, user))).toMatchObject({
       status: 409,
       body: { code: 'HAS_OPEN_DEALS', details: { count: 2 } },
     })
@@ -473,7 +483,7 @@ describe('передача сделок участника', () => {
     ).toEqual([])
 
     expect((await disable(admin, projectA, user)).status).toBe(200)
-    expect(await reply(await disable(admin, projectB, user))).toEqual({
+    expect(await reply(await disable(admin, projectB, user))).toMatchObject({
       status: 409,
       body: { code: 'HAS_OPEN_DEALS', details: { count: 3 } },
     })

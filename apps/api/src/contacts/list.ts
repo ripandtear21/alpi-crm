@@ -3,6 +3,7 @@ import {
   type FilterGroup,
   type ListCount,
   type ListSort,
+  type Page,
   parseSort,
   type RolePermissions,
   type Scope,
@@ -76,10 +77,8 @@ export interface ContactListItem {
   updatedAt: string
 }
 
-export interface ContactListPage {
-  items: ContactListItem[]
-  nextCursor: string | null
-}
+/** Страница выдачи `/api/v1` (packages/shared, Page). */
+export type ContactListPage = Page<ContactListItem>
 
 type ContactSort = ListSort<'contacts'>
 const DEFAULT_SORT: ContactSort = { column: 'createdAt', direction: 'desc' }
@@ -256,7 +255,7 @@ export async function listContactsPage(
     page.map((row) => row.custom),
   )
   return {
-    items: page.map((row, index) => ({
+    data: page.map((row, index) => ({
       id: row.id,
       firstName: row.first_name,
       lastName: row.last_name,
@@ -271,7 +270,7 @@ export async function listContactsPage(
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
     })),
-    nextCursor,
+    next_cursor: nextCursor,
   }
 }
 
@@ -350,19 +349,19 @@ export async function exportContacts(c: Ctx, rootDb: Kysely<Database>): Promise<
           { ...ctx, db: trx },
           { filter, custom: catalog, sort, limit: EXPORT_BATCH, ...(cursor ? { cursor } : {}) },
         )
-        const values = page.items.map((item) => item.custom)
+        const values = page.data.map((item) => item.custom)
         return { page, names: await loadCustomNames(trx, customFields, values) }
       })
       const custom = { fields: customFields, names }
-      if (page.items.length > 0) {
-        yield page.items
+      if (page.data.length > 0) {
+        yield page.data
           .map((item) =>
             csvRow(columns.map((column) => contactCell(item, column, language, custom))),
           )
           .join('')
       }
-      if (page.nextCursor === null) return
-      cursor = decodePageCursor(page.nextCursor, sortName(sort), sortKey(sort, catalog).cast)
+      if (page.next_cursor === null) return
+      cursor = decodePageCursor(page.next_cursor, sortName(sort), sortKey(sort, catalog).cast)
       if (!cursor) throw new Error('выгрузка: курсор своей же страницы не разобрался')
     }
   }

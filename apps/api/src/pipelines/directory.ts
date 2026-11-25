@@ -2,6 +2,7 @@ import type { Database } from '@alpi/db'
 import { MAX_DIRECTORY_NAME_LENGTH, type PipelinesErrorCode } from '@alpi/shared'
 import type { Context } from 'hono'
 import { type Kysely, sql } from 'kysely'
+import { problem } from '../http/problem.ts'
 import type { PermissionsEnv } from '../middleware/permissions.ts'
 import { sqlState } from '../roles/roles.ts'
 
@@ -24,7 +25,7 @@ const UNIQUE_CODES: Record<string, PipelinesErrorCode> = {
 }
 
 export function fail(c: Ctx, status: 400 | 404 | 409, code: PipelinesErrorCode, path?: string) {
-  return c.json(path === undefined ? { code } : { code, details: { path } }, status)
+  return problem(c, status, code, path === undefined ? {} : { details: { path } })
 }
 
 export function invalid(c: Ctx, path: string) {

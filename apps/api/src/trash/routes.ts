@@ -1,5 +1,5 @@
 import type { Database } from '@alpi/db'
-import { can, type Resource } from '@alpi/shared'
+import { can, type Page, type Resource } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import { type Ctx, fail, type Outcome, ok, readLimit, refuse } from '../contacts/http.ts'
@@ -46,10 +46,8 @@ export interface TrashItem {
   purgeAt: string
 }
 
-export interface TrashPage {
-  items: TrashItem[]
-  nextCursor: string | null
-}
+/** Страница выдачи `/api/v1` (packages/shared, Page). */
+export type TrashPage = Page<TrashItem>
 
 type Result<T> = Outcome<T, 'INVALID_TRASH_QUERY' | 'PERMISSION_DENIED'>
 
@@ -151,7 +149,7 @@ async function listTrash(c: Ctx): Promise<Result<TrashPage>> {
         ).map((user) => [user.id, user.name]),
   )
   return ok({
-    items: page.map((row) => ({
+    data: page.map((row) => ({
       type,
       id: row.id,
       title: row.title,
@@ -161,7 +159,7 @@ async function listTrash(c: Ctx): Promise<Result<TrashPage>> {
         new Date(row.deleted_at).getTime() + TRASH_RETENTION_DAYS * DAY_MS,
       ).toISOString(),
     })),
-    nextCursor:
+    next_cursor:
       rows.length > limit && last
         ? encodePageCursor(SORT, { v: last.deleted_at, id: last.id })
         : null,

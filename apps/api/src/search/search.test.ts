@@ -286,7 +286,7 @@ describe('быстрый поиск', () => {
     expect(await search(admin, '  ')).toEqual(nothing)
     const res = await admin.api('GET', `/v1/search?q=${'а'.repeat(201)}`, { project: projectA })
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ code: 'INVALID_SEARCH', details: { path: 'q' } })
+    expect(await res.json()).toMatchObject({ code: 'INVALID_SEARCH', details: { path: 'q' } })
   })
 
   it('без права «смотреть» группа пустая', async () => {

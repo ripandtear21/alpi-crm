@@ -573,7 +573,7 @@ describe('массовые действия, выгрузка, корзина', 
         .returning('id')
         .executeTakeFirstOrThrow()
       const trash = await json<TrashPage>(await call(admin, 'GET', '/v1/trash?type=deal'))
-      const item = trash.items.find((i) => i.id === first)
+      const item = trash.data.find((i) => i.id === first)
       expect(item).toBeDefined()
       expect(
         new Date(item?.purgeAt ?? '').getTime() - new Date(item?.deletedAt ?? '').getTime(),
@@ -642,12 +642,12 @@ describe('массовые действия, выгрузка, корзина', 
 
       const seenByHead = (
         await json<TrashPage>(await call(head, 'GET', '/v1/trash?type=deal'))
-      ).items.map((i) => i.id)
+      ).data.map((i) => i.id)
       expect(seenByHead).toContain(own)
       expect(seenByHead).not.toContain(foreign)
       const seenByAdmin = (
         await json<TrashPage>(await call(admin, 'GET', '/v1/trash?type=deal&limit=200'))
-      ).items.map((i) => i.id)
+      ).data.map((i) => i.id)
       expect(seenByAdmin).toEqual(expect.arrayContaining([own, foreign, old]))
       expect(seenByAdmin).not.toContain(inB)
       // Без права «корзина: смотреть» — 403.

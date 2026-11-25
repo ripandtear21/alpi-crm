@@ -213,7 +213,7 @@ describe('обязательность пользовательских поле
 
       for (const stageId of [main.stages[2], main.stages[3]]) {
         const refused = await refusal(await call('POST', `/deals/${id}/stage`, { stageId }))
-        expect(refused).toEqual({
+        expect(refused).toMatchObject({
           code: 'STAGE_REQUIREMENTS_MISSING',
           details: {
             fields: ['budget'],
@@ -408,7 +408,7 @@ describe('обязательность пользовательских поле
     it('создание без значения — 422, со значением — 201; очистка — 422', async () => {
       const call = as(admin, project)
       const noContact = await refusal(await call('POST', '/contacts', { firstName: 'Без поля' }))
-      expect(noContact).toEqual({
+      expect(noContact).toMatchObject({
         code: 'REQUIRED_FIELDS_MISSING',
         details: {
           fields: ['contact_always'],
@@ -582,7 +582,7 @@ describe('обязательность пользовательских поле
         stageId: pipeline.stages[1],
       })
       const text = await res.clone().text()
-      expect(await refusal(res)).toEqual({
+      expect(await refusal(res)).toMatchObject({
         code: 'STAGE_REQUIREMENTS_MISSING',
         details: {
           fields: ['open_budget'],

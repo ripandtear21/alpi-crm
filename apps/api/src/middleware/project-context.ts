@@ -1,11 +1,12 @@
 import { type Database, withProject } from '@alpi/db'
-import { PROJECT_HEADER } from '@alpi/shared'
+import { IDEMPOTENT_REPLAYED_HEADER, PROJECT_HEADER } from '@alpi/shared'
 import type { Context, Next } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { type Kysely, sql, type Transaction } from 'kysely'
 import type { RequestActor } from '../api-keys/actor.ts'
 import { audit } from '../audit/record.ts'
 import type { AccessEnv } from '../auth/access-guard.ts'
+import { problem } from '../http/problem.ts'
 import type { ApiKeyEnv } from './api-key.ts'
 
 // Контекст проекта для запроса (docs/adr/0001-izolyatsiya-proektov.md): клиент присылает
@@ -50,14 +51,14 @@ export function projectContext(db: Kysely<Database>) {
     if (apiKey) return apiKeyProjectContext(db, apiKey, c, next)
     const session = c.get('session')
     if (!session?.user.twoFactorEnabled || session.session.twoFactorVerified !== true) {
-      return c.json({ code: 'UNAUTHORIZED' }, 401)
+      return problem(c, 401, 'UNAUTHORIZED')
     }
     const projectId = c.req.header(PROJECT_HEADER)
     if (!projectId) {
-      return c.json({ code: 'PROJECT_REQUIRED' }, 400)
+      return problem(c, 400, 'PROJECT_REQUIRED')
     }
     if (!UUID.test(projectId)) {
-      return c.json({ code: 'PROJECT_FORBIDDEN' }, 403)
+      return problem(c, 403, 'PROJECT_FORBIDDEN')
     }
 
     let member = false
@@ -88,7 +89,7 @@ export function projectContext(db: Kysely<Database>) {
       throw error
     }
     if (!member) {
-      return c.json({ code: 'PROJECT_FORBIDDEN' }, 403)
+      return problem(c, 403, 'PROJECT_FORBIDDEN')
     }
   })
 }
@@ -113,7 +114,7 @@ async function apiKeyProjectContext(
 ) {
   const header = c.req.header(PROJECT_HEADER)
   if (header !== undefined && header.toLowerCase() !== apiKey.projectId) {
-    return c.json({ code: 'PROJECT_FORBIDDEN' }, 403)
+    return problem(c, 403, 'PROJECT_FORBIDDEN')
   }
   try {
     await withProject(db, apiKey.projectId, async (trx) => {
@@ -134,7 +135,9 @@ async function apiKeyProjectContext(
         .execute()
       await next()
       if (c.error) throw c.error
-      if (!SAFE_METHODS.has(c.req.method) && c.res.status < 400) {
+      // Повтор по Idempotency-Key (http/idempotency.ts) ничего не меняет — в журнал не пишется.
+      const replayed = c.res.headers.get(IDEMPOTENT_REPLAYED_HEADER) === 'true'
+      if (!SAFE_METHODS.has(c.req.method) && c.res.status < 400 && !replayed) {
         await audit.record(trx, apiKey.projectId, {
           action: 'api_key.request',
           actorId: null,

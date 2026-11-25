@@ -152,7 +152,7 @@ describe('вход и обязательная 2FA', () => {
         await b.get('/auth/no-such-route'),
       ]) {
         expect(res.status).toBe(403)
-        expect(await res.json()).toEqual({ code: 'TWO_FACTOR_SETUP_REQUIRED' })
+        expect(await res.json()).toMatchObject({ code: 'TWO_FACTOR_SETUP_REQUIRED' })
       }
 
       // Секрет выдан, но код ещё не подтверждён — доступа по-прежнему нет.
@@ -266,7 +266,7 @@ describe('вход и обязательная 2FA', () => {
         await b.post('/auth/two-factor/get-totp-uri', { password: user.password }),
       ]) {
         expect(res.status).toBe(401)
-        expect(await res.json()).toEqual({ code: 'SECOND_FACTOR_REQUIRED' })
+        expect(await res.json()).toMatchObject({ code: 'SECOND_FACTOR_REQUIRED' })
       }
     })
 

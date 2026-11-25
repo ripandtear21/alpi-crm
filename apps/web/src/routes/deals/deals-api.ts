@@ -3,9 +3,11 @@ import type {
   FilterGroup,
   KanbanCardFields,
   LostReasonGroupSummary,
+  Page,
   PipelineSummary,
   ProjectAccess,
 } from '@alpi/shared'
+import { readPage } from '@alpi/shared'
 import { projectHeaders } from '../../components/project-switcher/projects-api.ts'
 
 // Запросы канбана к API (apps/api/src/deals): `/api/v1/...` в контексте проекта. Отказ —
@@ -206,11 +208,14 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     access: (projectId) => send(projectId, 'GET', '/project/access', undefined, '/api'),
     cardFields: (projectId, pipelineId) =>
       send(projectId, 'GET', `/pipelines/${pipelineId}/card-fields`),
-    stagePage: (projectId, { pipelineId, stageId, owner, filter, cursor }) =>
-      send(
-        projectId,
-        'GET',
-        `/deals?${query({ view: 'kanban', pipeline: pipelineId, stage: stageId, owner, filter: filterParam(filter), cursor })}`,
+    // Страница `/api/v1` — `{ data, next_cursor }` (тикет crm-api/02).
+    stagePage: async (projectId, { pipelineId, stageId, owner, filter, cursor }) =>
+      readPage(
+        await send<Page<BoardDeal>>(
+          projectId,
+          'GET',
+          `/deals?${query({ view: 'kanban', pipeline: pipelineId, stage: stageId, owner, filter: filterParam(filter), cursor })}`,
+        ),
       ),
     aggregates: (projectId, pipelineId, owner, filter) =>
       send(

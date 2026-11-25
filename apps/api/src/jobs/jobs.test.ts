@@ -106,8 +106,48 @@ describe('фоновые задачи по расписанию', () => {
         .sort((a, b) => a.name.localeCompare(b.name)),
     ).toEqual([
       { name: QUEUES.signInPurge, cron: '30 3 * * *', tz: 'Europe/Kyiv' },
+      { name: QUEUES.idempotencyPurge, cron: '45 3 * * *', tz: 'Europe/Kyiv' },
       { name: QUEUES.trashPurge, cron: '0 3 * * *', tz: 'Europe/Kyiv' },
     ])
+  })
+
+  describe('очистка ответов Idempotency-Key (тикет crm-api/02)', () => {
+    it('запись старше 24 часов удаляется задачей в каждом проекте, младше — остаётся', async () => {
+      const hoursAgo = (hours: number) => sql<Date>`now() - make_interval(hours => ${hours})`
+      const record = (projectId: string, key: string, hours: number) => ({
+        project_id: projectId,
+        author_type: 'user' as const,
+        author_id: 'author-probe',
+        key,
+        fingerprint: '0'.repeat(64),
+        response_status: 201,
+        response_body: '{}',
+        created_at: hoursAgo(hours),
+      })
+      await h.owner
+        .insertInto('idempotency_record')
+        .values([
+          record(projectA, 'a-25h', 25),
+          record(projectA, 'a-23h', 23),
+          record(projectB, 'b-25h', 25),
+        ])
+        .execute()
+      const keys = async () =>
+        (
+          await h.owner
+            .selectFrom('idempotency_record')
+            .select('key')
+            .where('author_id', '=', 'author-probe')
+            .orderBy('key')
+            .execute()
+        ).map((r) => r.key)
+
+      await jobs.boss.send(QUEUES.idempotencyPurge)
+      await vi.waitFor(async () => expect(await keys()).toEqual(['a-23h']), {
+        timeout: 20_000,
+        interval: 200,
+      })
+    })
   })
 
   describe('корзина', () => {
