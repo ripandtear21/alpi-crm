@@ -35,15 +35,22 @@ apps/web/src/routes/settings/fields/**, apps/web/src/routes/settings/settings-pa
 
 - [ ] Тест компонента: создание поля «один вариант» с тремя вариантами и обязательностью «з етапу X» воронки «ALPI» отправляет верный запрос и показывает поле в своей группе.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/fields` exit 0 · windows - · 8eae204c65293fa761b3c5389bd67fb62be7b516
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ef5576fc808027de07ddf786cc9cbc6fd90c0bfe
 - [ ] Тест компонента: у поля с данными поле кода заблокировано, в списке типов только безопасные смены.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/fields` exit 0 · windows - · 8eae204c65293fa761b3c5389bd67fb62be7b516
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ef5576fc808027de07ddf786cc9cbc6fd90c0bfe
 - [ ] Тест компонента: ответ сервера «код занят» показан у поля кода; «Видалити остаточно» недоступно раньше 30 дней и требует ввести код.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/fields` exit 0 · windows - · 8eae204c65293fa761b3c5389bd67fb62be7b516
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ef5576fc808027de07ddf786cc9cbc6fd90c0bfe
 - [ ] Тест: пользователь без права `fields` не видит пункта меню, прямая ссылка — «немає доступу».
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/fields` exit 0 · windows - · 8eae204c65293fa761b3c5389bd67fb62be7b516
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ef5576fc808027de07ddf786cc9cbc6fd90c0bfe
 - [ ] Тест i18n: все строки экрана есть в `uk` и `ru`.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/fields` exit 0 · windows - · 8eae204c65293fa761b3c5389bd67fb62be7b516
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ef5576fc808027de07ddf786cc9cbc6fd90c0bfe
 - [ ] Экран проверен на ширине 375 px (снимок приложен к отчёту).
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 8eae204c65293fa761b3c5389bd67fb62be7b516
   - evidence: gate pass · `gate fast` exit 0 · windows - · 8eae204c65293fa761b3c5389bd67fb62be7b516
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ef5576fc808027de07ddf786cc9cbc6fd90c0bfe
+  - evidence: gate pass · `gate fast` exit 0 · windows - · ef5576fc808027de07ddf786cc9cbc6fd90c0bfe
