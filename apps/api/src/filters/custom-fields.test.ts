@@ -13,8 +13,11 @@ import {
 } from '@alpi/shared'
 import { sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createApp } from '../app.ts'
+import type { BulkJobDetails, BulkJobSummary } from '../bulk/routes.ts'
+import { type BulkJobMessage, runBulkJob } from '../bulk/runner.ts'
 import type { DealsPage } from '../deals/board.ts'
-import { archiveDeals } from '../deals/bulk.ts'
+import { archiveDeals, DEAL_BULK_REGISTRY } from '../deals/bulk.ts'
 import { buildFieldIndex } from '../jobs/field-index.ts'
 import { loadMemberAccess } from '../roles/access.ts'
 import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
@@ -950,6 +953,259 @@ describe('пользовательские поля в списках и фил�
         .deleteFrom('deal')
         .where('id', '=', id ?? '')
         .execute()
+    })
+  })
+
+  describe('массовая операция по фильтру с пользовательским полем', () => {
+    const queued: BulkJobMessage[] = []
+    const actions = new Map(DEAL_BULK_REGISTRY)
+    let bulkApp: ReturnType<typeof createApp>
+    /** Участник с «массовыми операциями»; группа «Таємна» от его роли скрыта. */
+    let initiator: SignedInUser
+    let roleId: string
+    const basePermissions = {
+      actions: { deals: ['view', 'create', 'edit', 'delete'] },
+      scopes: { deals: { read: 'all', write: 'all' } },
+      standalone: ['bulk_operations', 'transfer_deals'],
+    }
+
+    beforeAll(async () => {
+      // Приложение с действиями сделок; очередь — список: операцию выполняет runBulkJob ниже.
+      bulkApp = createApp({
+        auth: h.auth,
+        db: h.appDb,
+        bulk: {
+          actions,
+          enqueue: async (_trx, message) => {
+            queued.push(message)
+          },
+        },
+      })
+      initiator = await h.signIn()
+      const role = await json<RoleSummary>(
+        await admin.api('POST', '/roles', {
+          project: projectA,
+          body: {
+            name: 'Масові',
+            permissions: { ...basePermissions, fieldGroups: { [hiddenGroup.id]: 'hidden' } },
+          },
+        }),
+        201,
+      )
+      roleId = role.id
+      await h.owner
+        .insertInto('project_member')
+        .values({ project_id: projectA, user_id: initiator.id, role_id: role.id })
+        .execute()
+    })
+
+    const start = (user: SignedInUser, body: unknown) =>
+      user.call(bulkApp, 'POST', '/v1/bulk-jobs', { project: projectA, body })
+
+    /** Выполняет операцию так же, как обработчик очереди, и отдаёт её состояние. */
+    async function run(user: SignedInUser, started: BulkJobSummary) {
+      const message = queued.find((m) => m.bulkJobId === started.id)
+      if (!message) throw new Error('операции нет в очереди')
+      await runBulkJob(h.appDb, actions, message)
+      return json<BulkJobDetails>(
+        await user.call(bulkApp, 'GET', `/v1/bulk-jobs/${started.id}`, { project: projectA }),
+      )
+    }
+
+    /** Архив и корзина сделок — прямо из базы. */
+    async function stateOf(dealIds: string[]) {
+      const rows = await h.owner
+        .selectFrom('deal')
+        .select(['id', 'archived_at', 'deleted_at'])
+        .where('id', 'in', dealIds)
+        .execute()
+      return Object.fromEntries(
+        rows.map((r) => [
+          r.id,
+          { archived: r.archived_at !== null, deleted: r.deleted_at !== null },
+        ]),
+      )
+    }
+    const untouched = (dealIds: string[]) =>
+      Object.fromEntries(dealIds.map((id) => [id, { archived: false, deleted: false }]))
+
+    it('запуск проверяет фильтр целиком с каталогом инициатора: неверное условие после пользовательского — 400', async () => {
+      const before = queued.length
+      const cases: [Record<string, unknown>, string][] = [
+        [
+          {
+            and: [
+              { field: 'custom.num', op: 'contains', value: 'x' },
+              { field: 'title', op: 'bogus' },
+            ],
+          },
+          'фильтр: .and.0.op — оператор не подходит к полю',
+        ],
+        [
+          {
+            and: [
+              { field: 'custom.num', op: 'eq', value: 5 },
+              { field: 'title', op: 'bogus' },
+            ],
+          },
+          'фильтр: .and.1.op — оператор не подходит к полю',
+        ],
+      ]
+      const launches: [string, Record<string, unknown>][] = [
+        ['deals.archive', {}],
+        ['deals.unarchive', {}],
+        ['deals.trash', {}],
+        ['deals.assign', { ownerId: null }],
+        ['deals.stage', { stageId: stages[1] }],
+      ]
+      for (const [filter, problem] of cases) {
+        for (const [action, params] of launches) {
+          const res = await start(initiator, { action, params, selection: { filter } })
+          expect({ action, body: await json(res, 400) }).toEqual({
+            action,
+            body: { code: 'INVALID_PARAMS', problem },
+          })
+        }
+      }
+      expect(queued.length).toBe(before)
+      // Верное условие по видимому полю — запуск принят.
+      const good = { and: [{ field: 'custom.num', op: 'eq', value: 5 }] }
+      expect(
+        (await start(initiator, { action: 'deals.archive', selection: { filter: good } })).status,
+      ).toBe(202)
+      expect(queued.length).toBe(before + 1)
+    })
+
+    it('неизвестное и скрытое от роли поле в фильтре запуска — один и тот же ответ', async () => {
+      const answer = async (user: SignedInUser, field: string) => {
+        const res = await start(user, {
+          action: 'deals.archive',
+          selection: { filter: { and: [{ field, op: 'eq', value: 'x' }] } },
+        })
+        return { status: res.status, body: await res.text() }
+      }
+      const unknownCode = await answer(initiator, 'custom.nope')
+      expect(unknownCode).toEqual({
+        status: 400,
+        body: JSON.stringify({
+          code: 'INVALID_PARAMS',
+          problem: 'фильтр: .and.0.field — неизвестное поле',
+        }),
+      })
+      expect(await answer(initiator, 'custom.secret')).toEqual(unknownCode)
+      expect(await answer(initiator, `custom.${secret.id}`)).toEqual(
+        await answer(initiator, `custom.${randomUUID()}`),
+      )
+      expect((await answer(initiator, `custom.${secret.id}`)).body).toBe(unknownCode.body)
+      // Тот, кому группа видна, по тому же полю запускает.
+      expect((await answer(admin, 'custom.secret')).status).toBe(202)
+    })
+
+    it('поле условия ушло в архив между запуском и выбором — операция failed, ни одна сделка не в корзине', async () => {
+      const target = await createField(projectA, group.id, 'bulkarch', 'number')
+      const p = await createPipeline(projectA)
+      const own = await seed(projectA, p.id, p.stages[0] ?? '', [
+        { bulkarch: 1 },
+        { bulkarch: 1 },
+        { bulkarch: 2 },
+        {},
+      ])
+      const filter = {
+        and: [
+          { field: 'pipeline', op: 'eq', value: p.id },
+          { field: 'custom.bulkarch', op: 'eq', value: 1 },
+        ],
+      }
+      const started = await json<BulkJobSummary>(
+        await start(initiator, { action: 'deals.trash', selection: { filter } }),
+        202,
+      )
+      await json(await api(admin)('POST', `/fields/${target.id}/archive`))
+
+      const job = await run(initiator, started)
+      expect(job).toMatchObject({
+        status: 'failed',
+        failure: 'FILTER_UNAVAILABLE',
+        total: null,
+        processed: 0,
+        failed: 0,
+      })
+      expect(job.finishedAt).not.toBeNull()
+      expect(await stateOf(own)).toEqual(untouched(own))
+      // Повтор той же задачи (как у pg-boss) ничего не меняет.
+      await runBulkJob(h.appDb, actions, { projectId: projectA, bulkJobId: started.id })
+      expect(await stateOf(own)).toEqual(untouched(own))
+
+      // Проверка самой проверки: с восстановленным полем тот же фильтр берёт ровно две сделки.
+      await json(await api(admin)('POST', `/fields/${target.id}/restore`))
+      const again = await json<BulkJobSummary>(
+        await start(initiator, { action: 'deals.trash', selection: { filter } }),
+        202,
+      )
+      expect(await run(initiator, again)).toMatchObject({ status: 'done', total: 2, processed: 2 })
+      const [first, second, ...rest] = own
+      expect(await stateOf(own)).toEqual({
+        ...untouched(rest),
+        [first ?? '']: { archived: false, deleted: true },
+        [second ?? '']: { archived: false, deleted: true },
+      })
+    })
+
+    it('группа поля стала скрытой от инициатора между запуском и выбором — операция failed, ни одна сделка не в архиве', async () => {
+      const closing = await json<FieldGroupSummary>(
+        await api(admin)('POST', '/field-groups', { entity: 'deal', nameUk: 'Масова' }),
+        201,
+      )
+      const target = await createField(projectA, closing.id, 'bulkhid', 'text')
+      const p = await createPipeline(projectA)
+      const own = await seed(projectA, p.id, p.stages[0] ?? '', [
+        { bulkhid: 'так' },
+        { bulkhid: 'ні' },
+        {},
+      ])
+      const filter = {
+        and: [
+          { field: 'pipeline', op: 'eq', value: p.id },
+          { field: `custom.${target.id}`, op: 'eq', value: 'так' },
+        ],
+      }
+      const started = await json<BulkJobSummary>(
+        await start(initiator, { action: 'deals.archive', selection: { filter } }),
+        202,
+      )
+      await json(
+        await admin.api('PUT', `/roles/${roleId}`, {
+          project: projectA,
+          body: {
+            permissions: {
+              ...basePermissions,
+              fieldGroups: { [hiddenGroup.id]: 'hidden', [closing.id]: 'hidden' },
+            },
+          },
+        }),
+      )
+
+      const job = await run(initiator, started)
+      expect(job).toMatchObject({
+        status: 'failed',
+        failure: 'FILTER_UNAVAILABLE',
+        total: null,
+        processed: 0,
+        failed: 0,
+      })
+      expect(await stateOf(own)).toEqual(untouched(own))
+
+      // Проверка самой проверки: тот, кому группа видна, тем же фильтром архивирует одну сделку.
+      const control = await json<BulkJobSummary>(
+        await start(admin, { action: 'deals.archive', selection: { filter } }),
+        202,
+      )
+      expect(await run(admin, control)).toMatchObject({ status: 'done', total: 1, processed: 1 })
+      const [first, ...rest] = own
+      expect(await stateOf(own)).toEqual({
+        ...untouched(rest),
+        [first ?? '']: { archived: true, deleted: false },
+      })
     })
   })
 

@@ -1,9 +1,14 @@
 import type { Database } from '@alpi/db'
-import { parseFilter } from '@alpi/shared'
+import { type FilterError, parseFilter, type RolePermissions } from '@alpi/shared'
 import { type Kysely, sql, type Transaction } from 'kysely'
-import { type BulkAction, type BulkContext, BulkRecordError } from '../bulk/registry.ts'
+import {
+  type BulkAction,
+  type BulkContext,
+  BulkRecordError,
+  BulkSelectionError,
+} from '../bulk/registry.ts'
 import { type FieldChange, recordChanges } from '../change-log/record.ts'
-import { loadFilterCatalog } from '../filters/custom.ts'
+import { catalogFor, loadFilterCatalog } from '../filters/custom.ts'
 import { dealsWhere } from './board.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
 
@@ -38,9 +43,11 @@ async function selectByFilter(
   // бы шире), а останавливает операцию.
   const custom = await loadFilterCatalog(trx, ctx.access.permissions, 'deal')
   const parsed = parseFilter('deals', filter, custom)
-  // Фильтр проверен при запуске (validate); сюда неверный попадает, только если строку
-  // bulk_job меняли в обход API или поле фильтра стало недоступно.
-  if (!parsed.ok) throw new Error('массовая операция сделок: неверный фильтр')
+  // Фильтр проверен при запуске (validate) тем же каталогом; сюда неверный попадает, только
+  // если поле фильтра с запуска стало недоступно или строку bulk_job меняли в обход API.
+  if (!parsed.ok) {
+    throw new BulkSelectionError(`массовая операция сделок: ${filterProblem(parsed.error)}`)
+  }
   const viewer = {
     actorId: ctx.initiatorId,
     scope: ctx.access.permissions.scopes.deals,
@@ -75,16 +82,23 @@ async function writable(
   return new Set(rows.map((row) => row.id))
 }
 
+const filterProblem = (error: FilterError) => `фильтр: ${error.path || 'корень'} — ${error.message}`
+
 /**
- * Проверка фильтра при запуске — без каталога пользовательских полей (validate синхронный):
- * условие по пользовательскому полю здесь пропускается, его проверяет выбор записей
- * (selectByFilter) с каталогом инициатора и при неверном останавливает операцию.
+ * Проверка фильтра при запуске — целиком, с каталогом пользовательских полей, которые инициатор
+ * видит. Скрытое от его роли поле и неизвестный код дают один и тот же ответ («неизвестное
+ * поле»): ответ не выдаёт, что скрытое поле есть. Выбор записей (selectByFilter) проверяет
+ * фильтр ещё раз на момент старта: поле могли убрать в архив или скрыть после запуска.
  */
-function validateFilter(filter: Record<string, unknown> | undefined): string | null {
-  if (filter === undefined) return null
-  const parsed = parseFilter('deals', filter)
-  if (parsed.ok || parsed.error.unknownCustomField !== undefined) return null
-  return `фильтр: ${parsed.error.path || 'корень'} — ${parsed.error.message}`
+async function validateFilter(input: {
+  filter?: Record<string, unknown>
+  db: Kysely<Database>
+  permissions: RolePermissions
+}): Promise<string | null> {
+  if (input.filter === undefined) return null
+  const custom = await catalogFor(input.db, input.permissions, 'deal', JSON.stringify(input.filter))
+  const parsed = parseFilter('deals', input.filter, custom)
+  return parsed.ok ? null : filterProblem(parsed.error)
 }
 
 /** Сделка под блокировкой до конца порции; в корзине (удалили, пока шла операция) — ошибка. */
@@ -133,7 +147,7 @@ const base = {
 export const archiveDeals: BulkAction = {
   ...base,
   requires: { resource: 'deals', action: 'edit' },
-  validate: ({ filter }) => validateFilter(filter),
+  validate: validateFilter,
   async apply(trx, id, ctx) {
     const deal = await lockDeal(trx, id)
     if (deal.archived_at !== null) return
@@ -152,7 +166,7 @@ export const archiveDeals: BulkAction = {
 export const unarchiveDeals: BulkAction = {
   ...base,
   requires: { resource: 'deals', action: 'edit' },
-  validate: ({ filter }) => validateFilter(filter),
+  validate: validateFilter,
   async apply(trx, id, ctx) {
     const deal = await lockDeal(trx, id)
     if (deal.archived_at === null) return
@@ -212,9 +226,9 @@ export const assignDeals: BulkAction = {
   // Передача — «массовые операции» плюс «передача сделок» (тикет 12).
   requires: { resource: 'deals', action: 'edit' },
   alsoRequires: 'transfer_deals',
-  validate({ params, filter }) {
+  async validate({ params, ...input }) {
     if (readOwner(params) === undefined) return 'ожидается ownerId — участник проекта или null'
-    return validateFilter(filter)
+    return validateFilter(input)
   },
   async inScope(trx, ids, ctx) {
     // Новый ответственный — тоже в охвате изменения: тимлид передаёт только внутри команды.
@@ -263,9 +277,9 @@ const STAGE_DELETED = 'DL001'
 export const changeDealsStage: BulkAction = {
   ...base,
   requires: { resource: 'deals', action: 'edit' },
-  validate({ params, filter }) {
+  async validate({ params, ...input }) {
     if (readStage(params) === undefined) return 'ожидается stageId — этап воронки'
-    return validateFilter(filter)
+    return validateFilter(input)
   },
   async apply(trx, id, ctx) {
     const stageId = readStage(ctx.params)
@@ -305,7 +319,7 @@ export const trashDeals: BulkAction = {
   ...base,
   // Удаление в корзину — «массовые операции» плюс «сделки: удалять».
   requires: { resource: 'deals', action: 'delete' },
-  validate: ({ filter }) => validateFilter(filter),
+  validate: validateFilter,
   async apply(trx, id, ctx) {
     const deal = await lockDeal(trx, id)
     const { deleted_at } = await trx

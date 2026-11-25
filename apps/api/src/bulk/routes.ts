@@ -222,13 +222,15 @@ export function bulkRoutes({ actions, enqueue }: BulkDeps) {
       if (!selection) return fail(400, 'INVALID_SELECTION')
       const params = body.params === undefined ? {} : body.params
       if (!isObject(params)) return fail(400, 'INVALID_PARAMS')
-      const problem = action.validate?.({
+      const db = c.var.db
+      const problem = await action.validate?.({
         params,
         ...('filter' in selection ? { filter: selection.filter } : {}),
+        db,
+        permissions,
       })
       if (problem) return c.json({ code: 'INVALID_PARAMS' satisfies BulkErrorCode, problem }, 400)
 
-      const db = c.var.db
       const row = await db
         .insertInto('bulk_job')
         .values({

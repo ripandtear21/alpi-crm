@@ -7,7 +7,7 @@ import {
   type RolePermissions,
   type StandalonePermission,
 } from '@alpi/shared'
-import type { Transaction } from 'kysely'
+import type { Kysely, Transaction } from 'kysely'
 import type { MemberAccess } from '../roles/access.ts'
 import type { Viewer } from '../roles/scope.ts'
 
@@ -40,6 +40,19 @@ export class BulkRecordError extends Error {
   }
 }
 
+/**
+ * Фильтр выбора больше не годится правам инициатора на момент старта: например, поле условия
+ * с запуска ушло в архив или стало скрытым (тикет crm-fields/07). Каркас останавливает операцию
+ * целиком (`FILTER_UNAVAILABLE`) и не трогает ни одной записи: повтор задачи этого не исправит,
+ * а выбор без условия был бы шире заказанного.
+ */
+export class BulkSelectionError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'BulkSelectionError'
+  }
+}
+
 /** Массовое действие. Все методы получают транзакцию проекта: RLS показывает только его строки. */
 export interface BulkAction {
   /** Право части системы, без которого действие не запускается и не продолжается. */
@@ -56,11 +69,17 @@ export interface BulkAction {
    * списка (тикет 12) требует и «массовые операции», и «передачу сделок».
    */
   alsoRequires?: StandalonePermission
-  /** Проверка параметров и фильтра при запуске: текст ошибки — 400, null — годится. */
+  /**
+   * Проверка параметров и фильтра при запуске: текст ошибки — 400, null — годится. `db` —
+   * транзакция проекта запроса, `permissions` — роль инициатора: по ним фильтр проверяется
+   * с каталогом пользовательских полей, которые инициатор видит.
+   */
   validate?(input: {
     params: Record<string, unknown>
     filter?: Record<string, unknown>
-  }): string | null
+    db: Kysely<Database>
+    permissions: RolePermissions
+  }): string | null | Promise<string | null>
   /** id записей по фильтру, в порядке обработки. */
   select(
     trx: Transaction<Database>,
