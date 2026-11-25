@@ -226,8 +226,10 @@ describe('конструктор полей', () => {
     })
 
     it('редактор с правом «поля» меняет описания', async () => {
+      // Право изменять сделки: группа без записи у роли — «изменять», а создавать поле можно
+      // только в такой группе (тикет crm-fields/03; отказы — в access.test.ts).
       const editor = await memberWith(projectA, {
-        actions: { deals: ['view'], fields: ['view', 'create', 'edit', 'delete'] },
+        actions: { deals: ['view', 'edit'], fields: ['view', 'create', 'edit', 'delete'] },
       })
       const call = as(editor, projectA)
       const group = await json<FieldGroupSummary>(
