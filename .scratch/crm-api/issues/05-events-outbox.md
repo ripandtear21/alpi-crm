@@ -66,10 +66,19 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест изоляции: события проекта A не видны в контексте B без фильтра в коде.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест транзакции: изменение сделки, которое откатилось (например, 409 «одна открытая сделка» или 422 обязательных полей), не оставляет ни строки `webhook_event`, ни задачи `webhook-fanout`; зафиксированное — оставляет ровно по одной.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест каталога: каждое действие из таблицы создаёт ровно одно событие своего типа с фактами из таблицы; тело проходит схему типа; изменение суммы и названия событий не создаёт.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест автора: действие менеджера — `actor.type = user`, запрос по ключу — `actor.type = api_key` с id ключа, массовый архив — инициатор операции.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест персональных данных: тела событий тестового прогона не содержат имён, телефонов, email и значений пользовательских полей (поиск по строкам выдуманных данных).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Описание API содержит раздел событий (OpenAPI `webhooks`) со схемой каждого типа.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0, test of the webhooks section · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
+  - evidence: gate pass · `gate fast` exit 0 · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
