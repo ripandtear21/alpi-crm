@@ -35,14 +35,24 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/fields
 ## Done when
 
 - [ ] Миграции применяются на чистую базу и откатываются.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts apps/api/src/deals/deals.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] Тест изоляции: описания, группы и варианты проекта A не видны в контексте B без фильтра в коде.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts packages/db/src/project-isolation.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] Тест прав: создание, изменение и удаление поля без права `fields` — 403; чтение описаний с правом смотреть сущность — 200.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] Тесты кода: код по умолчанию из украинского названия («Головний мотив» → `holovnyi_motyv`); дубликат кода в проекте и типе сущности, код системного поля и код не по формату — 422; смена кода при заполненном `first_value_at` или при отметке «часто фильтруют» — 409; смена названия при этом проходит.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts packages/shared/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] Тест вариантов: переименование варианта не меняет его id; архивный вариант не попадает в список предлагаемых, но остаётся в описании поля.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] Тест: правило «с этапа X» с этапом чужого проекта или воронки, где поле не видно, — 422; «с этапа X» у поля контакта — 422.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] Тест архива: поле с данными при удалении уходит в архив, а не удаляется; окончательное удаление раньше 30 дней — 409; после — задача убирает ключ из `custom` всех записей, описание удалено, код снова свободен, запись в журнале опасных действий есть. Поле без данных удаляется сразу.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] Тест: группу с полем удалить нельзя (409), пустую — можно.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
+  - evidence: gate pass · `gate fast` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
 
 ## Результат
 
