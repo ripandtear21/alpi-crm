@@ -232,9 +232,15 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
         singletonKey: message.fieldId,
       })
     },
-    stop() {
-      detachEventQueue(boss)
-      return boss.stop({ graceful: true, timeout: options.stopTimeoutMs ?? 30_000 })
+    async stop() {
+      // Очередь событий отключается только после остановки: штатная остановка дожидается
+      // текущих обработчиков, а они пишут события (массовая операция, передача сделок).
+      // Отключить раньше — их записи падали бы и навсегда уходили в журнал ошибок операции.
+      try {
+        await boss.stop({ graceful: true, timeout: options.stopTimeoutMs ?? 30_000 })
+      } finally {
+        detachEventQueue(boss)
+      }
     },
   }
 }
@@ -263,8 +269,11 @@ export async function startEventQueue(
   await attachEventQueue(boss)
   return {
     async stop() {
-      detachEventQueue(boss)
-      await boss.stop({ graceful: false, timeout: 5_000 })
+      try {
+        await boss.stop({ graceful: false, timeout: 5_000 })
+      } finally {
+        detachEventQueue(boss)
+      }
     },
   }
 }

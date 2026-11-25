@@ -7,6 +7,7 @@ import { readApiEnv } from './config.ts'
 import { DEAL_BULK_REGISTRY } from './deals/bulk.ts'
 import { TRANSFER_DEALS_ACTION, transferDeals } from './deals/transfer.ts'
 import { startJobs } from './jobs/jobs.ts'
+import { stopApi } from './jobs/shutdown.ts'
 import { localDiskStorage } from './storage/storage.ts'
 import { TRASH_PURGERS } from './trash/purgers.ts'
 
@@ -57,18 +58,14 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`API слушает порт ${info.port}`)
 })
 
-// Остановка: новых запросов и задач не берём, текущие задачи дожидаемся, потом закрываем базу.
+// Остановка: новых запросов не берём и дожидаемся текущих, потом — текущих задач (и только
+// после них отключается очередь событий), потом закрываем базу (jobs/shutdown.ts).
 let stopping = false
 async function shutdown(signal: string) {
   if (stopping) return
   stopping = true
   console.log(`${signal}: API останавливается`)
-  server.close()
-  try {
-    await jobs.stop()
-  } finally {
-    await db.destroy()
-  }
+  await stopApi({ server, jobs, db })
   process.exit(0)
 }
 process.on('SIGTERM', () => void shutdown('SIGTERM'))

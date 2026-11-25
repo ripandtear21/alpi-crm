@@ -29,7 +29,10 @@ export async function attachEventQueue(boss: PgBoss): Promise<void> {
   attached.push(boss)
 }
 
-/** Отключает `boss` перед его остановкой. */
+/**
+ * Отключает `boss` после его остановки: штатная остановка pg-boss дожидается текущих
+ * обработчиков, и их события ставятся ещё через него.
+ */
 export function detachEventQueue(boss: PgBoss): void {
   const index = attached.lastIndexOf(boss)
   if (index !== -1) attached.splice(index, 1)
