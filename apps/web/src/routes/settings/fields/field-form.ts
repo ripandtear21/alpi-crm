@@ -147,9 +147,24 @@ export function pipelinesOf(form: FieldForm): FieldPipelines {
   return form.pipelinesMode === 'all' ? 'all' : form.pipelineIds
 }
 
+/**
+ * Воронки с правилом «з етапу», которых форма не показывает (архивные): правило пришло с поля,
+ * пользователь его не видит и не меняет, поэтому оно остаётся, пока воронка в видимости поля.
+ */
+function hiddenRulePipelineIds(form: FieldForm, activePipelineIds: string[]): string[] {
+  return Object.keys(form.stageByPipeline).filter(
+    (id) =>
+      !activePipelineIds.includes(id) &&
+      (form.pipelinesMode === 'all' || form.pipelineIds.includes(id)),
+  )
+}
+
 export function requirementOf(form: FieldForm, activePipelineIds: string[]): FieldRequirement {
   if (form.requiredMode !== 'stages') return { mode: form.requiredMode }
-  const stages = scopedPipelineIds(form, activePipelineIds)
+  const stages = [
+    ...scopedPipelineIds(form, activePipelineIds),
+    ...hiddenRulePipelineIds(form, activePipelineIds),
+  ]
     .filter((id) => (form.stageByPipeline[id] ?? '') !== '')
     .map((pipelineId) => {
       const choice = form.stageByPipeline[pipelineId] as string
@@ -210,6 +225,19 @@ export function createInput(
   }
 }
 
+/** Одинаковые требования: правила «з етапу» сравниваются без учёта порядка воронок. */
+function sameRequirement(a: FieldRequirement, b: FieldRequirement): boolean {
+  const rules = (r: FieldRequirement) =>
+    r.mode === 'stages'
+      ? JSON.stringify(
+          r.stages
+            .map((s) => [s.pipelineId, s.stageId] as const)
+            .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)),
+        )
+      : ''
+  return a.mode === b.mode && rules(a) === rules(b)
+}
+
 /** Изменение поля: только то, что отличается от сохранённого. */
 export function fieldChange(
   form: FieldForm,
@@ -228,12 +256,67 @@ export function fieldChange(
     if (JSON.stringify(pipelines) !== JSON.stringify(field.pipelines)) change.pipelines = pipelines
   }
   const required = requirementOf(form, activePipelineIds)
-  if (JSON.stringify(required) !== JSON.stringify(field.required)) change.required = required
+  if (!sameRequirement(required, field.required)) change.required = required
   if (form.isImportant !== field.isImportant) change.isImportant = form.isImportant
   if (form.isFrequentlyFiltered !== field.isFrequentlyFiltered) {
     change.isFrequentlyFiltered = form.isFrequentlyFiltered
   }
   return change
+}
+
+/**
+ * После частичного сохранения: новым вариантам, которые сервер уже создал, — их id, чтобы
+ * повторное «Зберегти» не создало их ещё раз. `created` — ответы на создание (ключ черновика →
+ * id); `fresh` — поле, перечитанное с сервера: вариант, ответ на создание которого потерялся,
+ * узнаётся по названию среди вариантов сервера, на которые не ссылается ни один черновик.
+ */
+export function adoptSavedOptions(
+  form: FieldForm,
+  created: ReadonlyMap<string, string>,
+  fresh: FieldDefinitionSummary | null,
+): FieldForm {
+  const options = form.options.map((o) => {
+    const id = o.id === null ? created.get(o.key) : undefined
+    return id === undefined ? o : { ...o, id }
+  })
+  if (fresh) {
+    const taken = new Set(options.map((o) => o.id))
+    for (const [index, draft] of options.entries()) {
+      if (draft.id !== null || draft.archived) continue
+      const wanted = names(draft)
+      const match = fresh.options.find(
+        (o) =>
+          !taken.has(o.id) &&
+          o.archivedAt === null &&
+          o.nameUk === wanted.nameUk &&
+          o.nameRu === wanted.nameRu,
+      )
+      if (!match) continue
+      taken.add(match.id)
+      options[index] = { ...draft, id: match.id }
+    }
+  }
+  return { ...form, options }
+}
+
+/**
+ * Варианты, которые ещё не совпадают с сервером: новые без id и с другим названием или
+ * архивом. Названия — для сообщения о частичном сохранении.
+ */
+export function unsavedOptions(form: FieldForm, saved: FieldDefinitionSummary): string[] {
+  return form.options
+    .filter((draft) => {
+      if (draft.id === null) return !draft.archived
+      const before = saved.options.find((o) => o.id === draft.id)
+      if (!before) return false
+      const next = names(draft)
+      return (
+        next.nameUk !== before.nameUk ||
+        next.nameRu !== before.nameRu ||
+        draft.archived !== (before.archivedAt !== null)
+      )
+    })
+    .map((draft) => draft.nameUk.trim())
 }
 
 const ERROR_TARGET: Record<string, FormKey> = {

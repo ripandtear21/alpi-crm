@@ -18,6 +18,7 @@ import { Notice } from '../../../ui/feedback.tsx'
 import { Field, Input, Select } from '../../../ui/field.tsx'
 import { moved } from '../directory-controls.tsx'
 import {
+  adoptSavedOptions,
   allowedTypes,
   createInput,
   emptyForm,
@@ -31,6 +32,7 @@ import {
   rolesBlockedByGroup,
   STAGE_WON,
   scopedPipelineIds,
+  unsavedOptions,
   validateForm,
   withNameUk,
 } from './field-form.ts'
@@ -39,7 +41,16 @@ import { useErrorText, useLocalName } from './fields-data.ts'
 
 // Диалог создания и изменения поля (тикет crm-fields/05). Варианты существующего поля
 // сохраняются вместе с полем: сначала поле, потом новые варианты, переименования и архив,
-// потом порядок (запросы вариантов тикета 01 — по одному).
+// потом порядок (запросы вариантов тикета 01 — по одному). Запросы не в одной транзакции:
+// если один из них не прошёл после уже сохранённых, диалог перечитывает поле, отдаёт созданным
+// вариантам их id и говорит, что сохранено частично и что осталось, — повтор досохраняет только
+// остаток, без дублей.
+
+/** Что уже записано за попытку сохранения: было ли изменение и id созданных вариантов. */
+interface SaveProgress {
+  wrote: boolean
+  created: Map<string, string>
+}
 
 export function FieldDialog({
   api,
@@ -52,6 +63,7 @@ export function FieldDialog({
   roles,
   onClose,
   onSaved,
+  onPartlySaved,
 }: {
   api: FieldsSettingsApi
   projectId: string
@@ -65,6 +77,8 @@ export function FieldDialog({
   roles: RoleSummary[] | undefined
   onClose: () => void
   onSaved: () => void
+  /** Часть изменений уже на сервере, диалог остаётся открытым: обновить экран за ним. */
+  onPartlySaved: () => void
 }) {
   const { t } = useTranslation('fields-settings')
   const { t: tTypes } = useTranslation('custom-fields')
@@ -76,6 +90,9 @@ export function FieldDialog({
   )
   const [errors, setErrors] = useState<FormErrors>({})
   const [pending, setPending] = useState(false)
+  // Поле, каким его знает сервер: после частичного сохранения — перечитанное, чтобы повтор
+  // не отправлял уже сохранённое ещё раз.
+  const [base, setBase] = useState(field)
 
   const activePipelines = pipelines.filter((p) => p.archivedAt === null)
   const activeIds = activePipelines.map((p) => p.id)
@@ -84,7 +101,7 @@ export function FieldDialog({
   const update = (patch: Partial<FieldForm>) => setForm((current) => ({ ...current, ...patch }))
   const errorOf = (key: keyof FormErrors) => errors[key]
 
-  async function saveOptions(saved: FieldDefinitionSummary) {
+  async function saveOptions(saved: FieldDefinitionSummary, progress: SaveProgress) {
     const ids = new Map<string, string>()
     for (const draft of form.options) {
       if (draft.id !== null) {
@@ -100,6 +117,7 @@ export function FieldDialog({
         }
         if (Object.keys(change).length > 0) {
           await api.updateOption(projectId, saved.id, draft.id, change)
+          progress.wrote = true
         }
       } else if (!draft.archived) {
         const created = await api.createOption(projectId, saved.id, {
@@ -107,6 +125,8 @@ export function FieldDialog({
           nameRu: draft.nameRu.trim() === '' ? null : draft.nameRu.trim(),
         })
         ids.set(draft.key, created.id)
+        progress.created.set(draft.key, created.id)
+        progress.wrote = true
       }
     }
     const desired = [
@@ -130,8 +150,41 @@ export function FieldDialog({
     }
   }
 
+  /**
+   * Сохранение оборвалось, а на сервере уже что-то есть (или могло появиться — ответ не дошёл):
+   * сверка с сервером, созданным вариантам — их id, и сообщение, что сохранено и что осталось.
+   */
+  async function recover(fieldId: string, progress: SaveProgress, error: unknown) {
+    let fresh: FieldDefinitionSummary | null = null
+    try {
+      fresh = await api.field(projectId, fieldId)
+    } catch {
+      fresh = null
+    }
+    const next = adoptSavedOptions(form, progress.created, fresh)
+    setForm((current) => adoptSavedOptions(current, progress.created, fresh))
+    onPartlySaved()
+    if (fresh) setBase(fresh)
+    if (!progress.wrote) {
+      setErrors({ form: errorText(error) })
+      return
+    }
+    if (!fresh) {
+      setErrors({ form: t('field.savedPartlyUnknown') })
+      return
+    }
+    const left = unsavedOptions(next, fresh)
+    setErrors({
+      form:
+        left.length > 0
+          ? t('field.savedPartly', { options: left.map((name) => `«${name}»`).join(', ') })
+          : t('field.savedPartlyOrder'),
+    })
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (pending) return
     const found = validateForm(form, entity, activeIds, codeEditable)
     setErrors(
       Object.fromEntries(
@@ -140,21 +193,29 @@ export function FieldDialog({
     )
     if (Object.keys(found).length > 0) return
     setPending(true)
+    const progress: SaveProgress = { wrote: false, created: new Map() }
     try {
-      if (field === null) {
+      if (field === null || base === null) {
         await api.createField(projectId, createInput(form, entity, activeIds))
       } else {
-        const change = fieldChange(form, field, activeIds)
-        const saved =
-          Object.keys(change).length > 0
-            ? await api.updateField(projectId, field.id, change)
-            : field
-        if (hasOptions(form.type)) await saveOptions(saved)
+        const change = fieldChange(form, base, activeIds)
+        let saved = base
+        if (Object.keys(change).length > 0) {
+          saved = await api.updateField(projectId, base.id, change)
+          progress.wrote = true
+        }
+        if (hasOptions(form.type)) await saveOptions(saved, progress)
       }
       onSaved()
     } catch (error) {
-      const target = error instanceof FieldsApiError ? errorTarget(error) : 'form'
-      setErrors({ [target]: errorText(error) })
+      // Отказ сервера (4xx) на первый же запрос — ничего не записано, ошибка у своего поля.
+      const refused = error instanceof FieldsApiError && error.status >= 400 && error.status < 500
+      if (field !== null && (progress.wrote || !refused)) {
+        await recover(field.id, progress, error)
+      } else {
+        const target = error instanceof FieldsApiError ? errorTarget(error) : 'form'
+        setErrors({ [target]: errorText(error) })
+      }
       setPending(false)
     }
   }

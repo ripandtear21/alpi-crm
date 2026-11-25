@@ -55,6 +55,8 @@ export interface FieldsSettingsApi {
   groups(projectId: string, entity: FieldEntity): Promise<FieldGroupSummary[]>
   /** Описания полей сущности вместе с архивными. */
   fields(projectId: string, entity: FieldEntity): Promise<FieldDefinitionSummary[]>
+  /** Одно поле с вариантами — перечитать после частичного сохранения. */
+  field(projectId: string, fieldId: string): Promise<FieldDefinitionSummary>
   createGroup(projectId: string, input: GroupInput): Promise<FieldGroupSummary>
   updateGroup(projectId: string, groupId: string, input: NamesInput): Promise<FieldGroupSummary>
   reorderGroups(projectId: string, entity: FieldEntity, ids: string[]): Promise<unknown>
@@ -140,6 +142,7 @@ export function createFieldsSettingsApi(
     groups: (projectId, entity) => send(projectId, 'GET', `/v1/field-groups?entity=${entity}`),
     fields: (projectId, entity) =>
       send(projectId, 'GET', `/v1/fields?entity=${entity}&includeArchived=true`),
+    field: (projectId, fieldId) => send(projectId, 'GET', `/v1/fields/${fieldId}`),
     createGroup: (projectId, input) => send(projectId, 'POST', '/v1/field-groups', input),
     updateGroup: (projectId, groupId, input) =>
       send(projectId, 'PUT', `/v1/field-groups/${groupId}`, input),

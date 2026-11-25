@@ -148,6 +148,7 @@ export function EntityTab({
           roles={roles.data}
           onClose={() => setOpened(null)}
           onSaved={saved}
+          onPartlySaved={() => void refresh()}
         />
       )}
       {opened?.kind === 'group' && (

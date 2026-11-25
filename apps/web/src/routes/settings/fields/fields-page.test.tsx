@@ -1,4 +1,4 @@
-import { fullPermissions } from '@alpi/shared'
+import { type FieldOptionSummary, fullPermissions, type PipelineSummary } from '@alpi/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -20,7 +20,7 @@ import {
   GROUP_MAIN,
   PIPELINE_ALPI,
 } from './fake-fields-api.ts'
-import { type FieldInput, FieldsApiError } from './fields-api.ts'
+import { type FieldChange, type FieldInput, FieldsApiError } from './fields-api.ts'
 
 // Экран «Налаштування → Поля» (тикет crm-fields/05) в настоящем дереве маршрутов: вошедший
 // пользователь, подставной клиент полей.
@@ -67,6 +67,21 @@ function noteOf(control: HTMLElement): string {
 
 const callsOf = (api: FakeFieldsApi, method: string) =>
   api.calls.filter((c) => c.method === method).map((c) => c.args)
+
+const option = (
+  n: number,
+  nameUk: string,
+  archivedAt: string | null = null,
+): FieldOptionSummary => ({
+  id: fakeId(n),
+  nameUk,
+  nameRu: null,
+  position: n - 20,
+  archivedAt,
+})
+
+const optionNames = (api: FakeFieldsApi, fieldId: string) =>
+  api.fieldList.find((f) => f.id === fieldId)?.options.map((o) => o.nameUk)
 
 /** Тело первого запроса создания поля. */
 const createdInput = (api: FakeFieldsApi) =>
@@ -177,13 +192,6 @@ describe('экран полей', () => {
   })
 
   it('варианты существующего поля: переименование, архив, новый и порядок', async () => {
-    const option = (n: number, nameUk: string, archivedAt: string | null = null) => ({
-      id: fakeId(n),
-      nameUk,
-      nameRu: null,
-      position: n - 20,
-      archivedAt,
-    })
     const api = fakeFieldsApi({
       fields: [
         fakeField({
@@ -217,6 +225,209 @@ describe('экран полей', () => {
       ['updateOption', fakeId(23), { archived: true }],
       ['reorderOptions', [created, fakeId(21), fakeId(22), fakeId(23)]],
     ])
+  })
+
+  describe('частичное сохранение вариантов', () => {
+    const channel = () =>
+      fakeFieldsApi({
+        fields: [
+          fakeField({
+            id: fakeId(17),
+            nameUk: 'Канал',
+            type: 'single_option',
+            options: [option(21, 'Сайт')],
+          }),
+        ],
+      })
+
+    async function addOptionsAndSave(api: FakeFieldsApi, rename: boolean) {
+      await renderAt('/settings/fields', { api })
+      fireEvent.click(await screen.findByRole('button', { name: 'Змінити поле «Канал»' }))
+      if (rename) type('Назва українською', 'Канал продажу')
+      fireEvent.click(dialog().getByRole('button', { name: 'Додати варіант' }))
+      fireEvent.click(dialog().getByRole('button', { name: 'Додати варіант' }))
+      type('Варіант 2 українською', 'A')
+      type('Варіант 3 українською', 'B')
+      fireEvent.click(dialog().getByRole('button', { name: 'Зберегти' }))
+    }
+
+    it('второй вариант не создан: сказано, что осталось; повтор досохраняет без дублей', async () => {
+      const api = channel()
+      api.failOn = [{ method: 'createOption', nth: 2, error: new FieldsApiError(500, '') }]
+      await addOptionsAndSave(api, true)
+      expect(
+        await dialog().findByText(
+          'Поле збережено частково: не збереглися варіанти «B». Натисніть «Зберегти», щоб зберегти решту.',
+        ),
+      ).toBeTruthy()
+      // Экран за диалогом уже показывает сохранённое название.
+      expect(await screen.findByText('Канал продажу')).toBeTruthy()
+
+      fireEvent.click(dialog().getByRole('button', { name: 'Зберегти' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(callsOf(api, 'updateField')).toEqual([
+        [PROJECT_ALPI.id, fakeId(17), { nameUk: 'Канал продажу' }],
+      ])
+      expect(callsOf(api, 'createOption').map((args) => args[2])).toEqual([
+        { nameUk: 'A', nameRu: null },
+        { nameUk: 'B', nameRu: null },
+        { nameUk: 'B', nameRu: null },
+      ])
+      expect(optionNames(api, fakeId(17))).toEqual(['Сайт', 'A', 'B'])
+    })
+
+    it('ответ на создание варианта потерялся: повтор узнаёт его на сервере и не создаёт снова', async () => {
+      const api = channel()
+      api.failOn = [
+        {
+          method: 'createOption',
+          nth: 1,
+          error: new TypeError('Failed to fetch'),
+          afterWrite: true,
+        },
+      ]
+      await addOptionsAndSave(api, false)
+      expect(await dialog().findByText('Не вдалося зберегти. Спробуйте ще раз.')).toBeTruthy()
+      expect(optionNames(api, fakeId(17))).toEqual(['Сайт', 'A'])
+
+      fireEvent.click(dialog().getByRole('button', { name: 'Зберегти' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(callsOf(api, 'createOption').map((args) => args[2])).toEqual([
+        { nameUk: 'A', nameRu: null },
+        { nameUk: 'B', nameRu: null },
+      ])
+      expect(optionNames(api, fakeId(17))).toEqual(['Сайт', 'A', 'B'])
+    })
+
+    it('поле не перечиталось — сказано, что сохранено частично и что делать', async () => {
+      const api = channel()
+      api.failOn = [{ method: 'createOption', nth: 1, error: new FieldsApiError(500, '') }]
+      api.field = async () => {
+        throw new TypeError('Failed to fetch')
+      }
+      await addOptionsAndSave(api, true)
+      expect(
+        await dialog().findByText(
+          'Поле збережено частково, але перевірити, що саме збереглося, не вдалося. Закрийте вікно й відкрийте поле знову.',
+        ),
+      ).toBeTruthy()
+    })
+
+    it('не сохранился только порядок — так и сказано', async () => {
+      const api = fakeFieldsApi({
+        fields: [
+          fakeField({
+            id: fakeId(17),
+            nameUk: 'Канал',
+            type: 'single_option',
+            options: [option(21, 'Сайт'), option(22, 'Пошта')],
+          }),
+        ],
+      })
+      api.failOn = [{ method: 'reorderOptions', nth: 1, error: new FieldsApiError(500, '') }]
+      await renderAt('/settings/fields', { api })
+      fireEvent.click(await screen.findByRole('button', { name: 'Змінити поле «Канал»' }))
+      type('Варіант 1 українською', 'Сайт школи')
+      fireEvent.click(dialog().getByRole('button', { name: 'Варіант «Пошта» вище' }))
+      fireEvent.click(dialog().getByRole('button', { name: 'Зберегти' }))
+      expect(
+        await dialog().findByText(
+          'Поле збережено частково: не збережено порядок варіантів. Натисніть «Зберегти», щоб зберегти його.',
+        ),
+      ).toBeTruthy()
+      fireEvent.click(dialog().getByRole('button', { name: 'Зберегти' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(callsOf(api, 'updateOption')).toHaveLength(1)
+      expect(optionNames(api, fakeId(17))).toEqual(['Пошта', 'Сайт школи'])
+    })
+  })
+
+  it('повторная отправка формы, пока идёт сохранение, — без второго запроса', async () => {
+    const api = fakeFieldsApi({ fields: [fakeField({ id: fakeId(20), nameUk: 'Регіон' })] })
+    await renderAt('/settings/fields', { api })
+    fireEvent.click(await screen.findByRole('button', { name: 'Змінити поле «Регіон»' }))
+    type('Назва українською', 'Область')
+    const form = screen.getByRole('dialog').querySelector('form') as HTMLFormElement
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(callsOf(api, 'updateField')).toHaveLength(1)
+  })
+
+  it('отказ сервера на изменение поля — у своего поля формы, без «збережено частково»', async () => {
+    const api = fakeFieldsApi({ fields: [fakeField({ id: fakeId(18), nameUk: 'Місто' })] })
+    await renderAt('/settings/fields', { api })
+    fireEvent.click(await screen.findByRole('button', { name: 'Змінити поле «Місто»' }))
+    type('Код', 'city')
+    api.failNext = new FieldsApiError(422, 'FIELD_CODE_TAKEN', { path: 'code' })
+    fireEvent.click(dialog().getByRole('button', { name: 'Зберегти' }))
+    const code = dialog().getByRole('textbox', { name: 'Код' })
+    await waitFor(() =>
+      expect(noteOf(code)).toBe('Код уже зайнятий іншим полем (зокрема архівним).'),
+    )
+    expect(dialog().queryByText(/Не вдалося зберегти|збережено частково/)).toBeNull()
+  })
+
+  it('правило «з етапу» архивной воронки не стирается правкой поля', async () => {
+    const old: PipelineSummary = {
+      id: fakeId(950),
+      code: 'old',
+      name: 'Стара',
+      position: 2,
+      isUpsell: false,
+      archivedAt: daysAgo(30),
+      stages: [{ id: fakeId(951), pipelineId: fakeId(950), name: 'Договір', position: 1 }],
+    }
+    const oldRule = { pipelineId: old.id, stageId: fakeId(951) }
+    const api = fakeFieldsApi({
+      pipelines: [PIPELINE_ALPI, old],
+      fields: [
+        fakeField({
+          id: fakeId(19),
+          nameUk: 'Договір',
+          required: {
+            mode: 'stages',
+            stages: [oldRule, { pipelineId: PIPELINE_ALPI.id, stageId: fakeId(902) }],
+          },
+        }),
+      ],
+    })
+    await renderAt('/settings/fields', { api })
+    const lastChange = () => callsOf(api, 'updateField').at(-1)?.[2] as FieldChange | undefined
+    const save = async () => {
+      fireEvent.click(dialog().getByRole('button', { name: 'Зберегти' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    }
+
+    // Переименование: требование не менялось — не отправляется.
+    fireEvent.click(await screen.findByRole('button', { name: 'Змінити поле «Договір»' }))
+    expect(dialog().queryByRole('combobox', { name: 'Етап у воронці «Стара»' })).toBeNull()
+    type('Назва українською', 'Договір підписано')
+    await save()
+    expect(lastChange()).toEqual({ nameUk: 'Договір підписано' })
+
+    // Другой этап в видимой воронке: правило архивной воронки уходит вместе с ним.
+    fireEvent.click(await screen.findByRole('button', { name: 'Змінити поле «Договір підписано»' }))
+    fireEvent.change(dialog().getByRole('combobox', { name: 'Етап у воронці «ALPI»' }), {
+      target: { value: 'won' },
+    })
+    await save()
+    expect(lastChange()).toEqual({
+      required: {
+        mode: 'stages',
+        stages: [{ pipelineId: PIPELINE_ALPI.id, stageId: null }, oldRule],
+      },
+    })
+
+    // Поле видно только в ALPI: правило архивной воронки снимается, иначе сервер откажет.
+    fireEvent.click(await screen.findByRole('button', { name: 'Змінити поле «Договір підписано»' }))
+    fireEvent.click(dialog().getByRole('radio', { name: 'У вибраних воронках' }))
+    fireEvent.click(dialog().getByRole('checkbox', { name: 'ALPI' }))
+    await save()
+    expect(lastChange()).toEqual({
+      pipelines: [PIPELINE_ALPI.id],
+      required: { mode: 'stages', stages: [{ pipelineId: PIPELINE_ALPI.id, stageId: null }] },
+    })
   })
 
   it('ответ сервера «код занят» показан у поля кода', async () => {
@@ -283,7 +494,12 @@ describe('экран полей', () => {
     })
     await renderAt('/settings/fields', { api })
     fireEvent.click(await screen.findByRole('button', { name: 'Видалити поле «Сума договору»' }))
-    expect(dialog().getByText(/перенесено в архів/)).toBeTruthy()
+    expect(
+      dialog().getByText(
+        'У поля є значення — його буде перенесено в архів. Звідти поле можна повернути.',
+      ),
+    ).toBeTruthy()
+    expect(dialog().queryByText(/буде видалено одразу/)).toBeNull()
     fireEvent.click(dialog().getByRole('button', { name: 'Видалити' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(await screen.findByText('У групі ще немає полів.')).toBeTruthy()
@@ -293,6 +509,24 @@ describe('экран полей', () => {
     await waitFor(() =>
       expect(callsOf(api, 'restoreField')).toEqual([[PROJECT_ALPI.id, fakeId(13)]]),
     )
+  })
+
+  it('удаление поля без данных — сразу и насовсем: в архиве его нет', async () => {
+    const api = fakeFieldsApi({
+      fields: [fakeField({ id: fakeId(16), nameUk: 'Чернетка' })],
+    })
+    await renderAt('/settings/fields', { api })
+    fireEvent.click(await screen.findByRole('button', { name: 'Видалити поле «Чернетка»' }))
+    expect(dialog().getByText('У поля немає значень — його буде видалено одразу.')).toBeTruthy()
+    expect(dialog().queryByText(/перенесено в архів/)).toBeNull()
+    fireEvent.click(dialog().getByRole('button', { name: 'Видалити' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(callsOf(api, 'removeField')).toEqual([[PROJECT_ALPI.id, fakeId(16)]])
+    expect(await screen.findByText('У групі ще немає полів.')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Архів' }))
+    expect(await screen.findByText('В архіві немає полів.')).toBeTruthy()
+    expect(screen.queryByText('Чернетка')).toBeNull()
   })
 
   it('обязательное поле в группе, скрытой у роли, — предупреждение в диалоге', async () => {

@@ -12,7 +12,8 @@ import {
 import { FieldsApiError, type FieldsSettingsApi } from './fields-api.ts'
 
 // Подставной клиент экрана полей для тестов: группы, поля, воронки и роли в памяти, изменения
-// записываются в `calls`; `failNext` — следующее изменение отвечает этой ошибкой.
+// записываются в `calls`; `failNext` — следующее изменение отвечает этой ошибкой; `failOn` —
+// отказ n-го вызова метода, до записи или после неё (ответ потерялся, а сервер уже сохранил).
 
 export const fakeId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 
@@ -68,34 +69,54 @@ export interface FakeCall {
   args: unknown[]
 }
 
+export interface FailRule {
+  method: keyof FieldsSettingsApi
+  /** Номер вызова метода, с 1. */
+  nth: number
+  /** FieldsApiError — ответ сервера; другая ошибка — запрос не дошёл или ответ потерялся. */
+  error: Error
+  /** Отказ после записи: изменение сохранено, но клиент получил ошибку. */
+  afterWrite?: boolean
+}
+
 export interface FakeFieldsApi extends FieldsSettingsApi {
   calls: FakeCall[]
   groupList: FieldGroupSummary[]
   fieldList: FieldDefinitionSummary[]
   roleList: RoleSummary[]
   failNext: FieldsApiError | null
+  failOn: FailRule[]
 }
 
 export function fakeFieldsApi({
   permissions = fullPermissions(),
   groups = [GROUP_MAIN],
   fields = [],
+  pipelines = [PIPELINE_ALPI],
   denyRoles = false,
 }: {
   permissions?: RolePermissions
   groups?: FieldGroupSummary[]
   fields?: FieldDefinitionSummary[]
+  pipelines?: PipelineSummary[]
   denyRoles?: boolean
 } = {}): FakeFieldsApi {
   let nextId = 1000
   const clone = <T>(value: T): T => structuredClone(value)
 
-  function record(method: keyof FieldsSettingsApi, ...args: unknown[]) {
+  /** Записывает вызов; возвращает проверку «после записи» для правил `afterWrite`. */
+  function record(method: keyof FieldsSettingsApi, ...args: unknown[]): () => void {
     api.calls.push({ method, args: clone(args) })
+    const nth = api.calls.filter((c) => c.method === method).length
+    const rule = api.failOn.find((r) => r.method === method && r.nth === nth)
+    if (rule && !rule.afterWrite) throw rule.error
     const failure = api.failNext
     if (failure) {
       api.failNext = null
       throw failure
+    }
+    return () => {
+      if (rule?.afterWrite) throw rule.error
     }
   }
 
@@ -126,6 +147,7 @@ export function fakeFieldsApi({
       memberCount: 1,
     })),
     failNext: null,
+    failOn: [],
     async access() {
       return { userId: fakeId(1), permissions: clone(permissions) }
     },
@@ -136,6 +158,9 @@ export function fakeFieldsApi({
     },
     async fields(_projectId, entity) {
       return clone(api.fieldList.filter((f) => f.entity === entity))
+    },
+    async field(_projectId, fieldId) {
+      return clone(field(fieldId))
     },
     async createGroup(projectId, input) {
       record('createGroup', projectId, input)
@@ -215,10 +240,11 @@ export function fakeFieldsApi({
       return clone(target)
     },
     async createOption(projectId, fieldId, input) {
-      record('createOption', projectId, fieldId, input)
+      const written = record('createOption', projectId, fieldId, input)
       const target = field(fieldId)
       const created = option(input.nameUk, input.nameRu, target.options.length + 1)
       target.options.push(created)
+      written()
       return clone(created)
     },
     async updateOption(projectId, fieldId, optionId, change) {
@@ -242,7 +268,7 @@ export function fakeFieldsApi({
       return clone(target.options)
     },
     async pipelines() {
-      return [clone(PIPELINE_ALPI)]
+      return clone(pipelines)
     },
     async roles() {
       if (denyRoles) throw new FieldsApiError(403, 'PERMISSION_DENIED')
