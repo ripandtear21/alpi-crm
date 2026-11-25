@@ -71,6 +71,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест транзакции: изменение сделки, которое откатилось (например, 409 «одна открытая сделка» или 422 обязательных полей), не оставляет ни строки `webhook_event`, ни задачи `webhook-fanout`; зафиксированное — оставляет ровно по одной.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/jobs/stop.test.ts` exit 0 (in pnpm verify), events written during shutdown · windows - · ba3e435e06d66a9313f93890e10dca8d41c8f435
 - [ ] Тест каталога: каждое действие из таблицы создаёт ровно одно событие своего типа с фактами из таблицы; тело проходит схему типа; изменение суммы и названия событий не создаёт.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест автора: действие менеджера — `actor.type = user`, запрос по ключу — `actor.type = api_key` с id ключа, массовый архив — инициатор операции.
@@ -82,3 +83,5 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
   - evidence: gate pass · `gate fast` exit 0 · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ba3e435e06d66a9313f93890e10dca8d41c8f435
+  - evidence: gate pass · `gate fast` exit 0 · windows - · ba3e435e06d66a9313f93890e10dca8d41c8f435
