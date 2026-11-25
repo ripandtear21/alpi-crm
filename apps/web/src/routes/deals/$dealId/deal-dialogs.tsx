@@ -1,6 +1,18 @@
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { fieldsQueryKey } from '../../../components/custom-fields/custom-field-groups.tsx'
+import { useCustomFieldsApi } from '../../../components/custom-fields/custom-fields-api.tsx'
+import type { FieldDraft } from '../../../components/custom-fields/field-values.ts'
+import {
+  collectRequired,
+  type RequiredFieldProblem,
+  requiredDrafts,
+  requiredOnStage,
+  splitByAccess,
+} from '../../../components/custom-fields/required-fields.ts'
+import { RequiredFieldInputs } from '../../../components/custom-fields/required-fields-form.tsx'
 import { useProjectCode } from '../../../components/project-switcher/current-project.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
@@ -100,7 +112,11 @@ export function LoseDialog({ card, onClose }: { card: DealCardModel; onClose: ()
   )
 }
 
-/** Допродажа: воронка допродаж предвыбрана, название предзаполнено. */
+/**
+ * Допродажа: воронка допродаж предвыбрана, название предзаполнено. Новая сделка встаёт на первый
+ * этап выбранной воронки: его обязательные поля и поля «всегда» (тикет crm-fields/04) — в форме,
+ * без них запрос не уходит; поля групп «только чтение» — строкой, без правки.
+ */
 export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: () => void }) {
   const { t } = useTranslation('deal-card')
   const navigate = useNavigate()
@@ -110,6 +126,22 @@ export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: 
     pipelines.find((pipeline) => pipeline.isUpsell) ??
     pipelines.find((pipeline) => pipeline.id === card.deal.pipelineId)
   const [pipelineId, setPipelineId] = useState(preferred?.id ?? '')
+  const pipeline = pipelines.find((item) => item.id === pipelineId)
+  // Тот же запрос описаний полей, что у шапки и групп полей карточки (fieldsQueryKey).
+  const fieldsApi = useCustomFieldsApi()
+  const fields = useQuery({
+    queryKey: fieldsQueryKey(card.projectId, 'deal'),
+    queryFn: () => fieldsApi.fields(card.projectId, 'deal'),
+    retry: false,
+  })
+  const firstStage = pipeline?.stages[0]?.id
+  const { editable: required, readOnly } = splitByAccess(
+    pipeline && firstStage ? requiredOnStage(fields.data ?? [], pipeline, firstStage) : [],
+    card.permissions,
+  )
+  const [edited, setEdited] = useState<Record<string, FieldDraft>>({})
+  const drafts = { ...requiredDrafts(required), ...edited }
+  const [problems, setProblems] = useState<Record<string, RequiredFieldProblem>>({})
   // Как название допродажи по умолчанию в API: «Ім'я Прізвище — допродаж»; пока контакт
   // не загружен — по названию сделки. Введённое пользователем не подменяется.
   const [typed, setTitle] = useState<string | null>(null)
@@ -122,7 +154,11 @@ export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: 
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (pipelineId === '' || title.trim() === '') return
+    // Описания полей ещё грузятся — обязательные поля неизвестны: запрос не уходит.
+    if (pipelineId === '' || title.trim() === '' || fields.isPending) return
+    const collected = collectRequired(required, drafts)
+    setProblems(collected.ok ? {} : collected.problems)
+    if (!collected.ok) return
     setError(null)
     // Допродажа — новая сделка, текущая не меняется: в кэш её не кладём.
     const created: { id?: string } = {}
@@ -130,6 +166,7 @@ export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: 
       const upsell = await card.api.upsell(card.projectId, card.deal.id, {
         pipelineId,
         title: title.trim(),
+        ...(Object.keys(collected.custom).length > 0 ? { custom: collected.custom } : {}),
       })
       created.id = upsell.id
       return undefined
@@ -161,9 +198,9 @@ export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: 
       <form id="deal-upsell" className="deal-card__dialog-form" onSubmit={submit}>
         <Field label={t('upsell.pipeline')}>
           <Select value={pipelineId} onChange={(event) => setPipelineId(event.target.value)}>
-            {pipelines.map((pipeline) => (
-              <option key={pipeline.id} value={pipeline.id}>
-                {pipeline.name}
+            {pipelines.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
               </option>
             ))}
           </Select>
@@ -176,6 +213,21 @@ export function UpsellDialog({ card, onClose }: { card: DealCardModel; onClose: 
             onChange={(event) => setTitle(event.target.value)}
           />
         </Field>
+        {required.length + readOnly.length > 0 && (
+          <fieldset className="deal-card__required">
+            <legend>{t('upsell.required')}</legend>
+            <RequiredFieldInputs
+              fields={required}
+              readOnly={readOnly}
+              drafts={drafts}
+              onDraft={(fieldCode, draft) =>
+                setEdited((current) => ({ ...current, [fieldCode]: draft }))
+              }
+              problems={problems}
+              members={card.members ?? []}
+            />
+          </fieldset>
+        )}
         <ActionError error={error} />
       </form>
     </Dialog>

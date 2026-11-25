@@ -1,12 +1,21 @@
+import type { RequiredFieldsMissing } from '@alpi/shared'
+import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CopyLinkButton } from '../../../components/copy-link/copy-link-button.tsx'
+import { fieldsQueryKey } from '../../../components/custom-fields/custom-field-groups.tsx'
+import {
+  type CustomValues,
+  useCustomFieldsApi,
+} from '../../../components/custom-fields/custom-fields-api.tsx'
+import { readRequiredFieldsMissing } from '../../../components/custom-fields/required-fields.ts'
+import { RequiredFieldsDialog } from '../../../components/custom-fields/required-fields-form.tsx'
 import { Badge } from '../../../ui/badge.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { cx } from '../../../ui/cx.ts'
 import { Input, Select } from '../../../ui/field.tsx'
 import { Menu, type MenuItem } from '../../../ui/menu.tsx'
-import type { DealCard } from './deal-card-api.ts'
+import { type DealCard, DealCardApiError } from './deal-card-api.ts'
 import type { DealCardModel } from './deal-card-page.tsx'
 import { DeleteDialog, LoseDialog, MoveDialog, UpsellDialog } from './deal-dialogs.tsx'
 import { ActionError } from './deal-errors.tsx'
@@ -14,6 +23,8 @@ import { ActionError } from './deal-errors.tsx'
 // Шапка карточки на всю ширину, три строки: 1) название (правится на месте), ответственный,
 // «Виграно» / «Програно» или статус с «Відкрити знову» и «Створити допродаж», «…» (архив,
 // удаление); 2) путь этапов — нажатие меняет этап; 3) «Воронка → Етап» — смена воронки.
+// Отказ 422 смены этапа или выигрыша о незаполненных обязательных полях (тикет crm-fields/04)
+// открывает форму заполнения; «Зберегти» повторяет действие вместе со значениями.
 
 const MAX_TITLE_LENGTH = 200
 const DAY_MS = 86_400_000
@@ -22,12 +33,29 @@ const QUEUE = ''
 
 type Opened = 'lose' | 'upsell' | 'move' | 'remove' | null
 
+/** Действие, которое может потребовать обязательные поля: значения формы уходят с ним. */
+type Placing = (custom?: CustomValues) => Promise<DealCard>
+
+/** Открытая форма заполнения. */
+interface Filling {
+  title: string
+  missing: RequiredFieldsMissing
+  submit: (custom: CustomValues) => void
+}
+
 export function DealHeader({ card }: { card: DealCardModel }) {
   const { t } = useTranslation('deal-card')
   const { deal, rights } = card
   const [opened, setOpened] = useState<Opened>(null)
   const [error, setError] = useState<unknown>(null)
+  const [filling, setFilling] = useState<Filling | null>(null)
   const close = () => setOpened(null)
+  const fieldsApi = useCustomFieldsApi()
+  const fields = useQuery({
+    queryKey: fieldsQueryKey(card.projectId, 'deal'),
+    queryFn: () => fieldsApi.fields(card.projectId, 'deal'),
+    retry: false,
+  })
 
   /** Действие из шапки: отказ — строкой под шапкой. */
   const run = async (action: () => Promise<DealCard | undefined>) => {
@@ -36,6 +64,25 @@ export function DealHeader({ card }: { card: DealCardModel }) {
   }
   const { api, projectId } = card
   const id = deal.id
+
+  /**
+   * Смена этапа или выигрыш: отказ о незаполненных обязательных полях открывает форму, её
+   * «Зберегти» повторяет действие со значениями; другой отказ — строкой под шапкой.
+   */
+  const place = async (title: string, action: Placing, custom?: CustomValues) => {
+    setError(null)
+    setFilling(null)
+    const failure = await card.act(() => action(custom))
+    const missing =
+      failure instanceof DealCardApiError
+        ? readRequiredFieldsMissing(failure.code, failure.details)
+        : null
+    if (missing) {
+      setFilling({ title, missing, submit: (values) => void place(title, action, values) })
+    } else {
+      setError(failure)
+    }
+  }
 
   const more: MenuItem[] = []
   if (rights.edit) {
@@ -75,7 +122,7 @@ export function DealHeader({ card }: { card: DealCardModel }) {
                 size="sm"
                 className="deal-card__win"
                 busy={card.busy}
-                onClick={() => run(() => api.win(projectId, id))}
+                onClick={() => place(t('fill.win'), (custom) => api.win(projectId, id, custom))}
               >
                 {t('actions.win')}
               </Button>
@@ -107,7 +154,7 @@ export function DealHeader({ card }: { card: DealCardModel }) {
           )}
         </div>
       </div>
-      <StagePath card={card} run={run} />
+      <StagePath card={card} place={place} />
       <p className="deal-card__row3">
         <PipelineLink card={card} onOpen={() => setOpened('move')} />
       </p>
@@ -116,6 +163,21 @@ export function DealHeader({ card }: { card: DealCardModel }) {
       {opened === 'upsell' && <UpsellDialog card={card} onClose={close} />}
       {opened === 'move' && <MoveDialog card={card} onClose={close} />}
       {opened === 'remove' && <DeleteDialog card={card} onClose={close} />}
+      {filling && (
+        <RequiredFieldsDialog
+          // Новый отказ — новая форма: черновики берутся из нового списка полей.
+          key={JSON.stringify(filling.missing)}
+          title={filling.title}
+          missing={filling.missing}
+          fields={(fields.data ?? []).filter((f) => f.archivedAt === null)}
+          values={deal.custom}
+          permissions={card.permissions}
+          members={card.members ?? []}
+          busy={card.busy}
+          onCancel={() => setFilling(null)}
+          onSubmit={filling.submit}
+        />
+      )}
     </header>
   )
 }
@@ -263,10 +325,10 @@ function Owner({
 
 function StagePath({
   card,
-  run,
+  place,
 }: {
   card: DealCardModel
-  run: (action: () => Promise<DealCard | undefined>) => Promise<void>
+  place: (title: string, action: Placing) => Promise<void>
 }) {
   const { t } = useTranslation('deal-card')
   const { deal, api, projectId } = card
@@ -289,7 +351,10 @@ function StagePath({
             title={stage.name}
             disabled={!card.rights.edit || card.busy}
             onClick={() => {
-              if (index !== current) void run(() => api.changeStage(projectId, deal.id, stage.id))
+              if (index === current) return
+              void place(t('fill.stage', { stage: stage.name }), (custom) =>
+                api.changeStage(projectId, deal.id, stage.id, custom),
+              )
             }}
           >
             <span>

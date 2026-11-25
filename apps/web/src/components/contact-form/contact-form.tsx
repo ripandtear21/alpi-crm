@@ -7,6 +7,20 @@ import { Button } from '../../ui/button.tsx'
 import { Combobox, type ComboboxOption } from '../../ui/combobox.tsx'
 import { Dialog } from '../../ui/dialog.tsx'
 import { Field, Input, Select } from '../../ui/field.tsx'
+import { fieldsQueryKey, membersQueryKey } from '../custom-fields/custom-field-groups.tsx'
+import { useCustomFieldsApi } from '../custom-fields/custom-fields-api.tsx'
+import type { FieldDraft } from '../custom-fields/field-values.ts'
+import {
+  collectRequired,
+  type RequiredFieldProblem,
+  readRequiredFieldsMissing,
+  requiredAlways,
+  requiredDrafts,
+} from '../custom-fields/required-fields.ts'
+import {
+  RequiredFieldInputs,
+  useMissingFieldsText,
+} from '../custom-fields/required-fields-form.tsx'
 import { projectQueryKey, useProjectCode } from '../project-switcher/current-project.tsx'
 import {
   CONTACT_LANGUAGES,
@@ -28,6 +42,10 @@ import './record-card.css'
 // «чужий клієнт» — «клієнт уже в роботі у <менеджер>» без данных чужого контакта; телефон у
 // видимого контакта — ссылка «відкрити існуючий»; совпал только email — контакт создаётся с
 // пометкой «можливий дубль» (её показывает карточка).
+//
+// Новый контакт показывает пользовательские поля «всегда» (тикет crm-fields/04): без них запрос
+// не уходит. Отказ 422 об обязательных полях (поля, скрытые от роли; «всегда» новой организации)
+// — текстом со списком.
 
 export function contactName(contact: { firstName: string; lastName: string | null }): string {
   return [contact.firstName, contact.lastName].filter(Boolean).join(' ')
@@ -49,8 +67,12 @@ const NEW_ORGANIZATION = 'new-organization'
 /** Текст отказа API по контакту; `contactId` — ссылка на существующий контакт. */
 function useContactError() {
   const { t } = useTranslation('contact-card')
+  const missingText = useMissingFieldsText()
   return (failure: unknown): FormError => {
     if (!(failure instanceof ContactsApiError)) return { text: t('errors.unknown') }
+    const missing = readRequiredFieldsMissing(failure.code, failure.details)
+    if (missing)
+      return { text: t('errors.REQUIRED_FIELDS_MISSING', { fields: missingText(missing) }) }
     if (failure.code === 'CONTACT_OUT_OF_SCOPE') {
       // Без данных чужого контакта: только имя менеджера, если клиент у него в работе.
       const manager =
@@ -153,6 +175,24 @@ export function ContactFormDialog({
   const [error, setError] = useState<FormError | null>(null)
   const [sending, setSending] = useState(false)
   const contactError = useContactError()
+  // Поля «всегда» нового контакта (тикет crm-fields/04).
+  const fieldsApi = useCustomFieldsApi()
+  const fieldDefinitions = useQuery({
+    queryKey: fieldsQueryKey(projectId, 'contact'),
+    queryFn: () => fieldsApi.fields(projectId, 'contact'),
+    enabled: contact === null,
+    retry: false,
+  })
+  const required = contact === null ? requiredAlways(fieldDefinitions.data ?? []) : []
+  const members = useQuery({
+    queryKey: membersQueryKey(projectId),
+    queryFn: () => fieldsApi.members(projectId),
+    enabled: required.some((field) => field.type === 'user'),
+    retry: false,
+  })
+  const [edited, setEdited] = useState<Record<string, FieldDraft>>({})
+  const drafts = { ...requiredDrafts(required), ...edited }
+  const [problems, setProblems] = useState<Record<string, RequiredFieldProblem>>({})
 
   const searchText = organizationSearch.trim()
   const suggestions = useQuery({
@@ -215,7 +255,10 @@ export function ContactFormDialog({
     })
     setPhoneErrors(badPhones)
     setEmailErrors(badEmails)
+    const collected = collectRequired(required, drafts)
+    setProblems(collected.ok ? {} : collected.problems)
     if (name === '' || Object.keys(badPhones).length + Object.keys(badEmails).length > 0) return
+    if (!collected.ok) return
 
     const input: ContactInput = {
       firstName: name,
@@ -227,6 +270,7 @@ export function ContactFormDialog({
     if (contact === null || organizationTouched) {
       input.organizationId = shownOrganization?.id ?? null
     }
+    if (Object.keys(collected.custom).length > 0) input.custom = collected.custom
     setSending(true)
     try {
       const saved =
@@ -355,6 +399,13 @@ export function ContactFormDialog({
             emptyText={t('form.noOrganizations')}
           />
         )}
+        <RequiredFieldInputs
+          fields={required}
+          drafts={drafts}
+          onDraft={(code, draft) => setEdited((current) => ({ ...current, [code]: draft }))}
+          problems={problems}
+          members={members.data ?? []}
+        />
         <FormErrorNotice error={error} onOpenExisting={onClose} />
       </form>
     </Dialog>

@@ -220,6 +220,7 @@
       "PERMISSION_DENIED": "немає права",
       "OPEN_DEAL_EXISTS": "у контакта вже є відкрита угода у воронці",
       "STAGE_NOT_IN_PIPELINE": "етап іншої воронки",
+      "STAGE_REQUIREMENTS_MISSING": "не заповнені обов’язкові поля етапу",
       "STAGE_NOT_FOUND": "етапу немає",
       "STAGE_DELETED": "етап видалено",
       "OWNER_NOT_MEMBER": "відповідальний не учасник проєкту",

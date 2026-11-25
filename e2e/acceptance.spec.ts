@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from '@playwright/test'
+import type { BrowserContext, Locator, Page } from '@playwright/test'
 import {
   applyFilter,
   column,
@@ -28,6 +28,31 @@ const MANAGER = 'seed.manager04@example.com'
 const DEAL_TITLE = 'Приймання: курс для Тараса'
 const CONTACT = { firstName: 'Тарас', lastName: 'Приймальний', phone: '067 123 45 67' }
 const NOTE = 'Домовились: передзвонити після вебінару.'
+
+const PROFESSION = 'Викладач англійської'
+
+/**
+ * Заполняет форму выигрыша: поля, обязательные при выигрыше в воронке ALPI по стартовой
+ * настройке (packages/db/src/presets/alpi-fields.ts, правила «з етапу» и «при виграші»). Поле,
+ * которого в форме нет, роняет заполнение; лишнее незаполненное — повторный отказ формы.
+ */
+async function fillRequiredToWin(fill: Locator) {
+  const field = (name: string) => fill.getByLabel(name, { exact: true })
+  await field('Якість ліда').selectOption({ label: 'B3 — цільова аудиторія' })
+  for (const name of [
+    'Тип клієнта',
+    'ТИПАЖ ЦА',
+    'Головний мотив в AI',
+    'Деталізація закриття',
+    'Потік',
+  ]) {
+    await field(name).selectOption({ index: 1 })
+  }
+  await field('Професія клієнта').fill(PROFESSION)
+  await field('Взятий в роботу: з').fill(todayInput())
+  await field('Взятий в роботу: по').fill(todayInput())
+  await field('Тип закриття').fill('1')
+}
 
 /** Сумма в гривнах так, как её пишет карточка: «8 800,00 грн» (группы разрядов — любой пробел). */
 const uah = (amount: string) => new RegExp(`^${amount.replace(' ', '\\s')}(,00)?\\s(грн|₴)$`)
@@ -141,9 +166,25 @@ test.describe
     })
 
     test('5. Одна сделка выиграна, другая проиграна с причиной: нет в канбане, есть в списке', async () => {
-      // Выигрыш — из карточки сделки шага 2.
+      // Выигрыш — из карточки сделки шага 2. Стартовые поля ALPI (тикет crm-fields/08) обязательны
+      // при выигрыше в воронке ALPI, а у новой сделки они пусты: сервер отвечает 422, и карточка
+      // открывает форму заполнения (тикет crm-fields/04). Пустая форма не отправляется.
       await page.getByRole('button', { name: 'Виграно', exact: true }).click()
+      const fill = page.getByRole('dialog', { name: 'Заповніть поля, щоб виграти угоду' })
+      await fill.getByRole('button', { name: 'Зберегти' }).click()
+      await expect(fill.getByText('Заповніть поле.').first()).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Відкрити знову' })).toHaveCount(0)
+
+      await fillRequiredToWin(fill)
+      await fill.getByRole('button', { name: 'Зберегти' }).click()
+      // Сначала итог: на время повторного запроса форма закрывается и при новом отказе
+      // открывается снова, так что одно «форма скрыта» выигрыша не доказывает.
       await expect(page.getByRole('button', { name: 'Відкрити знову' })).toBeVisible()
+      await expect(fill).toHaveCount(0)
+      // Значения формы сохранены вместе с выигрышем, а не только нарисованы.
+      await page.reload()
+      await expect(page.getByRole('button', { name: 'Відкрити знову' })).toBeVisible()
+      await expect(page.getByRole('region', { name: 'Профіль ліда' })).toContainText(PROFESSION)
 
       // Проигрыш — сделка тестовых данных из колонки «Передано в роботу», через меню карточки.
       await page.getByRole('navigation').getByRole('link', { name: 'Угоди' }).click()

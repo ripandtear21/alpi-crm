@@ -334,6 +334,15 @@
   gap: var(--s-3);
 }
 
+/* Обязательные поля новой сделки в окне допродажи (тикет crm-fields/04). */
+.deal-card__required {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 @media (max-width: 900px) {
   .deal-card__head {
     padding: var(--s-3) var(--s-4);

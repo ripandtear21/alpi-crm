@@ -220,6 +220,7 @@
       "PERMISSION_DENIED": "нет права",
       "OPEN_DEAL_EXISTS": "у контакта уже есть открытая сделка в воронке",
       "STAGE_NOT_IN_PIPELINE": "этап другой воронки",
+      "STAGE_REQUIREMENTS_MISSING": "не заполнены обязательные поля этапа",
       "STAGE_NOT_FOUND": "этапа нет",
       "STAGE_DELETED": "этап удалён",
       "OWNER_NOT_MEMBER": "ответственный не участник проекта",

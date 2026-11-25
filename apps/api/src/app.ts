@@ -13,7 +13,7 @@ import { contactListRoutes } from './contacts/list.ts'
 import { dealsRoutes, pipelineAggregatesRoutes } from './deals/deals.ts'
 import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
 import { dealListRoutes } from './deals/list-routes.ts'
-import { NO_STAGE_REQUIREMENTS, type StageRequirements } from './deals/stage-requirements.ts'
+import { CUSTOM_FIELD_REQUIREMENTS, type StageRequirements } from './deals/stage-requirements.ts'
 import { type FieldsDeps, NO_FIELD_JOBS } from './fields/common.ts'
 import { fieldsRoutes } from './fields/fields.ts'
 import { fieldGroupsRoutes } from './fields/groups.ts'
@@ -68,7 +68,10 @@ export interface AppDeps {
   contactDependents?: ContactDependents
   /** Хранилище содержимого файлов (storage/storage.ts); без него файлов нет. */
   storage?: FileStorage
-  /** Какие поля требует этап при смене этапа сделки; по умолчанию — никаких. */
+  /**
+   * Какие поля нужны, чтобы поставить сделку на этап или выиграть; по умолчанию — обязательные
+   * пользовательские поля (тикет crm-fields/04).
+   */
   stageRequirements?: StageRequirements
   /**
    * Конструктор полей: очередь окончательного удаления поля и часы (срок 30 дней после архива);
@@ -141,7 +144,7 @@ export function createApp({
   stageDeals = OPEN_STAGE_DEALS,
   contactDependents = DEAL_CONTACT_DEPENDENTS,
   storage = NO_FILE_STORAGE,
-  stageRequirements = NO_STAGE_REQUIREMENTS,
+  stageRequirements = CUSTOM_FIELD_REQUIREMENTS,
   fields = NO_FIELD_JOBS,
 }: AppDeps) {
   const jsonBodyLimit = bodyLimit({

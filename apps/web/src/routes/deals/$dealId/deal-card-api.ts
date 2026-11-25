@@ -124,10 +124,19 @@ export interface DealCardApi {
   access(projectId: string): Promise<ProjectAccess>
   deal(projectId: string, dealId: string): Promise<DealCard>
   update(projectId: string, dealId: string, change: DealChange): Promise<DealCard>
-  changeStage(projectId: string, dealId: string, stageId: string): Promise<DealCard>
+  /**
+   * Смена этапа; `custom` — значения обязательных полей из формы заполнения (тикет
+   * crm-fields/04), уходят тем же запросом.
+   */
+  changeStage(
+    projectId: string,
+    dealId: string,
+    stageId: string,
+    custom?: Record<string, unknown>,
+  ): Promise<DealCard>
   /** Другая воронка; этап не задан — первый этап воронки. */
   move(projectId: string, dealId: string, pipelineId: string, stageId?: string): Promise<DealCard>
-  win(projectId: string, dealId: string): Promise<DealCard>
+  win(projectId: string, dealId: string, custom?: Record<string, unknown>): Promise<DealCard>
   lose(projectId: string, dealId: string, lostReasonId: string): Promise<DealCard>
   reopen(projectId: string, dealId: string): Promise<DealCard>
   archive(projectId: string, dealId: string): Promise<DealCard>
@@ -137,7 +146,8 @@ export interface DealCardApi {
   upsell(
     projectId: string,
     dealId: string,
-    input: { pipelineId: string; title: string },
+    /** `custom` — обязательные поля новой сделки на первом этапе воронки (тикет crm-fields/04). */
+    input: { pipelineId: string; title: string; custom?: Record<string, unknown> },
   ): Promise<DealCard>
   addParticipant(
     projectId: string,
@@ -216,7 +226,8 @@ export function createDealCardApi(
     access: (projectId) => send(projectId, 'GET', '/project/access'),
     deal: (projectId, id) => send(projectId, 'GET', deal(id)),
     update: (projectId, id, change) => send(projectId, 'PUT', deal(id), change),
-    changeStage: (projectId, id, stageId) => action(projectId, id, 'stage', { stageId }),
+    changeStage: (projectId, id, stageId, custom) =>
+      action(projectId, id, 'stage', custom ? { stageId, custom } : { stageId }),
     move: (projectId, id, pipelineId, stageId) =>
       action(
         projectId,
@@ -224,7 +235,7 @@ export function createDealCardApi(
         'move',
         stageId === undefined ? { pipelineId } : { pipelineId, stageId },
       ),
-    win: (projectId, id) => action(projectId, id, 'win'),
+    win: (projectId, id, custom) => action(projectId, id, 'win', custom ? { custom } : {}),
     lose: (projectId, id, lostReasonId) => action(projectId, id, 'lose', { lostReasonId }),
     reopen: (projectId, id) => action(projectId, id, 'reopen'),
     archive: (projectId, id) => action(projectId, id, 'archive'),

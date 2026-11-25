@@ -44,6 +44,8 @@ export interface ContactInput {
   organizationId?: string | null
   phones?: string[]
   emails?: string[]
+  /** Значения пользовательских полей: поля «всегда» при создании (тикет crm-fields/04). */
+  custom?: Record<string, unknown>
 }
 
 export interface OrganizationInput {

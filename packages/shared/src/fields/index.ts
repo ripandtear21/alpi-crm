@@ -342,3 +342,28 @@ export type CustomFieldErrorCode =
   | 'CUSTOM_FIELD_CONVERTING'
   /** Группа поля у роли «только чтение» (403). Поле скрытой группы — CUSTOM_FIELD_UNKNOWN. */
   | 'CUSTOM_FIELD_READ_ONLY'
+  /**
+   * Запись создаётся без поля «всегда» или запрос очищает такое поле (422, тикет crm-fields/04):
+   * `details` — RequiredFieldsMissing.
+   */
+  | 'REQUIRED_FIELDS_MISSING'
+
+/** Незаполненное обязательное поле, которое роль видит: код и названия (тикет crm-fields/04). */
+export interface RequiredFieldName extends FieldNames {
+  code: string
+}
+
+/**
+ * `details` ответа 422 о незаполненных обязательных полях (тикет crm-fields/04):
+ * STAGE_REQUIREMENTS_MISSING — сделку ставят на этап (создание, смена этапа, перенос) или
+ * выигрывают; REQUIRED_FIELDS_MISSING — контакт или организация создаются без поля «всегда»,
+ * или запрос очищает поле «всегда». Поля групп, скрытых от роли, — только числом.
+ */
+export interface RequiredFieldsMissing {
+  /** Коды незаполненных полей, которые роль видит, по порядку групп и полей. */
+  fields: string[]
+  /** Те же поля с названиями. */
+  names: RequiredFieldName[]
+  /** Сколько ещё незаполненных полей в группах, скрытых от роли. */
+  hiddenCount: number
+}

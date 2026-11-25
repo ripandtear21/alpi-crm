@@ -4,6 +4,7 @@ import type {
   KanbanCardFields,
   LostReasonGroupSummary,
   PipelineSummary,
+  ProjectAccess,
 } from '@alpi/shared'
 import { projectHeaders } from '../../components/project-switcher/projects-api.ts'
 
@@ -80,6 +81,8 @@ export interface NewContactInput {
   firstName: string
   lastName: string | null
   phones: string[]
+  /** Значения пользовательских полей нового контакта: его поля «всегда» (тикет crm-fields/04). */
+  custom?: Record<string, unknown>
 }
 
 /** Новая сделка: существующий контакт (`contactId`) или новый (`contact`). */
@@ -92,6 +95,8 @@ export interface NewDealInput {
   ownerId: string
   contactId?: string
   contact?: NewContactInput
+  /** Значения пользовательских полей: обязательные на выбранном этапе (тикет crm-fields/04). */
+  custom?: Record<string, unknown>
 }
 
 export class DealsApiError extends Error {
@@ -115,6 +120,10 @@ export interface DealsApi {
   owners(projectId: string): Promise<DealOwner[]>
   /** Пользовательские поля сделки, видимые пользователю, без архивных. */
   fields(projectId: string): Promise<FieldDefinitionSummary[]>
+  /** Пользовательские поля контакта, видимые пользователю, без архивных: новый контакт «+ Угоди». */
+  contactFields(projectId: string): Promise<FieldDefinitionSummary[]>
+  /** Права пользователя в проекте (`GET /api/project/access`): доступ к группам полей. */
+  access(projectId: string): Promise<ProjectAccess>
   /** Поля карточки канбана воронки, видимые пользователю, по порядку. */
   cardFields(projectId: string, pipelineId: string): Promise<KanbanCardFields>
   stagePage(projectId: string, query: StagePageQuery): Promise<DealsPage>
@@ -124,8 +133,17 @@ export interface DealsApi {
     owner: OwnerFilter | undefined,
     filter?: FilterGroup,
   ): Promise<PipelineAggregates>
-  changeStage(projectId: string, dealId: string, stageId: string): Promise<void>
-  win(projectId: string, dealId: string): Promise<void>
+  /**
+   * Смена этапа; `custom` — значения обязательных полей из формы заполнения (тикет
+   * crm-fields/04), уходят тем же запросом.
+   */
+  changeStage(
+    projectId: string,
+    dealId: string,
+    stageId: string,
+    custom?: Record<string, unknown>,
+  ): Promise<void>
+  win(projectId: string, dealId: string, custom?: Record<string, unknown>): Promise<void>
   lose(projectId: string, dealId: string, lostReasonId: string): Promise<void>
   take(projectId: string, dealId: string): Promise<void>
   create(projectId: string, input: NewDealInput): Promise<{ id: string }>
@@ -138,10 +156,11 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     method: string,
     path: string,
     body?: unknown,
+    base = '/api/v1',
   ): Promise<T> {
     const headers = projectHeaders(projectId)
     if (body !== undefined) headers.set('content-type', 'application/json')
-    const res = await fetchImpl(`/api/v1${path}`, {
+    const res = await fetchImpl(`${base}${path}`, {
       method,
       headers,
       credentials: 'same-origin',
@@ -183,6 +202,8 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     lostReasons: (projectId) => send(projectId, 'GET', '/lost-reasons'),
     owners: (projectId) => send(projectId, 'GET', '/deals/owners'),
     fields: (projectId) => send(projectId, 'GET', '/fields?entity=deal'),
+    contactFields: (projectId) => send(projectId, 'GET', '/fields?entity=contact'),
+    access: (projectId) => send(projectId, 'GET', '/project/access', undefined, '/api'),
     cardFields: (projectId, pipelineId) =>
       send(projectId, 'GET', `/pipelines/${pipelineId}/card-fields`),
     stagePage: (projectId, { pipelineId, stageId, owner, filter, cursor }) =>
@@ -197,8 +218,9 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
         'GET',
         `/pipelines/${pipelineId}/aggregates?${query({ owner, filter: filterParam(filter) })}`,
       ),
-    changeStage: (projectId, dealId, stageId) => action(projectId, dealId, 'stage', { stageId }),
-    win: (projectId, dealId) => action(projectId, dealId, 'win'),
+    changeStage: (projectId, dealId, stageId, custom) =>
+      action(projectId, dealId, 'stage', custom ? { stageId, custom } : { stageId }),
+    win: (projectId, dealId, custom) => action(projectId, dealId, 'win', custom ? { custom } : {}),
     lose: (projectId, dealId, lostReasonId) => action(projectId, dealId, 'lose', { lostReasonId }),
     take: (projectId, dealId) => action(projectId, dealId, 'take'),
     create: (projectId, input) => send(projectId, 'POST', '/deals', input),

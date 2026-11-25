@@ -18,6 +18,7 @@ import {
   recordChanges,
 } from '../change-log/record.ts'
 import type { FieldViewer } from '../fields/access.ts'
+import { clearedRequired, missingRequired, requiredFieldsOutcome } from '../fields/requirements.ts'
 import {
   type CustomValues,
   changesCustom,
@@ -454,6 +455,11 @@ async function createContact(
   }
   const custom = await prepareCustom(ctx, 'contact', {}, input.custom ?? {})
   if (!custom.ok) return custom
+  // Поля «всегда» (тикет crm-fields/04): без значения контакт не создаётся.
+  const required = requiredFieldsOutcome(
+    await missingRequired(ctx, { entity: 'contact' }, custom.value.set),
+  )
+  if (!required.ok) return required
   const keys = await checkKeys(ctx, input.phones ?? [], input.emails ?? [])
   if (!keys.ok) return keys
   const row = await ctx.db
@@ -493,6 +499,9 @@ async function updateContact(
   }
   const custom = await prepareCustom(ctx, 'contact', row.custom, input.custom ?? {})
   if (!custom.ok) return custom
+  // Поле «всегда» не очищается; правка других полей старого контакта с пустым полем проходит.
+  const cleared = requiredFieldsOutcome(await clearedRequired(ctx, 'contact', null, custom.value))
+  if (!cleared.ok) return cleared
   const keys = await checkKeys(ctx, input.phones ?? [], input.emails ?? [], id)
   if (!keys.ok) return keys
   const before = await contactView(ctx, row)

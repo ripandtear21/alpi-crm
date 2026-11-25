@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../app.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
 import type { BoardDeal, DealOwner, DealsPage, PipelineAggregates } from './board.ts'
-import type { StageRequirements } from './stage-requirements.ts'
+import type { StageRequirements, StageTarget } from './stage-requirements.ts'
 
 // Канбан (тикет crm-deals/11): выдача сделок этапа с курсором, агрегаты колонок, точка
 // расширения «требования этапа» в смене этапа — на настоящем PostgreSQL, API ходит ролью
@@ -356,11 +356,19 @@ describe('канбан: выдача, агрегаты, требования э�
       const pipeline = await createPipeline(projectA, ['s1', 's2', 's3'])
       const [s1 = '', s2 = '', s3 = ''] = pipeline.stages
       const [dealId = ''] = await seed(projectA, pipeline, [{ stage: s1, owner: manager.id }])
-      const asked: { stageId: string; dealId: string }[] = []
+      const asked: StageTarget[] = []
       const requirements: StageRequirements = {
-        async missingFields(_db, deal, stageId) {
-          asked.push({ stageId, dealId: deal.id })
-          return stageId === s2 ? ['expectedCloseDate', 'organizationId'] : []
+        async missingFields(_viewer, target) {
+          asked.push(target)
+          return 'stageId' in target && target.stageId === s2
+            ? {
+                fields: [
+                  { code: 'budget', nameUk: 'Бюджет', nameRu: null },
+                  { code: 'contract', nameUk: 'Договір', nameRu: 'Договор' },
+                ],
+                hiddenCount: 1,
+              }
+            : { fields: [], hiddenCount: 0 }
         },
       }
       const app = createApp({ auth: h.auth, db: h.appDb, stageRequirements: requirements })
@@ -371,7 +379,14 @@ describe('канбан: выдача, агрегаты, требования э�
       })
       expect(await json(refused, 422)).toEqual({
         code: 'STAGE_REQUIREMENTS_MISSING',
-        details: { fields: ['expectedCloseDate', 'organizationId'] },
+        details: {
+          fields: ['budget', 'contract'],
+          names: [
+            { code: 'budget', nameUk: 'Бюджет', nameRu: null },
+            { code: 'contract', nameUk: 'Договір', nameRu: 'Договор' },
+          ],
+          hiddenCount: 1,
+        },
       })
       const row = await h.owner
         .selectFrom('deal')
@@ -392,12 +407,12 @@ describe('канбан: выдача, агрегаты, требования э�
       })
       expect((await json<{ stageId: string }>(moved)).stageId).toBe(s3)
       expect(asked).toEqual([
-        { stageId: s2, dealId },
-        { stageId: s3, dealId },
+        { pipelineId: pipeline.id, stageId: s2 },
+        { pipelineId: pipeline.id, stageId: s3 },
       ])
     })
 
-    it('по умолчанию требований нет: смена этапа проходит', async () => {
+    it('без пользовательских полей требований нет: смена этапа проходит', async () => {
       const pipeline = await createPipeline(projectA)
       const [s1 = '', s2 = ''] = pipeline.stages
       const [dealId = ''] = await seed(projectA, pipeline, [{ stage: s1 }])

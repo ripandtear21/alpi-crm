@@ -1,8 +1,10 @@
-import type {
-  FieldDefinitionSummary,
-  FilterGroup,
-  LostReasonGroupSummary,
-  PipelineSummary,
+import {
+  type FieldDefinitionSummary,
+  type FilterGroup,
+  fullPermissions,
+  type LostReasonGroupSummary,
+  type PipelineSummary,
+  type ProjectAccess,
 } from '@alpi/shared'
 import {
   type BoardDeal,
@@ -35,12 +37,18 @@ export interface FakeDealsCall {
   action: 'changeStage' | 'win' | 'lose' | 'take' | 'create' | 'stagePage'
   dealId?: string
   value?: unknown
+  /** Значения обязательных полей, ушедшие вместе с действием (тикет crm-fields/04). */
+  custom?: Record<string, unknown>
 }
 
 export interface FakeDealsApi extends DealsApi {
   deals: BoardDeal[]
   /** Пользовательские поля сделки (тикет crm-fields/07). */
   customFields: FieldDefinitionSummary[]
+  /** Пользовательские поля контакта: «всегда» нового контакта формы «+ Угода» (тикет crm-fields/04). */
+  contactCustomFields: FieldDefinitionSummary[]
+  /** Права пользователя в проекте; по умолчанию — администратор (все группы «изменять»). */
+  me: ProjectAccess
   /** Поля карточки канбана по воронкам. */
   cardFieldIds: Record<string, string[]>
   calls: FakeDealsCall[]
@@ -165,6 +173,8 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
   const api: FakeDealsApi = {
     deals,
     customFields: [],
+    contactCustomFields: [],
+    me: { userId: FAKE_ME.id, permissions: fullPermissions() },
     cardFieldIds: {},
     calls: [],
     failNext: null,
@@ -188,6 +198,12 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
     },
     async fields() {
       return api.customFields.filter((f) => f.archivedAt === null)
+    },
+    async contactFields() {
+      return api.contactCustomFields.filter((f) => f.archivedAt === null)
+    },
+    async access() {
+      return structuredClone(api.me)
     },
     async cardFields(_projectId, pipelineId) {
       return { fieldIds: api.cardFieldIds[pipelineId] ?? [] }
@@ -220,16 +236,21 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
       }
       return result
     },
-    async changeStage(_projectId, dealId, stageId) {
-      api.calls.push({ action: 'changeStage', dealId, value: stageId })
+    async changeStage(_projectId, dealId, stageId, custom) {
+      api.calls.push({
+        action: 'changeStage',
+        dealId,
+        value: stageId,
+        ...(custom ? { custom } : {}),
+      })
       failIfAsked()
       const deal = find(dealId)
       deal.stageId = stageId
       // Пришедшая на этап — сверху колонки, как у API.
       api.deals = [deal, ...api.deals.filter((d) => d !== deal)]
     },
-    async win(_projectId, dealId) {
-      api.calls.push({ action: 'win', dealId })
+    async win(_projectId, dealId, custom) {
+      api.calls.push({ action: 'win', dealId, ...(custom ? { custom } : {}) })
       failIfAsked()
       find(dealId)
       api.deals = api.deals.filter((d) => d.id !== dealId)
