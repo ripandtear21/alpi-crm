@@ -22,11 +22,17 @@ export { expect }
  * Своя вкладка для шагов, которые живут дольше одного теста (вход один раз на весь сценарий)
  * или идут под другим пользователем. Настройки — как у проекта desktop в playwright.config.ts.
  */
-export function newContext(browser: Browser) {
+export function newContext(browser: Browser, baseURL = stackInfo().baseURL) {
+  return browser.newContext({ baseURL, locale: 'uk-UA', viewport: { width: 1440, height: 900 } })
+}
+
+/** Вкладка телефона 375 px — как у проекта phone-375 в playwright.config.ts. */
+export function newPhoneContext(browser: Browser, baseURL = stackInfo().baseURL) {
   return browser.newContext({
-    baseURL: stackInfo().baseURL,
+    baseURL,
     locale: 'uk-UA',
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: 375, height: 812 },
+    hasTouch: true,
   })
 }
 

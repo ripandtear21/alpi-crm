@@ -1,7 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
 // Сквозной тест приёмки (тикет crm-deals/16): `pnpm e2e` — сборка клиента, затем Playwright.
-// Стенд (своя база, pnpm seed, API, клиент) поднимает e2e/global-setup.ts на каждый запуск.
+// Стенд (своя база, pnpm seed, API, клиент) поднимает e2e/global-setup.ts на каждый запуск;
+// сценарий crm-fields/09 поднимает себе второй такой же (e2e/support/stack-process.ts).
 // Сценарий идёт по шагам на одних данных, поэтому исполнитель один и повторов нет.
 export default defineConfig({
   testDir: './e2e',
@@ -34,6 +35,14 @@ export default defineConfig({
       testMatch: 'phone.spec.ts',
       dependencies: ['desktop'],
       use: { viewport: { width: 375, height: 812 }, hasTouch: true },
+    },
+    {
+      // Сценарий приёмки конструктора полей (тикет crm-fields/09): свой стенд и своя база —
+      // поднимает фикстура в самом файле, от проектов выше не зависит. Прогон на 375 px — там же,
+      // своей вкладкой.
+      name: 'fields',
+      testMatch: 'fields-acceptance.spec.ts',
+      use: { viewport: { width: 1440, height: 900 } },
     },
   ],
 })

@@ -426,6 +426,9 @@ function CardFieldsForm({
 }) {
   const { t, i18n } = useTranslation('settings')
   const queryClient = useQueryClient()
+  // Сообщение живёт здесь, а не в слотах: после сохранения данные перечитываются, и слоты
+  // пересоздаются с новым `key` — сообщение внутри них пропало бы вместе с ними.
+  const [notice, setNotice] = useState<Notice>(null)
   const key = projectQueryKey(projectId, 'pipelines', 'card-fields', pipeline.id)
   const current = useQuery({
     queryKey: key,
@@ -442,6 +445,8 @@ function CardFieldsForm({
       initial={current.data.fieldIds}
       language={i18n.language === 'ru' ? 'ru' : 'uk'}
       title={t('pipelines.cardFields.title')}
+      notice={notice}
+      onNotice={setNotice}
       onSave={async (fieldIds) => {
         const saved = await api.setCardFields(projectId, pipeline.id, fieldIds)
         await queryClient.invalidateQueries({ queryKey: key })
@@ -457,6 +462,8 @@ function CardFieldSlots({
   initial,
   language,
   title,
+  notice,
+  onNotice: setNotice,
   onSave,
 }: {
   pipeline: PipelineSummary
@@ -464,13 +471,14 @@ function CardFieldSlots({
   initial: readonly string[]
   language: 'uk' | 'ru'
   title: string
+  notice: Notice
+  onNotice: (notice: Notice) => void
   onSave: (fieldIds: string[]) => Promise<unknown>
 }) {
   const { t } = useTranslation('settings')
   const [slots, setSlots] = useState<string[]>(() =>
     Array.from({ length: KANBAN_CARD_FIELDS_LIMIT }, (_, index) => initial[index] ?? ''),
   )
-  const [notice, setNotice] = useState<Notice>(null)
   const [pending, setPending] = useState(false)
   return (
     <form

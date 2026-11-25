@@ -218,7 +218,11 @@ describe('поля на карточке канбана в настройках 
       target: { value: '00000000-0000-4000-9700-000000000001' },
     })
     fireEvent.click(within(form).getByRole('button', { name: 'Зберегти поля картки' }))
-    expect(await within(form).findByText('Поля картки збережено.')).toBeTruthy()
+    // После сохранения поля перечитываются и слоты пересоздаются — сообщение должно остаться
+    // в новой форме (раньше пропадало вместе со старой).
+    await waitFor(() => expect(form.isConnected).toBe(false))
+    const saved = screen.getByRole('form', { name: 'Поля на картці канбану: ALPI' })
+    expect(await within(saved).findByText('Поля картки збережено.')).toBeTruthy()
     expect(api.cardFieldIds[alpi]).toEqual([
       '00000000-0000-4000-9700-000000000002',
       '00000000-0000-4000-9700-000000000001',
