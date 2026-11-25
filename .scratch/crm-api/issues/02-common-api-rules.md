@@ -57,6 +57,7 @@ apps/api/src/http/** (ошибки, курсор, идемпотентность
   - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] Тест ошибок: 400, 401, 403, 404, 409, 422 и 429 отдают `application/problem+json` с `type`, `title`, `status`, `code`; ошибка проверки — с `errors[].field`; 500 — без стека. Тест проходит по всем маршрутам `/api/v1` (обход списка маршрутов, а не выборочно).
   - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
+  - evidence: test-run pass · `pnpm verify` exit 0 (тела ошибок сравниваются строго, мутант leakedRowId красный) · windows - · 9f99c943ad65c157d0a648d061486a635c56096e
 - [ ] Тест курсора: 120 записей с равным значением сортировки читаются страницами по 50 ровно по одному разу; неверный курсор — 400.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] Тест идемпотентности: повтор `POST` с тем же ключом и телом возвращает тот же ответ с `Idempotent-Replayed: true`, вторая сделка не создана; тот же ключ с другим телом — 422; 10 параллельных одинаковых запросов создают одну сделку; ответ 500 не сохранён; запись старше 24 часов удаляется задачей.
@@ -65,8 +66,11 @@ apps/api/src/http/** (ошибки, курсор, идемпотентность
   - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] `GET /api/v1/openapi.json` без входа отдаёт описание, которое проходит проверку валидатором OpenAPI 3.1; в нём нет маршрутов, недоступных ключу; страница `/api/v1/docs` открывается.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts -t docs` exit 0 (integrity, crossorigin, CSP) · windows - · 9f99c943ad65c157d0a648d061486a635c56096e
 - [ ] Клиент `apps/web` показывает ошибки и подгружает списки в новом формате (существующие тесты и `pnpm e2e` зелёные).
   - evidence: test-run pass · `pnpm e2e` exit 0, `pnpm --filter @alpi/web exec vitest run` exit 0 · windows - · 82baa11
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 82baa11
   - evidence: gate pass · `gate fast` exit 0 · windows - · 82baa11
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 9f99c943ad65c157d0a648d061486a635c56096e
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 9f99c943ad65c157d0a648d061486a635c56096e
