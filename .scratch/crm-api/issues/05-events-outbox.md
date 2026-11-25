@@ -1,7 +1,7 @@
 # События: запись в той же транзакции, что изменение, и каталог сделок и контактов
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T21:50Z
 Blocked by: 01
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «События», «Доставка», волна 2); .scratch/crm-build/issues/04-webhook-delivery-research.md (Answer); docs/research/webhook-delivery.md на ветке origin/research/webhook-delivery, разделы 1.2, 4.1, 4.2; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Событие», «Возможный дубль»); .scratch/crm-deals/issues/03-contacts-organizations.md, 04-jobs-bulk-trash.md, 05-deals.md, 09-deal-handover.md; .scratch/crm-api/spec.md
 

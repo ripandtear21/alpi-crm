@@ -3,6 +3,7 @@ import type { Kysely, Transaction } from 'kysely'
 import { fromKysely, PgBoss } from 'pg-boss'
 import type { BulkActionRegistry } from '../bulk/registry.ts'
 import { BULK_BATCH_SIZE, type BulkJobMessage, failBulkJob, runBulkJob } from '../bulk/runner.ts'
+import { attachEventQueue, detachEventQueue } from '../events/queue.ts'
 import { FIELD_PURGE_BATCH_SIZE, type FieldPurgeMessage, purgeField } from '../fields/purge.ts'
 import { FIELD_RETYPE_BATCH_SIZE, type FieldRetypeMessage, retypeField } from '../fields/retype.ts'
 import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
@@ -34,6 +35,9 @@ import { purgeIdempotencyRecords } from './idempotency-purge.ts'
 // - field-index — копия значений поля с отметкой «часто фильтруют» для быстрого фильтра
 //   (field-index.ts, тикет crm-fields/07). При старте задача ставится заново всем полям, у
 //   которых копия строится (отмеченные служебными скриптами, потерявшие задачу).
+// - webhook-fanout — рассылка события по подпискам (events/queue.ts, тикет crm-api/05): задачу
+//   ставит запись события той же транзакцией, что изменение; обработчик — доставка (тикет 06),
+//   до него задачи лежат в очереди.
 // Задачи по расписанию трогают только корзину, журнал входов и ответы Idempotency-Key и никогда
 // не меняют сделки (ADR 0003).
 
@@ -143,6 +147,8 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   await boss.createQueue(QUEUES.fieldRetype, { retryLimit: 5, retryDelay: 60, retryBackoff: true })
   // Ошибку построения задача пишет полю сама (failed) и не повторяется.
   await boss.createQueue(QUEUES.fieldIndex, { retryLimit: 2, retryDelay: 60 })
+  // Очередь событий: задачи ставит запись события (events/emit.ts), обработчик — тикет 06.
+  await attachEventQueue(boss)
 
   await boss.work<BulkJobMessage>(QUEUES.bulk, polling, async (batch) => {
     for (const job of batch) {
@@ -226,6 +232,39 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
         singletonKey: message.fieldId,
       })
     },
-    stop: () => boss.stop({ graceful: true, timeout: options.stopTimeoutMs ?? 30_000 }),
+    stop() {
+      detachEventQueue(boss)
+      return boss.stop({ graceful: true, timeout: options.stopTimeoutMs ?? 30_000 })
+    },
+  }
+}
+
+/**
+ * pg-boss только для постановки задач событий, без обработчиков и расписания: для процессов
+ * без фоновых задач (тесты API, testing/api-harness.ts). Остановка отключает очередь событий.
+ */
+export async function startEventQueue(
+  connectionString: string,
+): Promise<{ stop(): Promise<void> }> {
+  const boss = new PgBoss({
+    connectionString,
+    schema: PGBOSS_SCHEMA,
+    application_name: 'alpi-api-events',
+    max: 2,
+    migrate: false,
+    createSchema: false,
+    schedule: false,
+    supervise: false,
+  })
+  boss.on('error', (error) => {
+    console.error('pg-boss (события):', error)
+  })
+  await boss.start()
+  await attachEventQueue(boss)
+  return {
+    async stop() {
+      detachEventQueue(boss)
+      await boss.stop({ graceful: false, timeout: 5_000 })
+    },
   }
 }

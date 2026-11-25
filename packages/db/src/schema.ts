@@ -676,6 +676,25 @@ export interface IdempotencyRecordTable {
   created_at: Timestamp
 }
 
+/**
+ * Исходящее событие (migrations/0021_webhook_events.ts): пишется той же транзакцией, что
+ * изменение, только добавлением. Виден только в контексте своего проекта.
+ */
+export interface WebhookEventTable {
+  /** `evt_` и UUID. */
+  id: ColumnType<string, string, never>
+  project_id: ColumnType<string, string, never>
+  type: ColumnType<string, string, never>
+  occurred_at: ColumnType<Date, Date | string, never>
+  entity_type: ColumnType<string, string, never>
+  entity_id: ColumnType<string, string, never>
+  /** Тело события целиком: тип, время, data (packages/shared/src/events). */
+  body: ColumnType<Record<string, unknown>, string, never>
+  actor_type: ColumnType<'user' | 'api_key', 'user' | 'api_key', never>
+  actor_id: ColumnType<string, string, never>
+  created_at: ColumnType<Date, Date | string | undefined, never>
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -717,4 +736,5 @@ export interface Database {
   pipeline_card_field: PipelineCardFieldTable
   api_key: ApiKeyTable
   idempotency_record: IdempotencyRecordTable
+  webhook_event: WebhookEventTable
 }

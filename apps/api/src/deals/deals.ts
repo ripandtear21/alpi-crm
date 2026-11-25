@@ -22,6 +22,7 @@ import {
   UUID,
 } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
+import { emitDealChanges, emitDealCreated } from '../events/deal-events.ts'
 import { CUSTOM_HISTORY_PREFIX, visibleHistoryFields } from '../fields/access.ts'
 import {
   anyMissing,
@@ -81,7 +82,9 @@ import {
 //   любая другая смена ответственного (в том числе в очередь) — право «передача сделок»
 //   (`transfer_deals`), новый ответственный — в охвате изменения пользователя.
 // - Каждое действие меняет ровно названные в нём поля (ADR 0003): смена этапа не выигрывает
-//   сделку, выигрыш не двигает этап, сумму никто не пересчитывает, событий нет.
+//   сделку, выигрыш не двигает этап, сумму никто не пересчитывает.
+// - События (тикет crm-api/05, events/deal-events.ts) пишутся той же транзакцией сразу после
+//   записи изменения, по состоянию сделки до и после: только сообщают, ничего не меняют.
 // - «Одна открытая сделка у человека в воронке» держит база (частичный уникальный индекс):
 //   любой путь, дающий вторую, получает 409 OPEN_DEAL_EXISTS — store.ts, guardedWrite.
 // - Каждое изменение полей и участников пишется в change_log той же транзакцией.
@@ -355,8 +358,10 @@ async function applyChange(
       .execute(),
   )
   if (!written.ok) return written
-  const after = await dealView(ctx, await reloadDeal(ctx, row.id))
+  const updated = await reloadDeal(ctx, row.id)
+  const after = await dealView(ctx, updated)
   await recordChanges(ctx, { type: 'deal', id: row.id }, diffFields(before, after, LOGGED_FIELDS))
+  await emitDealChanges(ctx, row, updated)
   return ok(after)
 }
 
@@ -440,7 +445,9 @@ async function insertDeal(
   if (!inserted.ok) return inserted
   const id = inserted.value.id
   await finishCustom(ctx, { type: 'deal', id }, custom.value, { history: false })
-  return ok(await dealView(ctx, await reloadDeal(ctx, id)))
+  const row = await reloadDeal(ctx, id)
+  await emitDealCreated(ctx, row)
+  return ok(await dealView(ctx, row))
 }
 
 const CREATE_KEYS = [...FIELD_KEYS, 'pipelineId', 'stageId', 'contactId', 'contact']
@@ -882,7 +889,9 @@ async function takeDeal(ctx: DealContext, id: string): Promise<Result<DealView>>
   await recordChanges(ctx, { type: 'deal', id }, [
     { field: 'ownerId', before: null, after: ctx.actorId },
   ])
-  return ok(await dealView(ctx, await reloadDeal(ctx, id)))
+  const row = await reloadDeal(ctx, id)
+  await emitDealChanges(ctx, { ...row, owner_id: null }, row)
+  return ok(await dealView(ctx, row))
 }
 
 // ---- Корзина --------------------------------------------------------------------------------

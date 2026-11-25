@@ -52,6 +52,7 @@ export type {
   TwoFactorTable,
   UserTable,
   VerificationTable,
+  WebhookEventTable,
 } from './schema.ts'
 
 /** Подключение к PostgreSQL через пул `pg`. Закрывать — `db.destroy()`. */

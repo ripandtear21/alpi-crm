@@ -14,6 +14,7 @@ import { createRoute, type OpenAPIHono, type RouteConfig, z } from '@hono/zod-op
 import type { MiddlewareHandler } from 'hono'
 import { problem } from '../http/problem.ts'
 import { apiKeyRoute } from '../middleware/api-key.ts'
+import { eventWebhooks } from './events.ts'
 
 // Описание API `/api/v1` в формате OpenAPI 3.1, построенное из кода (тикет crm-api/02).
 //
@@ -29,6 +30,7 @@ import { apiKeyRoute } from '../middleware/api-key.ts'
 // - Общие части описания: формат ошибки (Problem), курсорная выдача (`limit`, `cursor`,
 //   `next_cursor`), `Idempotency-Key`, лимит запросов (429, заголовки RateLimit-*), схема
 //   безопасности `bearer`. Маршруты добавляют тикеты crm-api/03 и 04.
+// - События — раздел `webhooks`: тело каждого типа из каталога событий (openapi/events.ts).
 // - Примеры в описании — только выдуманные данные.
 
 /** Имя схемы безопасности: `Authorization: Bearer <секрет ключа API>`. */
@@ -194,7 +196,8 @@ const DESCRIPTION = `API Alpi CRM для внешней автоматизаци
 - **Ошибки** — RFC 9457 (\`application/problem+json\`): \`type\`, \`title\`, \`status\`, \`code\` (машинный код), \`errors\` (ошибки полей: \`field\` — путь в теле, \`code\`, \`message\`). Ответ 500 подробностей не раскрывает: \`code: INTERNAL\`.
 - **Списки** — курсорные: \`?limit=\` (1–${PAGE_LIMIT_MAX}, по умолчанию ${PAGE_LIMIT_DEFAULT}) и \`?cursor=\`; ответ \`{ "data": [...], "next_cursor": "…" | null }\`. Курсор непрозрачный; неверный курсор — 400.
 - **Повтор без дублей** — заголовок \`${IDEMPOTENCY_KEY_HEADER}\` (1–${IDEMPOTENCY_KEY_MAX_LENGTH} символов) у \`POST\` и \`PATCH\`. Повтор с тем же значением и тем же запросом в течение ${IDEMPOTENCY_RETENTION_HOURS} часов возвращает сохранённый ответ с \`${IDEMPOTENT_REPLAYED_HEADER}: true\`; то же значение с другим запросом — 422 \`IDEMPOTENCY_KEY_REUSED\`; запрос ещё выполняется — 409 \`IDEMPOTENCY_IN_PROGRESS\`. Ответы 5xx не сохраняются.
-- **Лимит** — ${API_KEY_RATE_LIMIT} запросов в минуту на ключ; сверх — 429 \`RATE_LIMITED\` с \`Retry-After\`. В каждом ответе — \`RateLimit-Limit\`, \`RateLimit-Remaining\`, \`RateLimit-Reset\`.`
+- **Лимит** — ${API_KEY_RATE_LIMIT} запросов в минуту на ключ; сверх — 429 \`RATE_LIMITED\` с \`Retry-After\`. В каждом ответе — \`RateLimit-Limit\`, \`RateLimit-Remaining\`, \`RateLimit-Reset\`.
+- **События** — CRM отправляет на адрес автоматизации события о сделках и контактах (раздел \`webhooks\`). В теле — тип, время и \`data\`: id события, проекта и записи, факты изменения и автор (\`actor\`: пользователь или ключ API, только тип и id). Событие от запроса вашего ключа называет автором этот ключ — по нему автоматизация пропускает свои же изменения.`
 
 /**
  * Описание OpenAPI 3.1 маршрутов `app` (приложение `/v1`): только маршруты, объявленные через
@@ -208,11 +211,20 @@ export function v1Document(app: OpenAPIHono<any, any, any>) {
     scheme: 'bearer',
     description: 'Секрет ключа API проекта (`alpi_…`)',
   })
-  return app.getOpenAPI31Document({
+  const document = app.getOpenAPI31Document({
     openapi: '3.1.0',
     info: { title: 'Alpi CRM API', version: '1', description: DESCRIPTION },
     servers: [{ url: '/api/v1' }],
   })
+  const events = eventWebhooks()
+  return {
+    ...document,
+    webhooks: events.webhooks,
+    components: {
+      ...document.components,
+      schemas: { ...document.components?.schemas, ...events.schemas },
+    },
+  }
 }
 
 /**

@@ -2,6 +2,7 @@ import type { RolePermissions } from './permissions.ts'
 
 export * from './api-keys/index.ts'
 export * from './audit.ts'
+export * from './events/index.ts'
 export * from './fields/index.ts'
 export * from './filters/index.ts'
 export * from './http.ts'
