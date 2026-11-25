@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createProject } from '@alpi/db'
-import { normalizePhone } from '@alpi/shared'
+import { createProject, PROJECT_PRESETS } from '@alpi/db'
+import { type FieldType, normalizeFieldValue, normalizePhone } from '@alpi/shared'
 import { type SqlBool, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildSeedPlan, FRANCH_PRICED_FROM_STAGE } from '../seed/plan.ts'
@@ -58,6 +58,9 @@ describe('pnpm seed', () => {
     'deal_participant',
     'deal_product',
     'external_link',
+    'field_group',
+    'field_definition',
+    'field_option',
   ] as const
 
   async function counts() {
@@ -252,6 +255,74 @@ describe('pnpm seed', () => {
         .execute()
       expect(participants.length).toBeGreaterThan(0)
       expect(participants.every((p) => p.role !== null)).toBe(true)
+
+      // Стартовые поля ALPI (тикет crm-fields/08) и выдуманные значения у части сделок ALPI;
+      // у «Франча» полей нет.
+      const fields = await h.owner
+        .selectFrom('field_definition')
+        .select(['id', 'project_id', 'code', 'type', 'first_value_at'])
+        .where('project_id', 'in', [alpi, franch])
+        .execute()
+      expect(fields.filter((f) => f.project_id === franch)).toEqual([])
+      const alpiFields = fields.filter((f) => f.project_id === alpi)
+      expect(alpiFields.map((f) => f.code).sort()).toEqual(
+        PROJECT_PRESETS.alpi.fields.map((f) => f.code).sort(),
+      )
+      const options = await h.owner
+        .selectFrom('field_option')
+        .select(['id', 'field_id'])
+        .where('project_id', '=', alpi)
+        .execute()
+      const projectUsers = new Map(members.map((m) => [m.id, { disabled: false }]))
+      const customs = await h.owner
+        .selectFrom('deal')
+        .select(['id', 'custom'])
+        .where('project_id', '=', alpi)
+        .execute()
+      const filled = customs.filter((d) => Object.keys(d.custom).length > 0)
+      expect(filled.length).toBeGreaterThan(customs.length / 10)
+      expect(filled.length).toBeLessThan(customs.length)
+      // Каждое значение проходит проверку значений тикета crm-fields/02, как при записи через API.
+      const used = new Set<string>()
+      for (const deal of filled) {
+        for (const [code, value] of Object.entries(deal.custom)) {
+          const field = alpiFields.find((f) => f.code === code)
+          if (!field) throw new Error(`значение незаведённого поля ${code}`)
+          used.add(code)
+          const rules = {
+            type: field.type as FieldType,
+            options: options
+              .filter((o) => o.field_id === field.id)
+              .map((o) => ({ id: o.id, archivedAt: null })),
+          }
+          expect(normalizeFieldValue(rules, value, { users: projectUsers }), code).toEqual({
+            ok: true,
+            value,
+          })
+        }
+      }
+      // Значения есть у каждого поля сделки; first_value_at — ровно у полей со значениями.
+      const dealCodes = PROJECT_PRESETS.alpi.fields
+        .filter((f) => f.entity === 'deal')
+        .map((f) => f.code)
+      expect([...used].sort()).toEqual(dealCodes.sort())
+      expect(
+        alpiFields
+          .filter((f) => f.first_value_at !== null)
+          .map((f) => f.code)
+          .sort(),
+      ).toEqual([...used].sort())
+      // Похоже на работу менеджера: у выигранных сделок ALPI заполнены поля, обязательные при
+      // выигрыше в этой воронке.
+      const requiredOnWin = PROJECT_PRESETS.alpi.fields
+        .filter((f) => f.required?.some((r) => r.pipeline === 'alpi'))
+        .map((f) => f.code)
+      const wonIds = new Set(main.filter((d) => d.status === 'won').map((d) => d.id))
+      const wonCustoms = customs.filter((d) => wonIds.has(d.id))
+      expect(wonCustoms.length).toBeGreaterThan(0)
+      for (const deal of wonCustoms) {
+        expect(Object.keys(deal.custom)).toEqual(expect.arrayContaining(requiredOnWin))
+      }
 
       const credentials = await readCredentials(credentialsFile)
       expect(credentials.map((c) => c.email).sort()).toEqual(members.map((m) => m.email).sort())
@@ -610,8 +681,42 @@ describe('pnpm seed', () => {
         .deleteFrom('product')
         .where('id', 'in', [handProduct.id, lonelyProduct.id])
         .execute()
+      // Поле, заведённое руками, держит проект seed, как воронка не из настройки.
+      const dealGroup = await h.owner
+        .selectFrom('field_group')
+        .select('id')
+        .where('project_id', '=', alpi)
+        .where('entity', '=', 'deal')
+        .executeTakeFirstOrThrow()
+      const handField = await h.owner
+        .insertInto('field_definition')
+        .values({
+          project_id: alpi,
+          entity: 'deal',
+          group_id: dealGroup.id,
+          code: 'ruchne_pole',
+          name_uk: 'Ручне поле',
+          type: 'text',
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      expect(await runSeed(deps, ['--reset'])).toBe(0)
+      expect(await projectId('alpi')).toBe(alpi)
+      await h.owner.deleteFrom('field_definition').where('id', '=', handField.id).execute()
+      // Поля стартовой настройки со значениями (first_value_at) уходят вместе с проектом.
+      expect(
+        await h.owner
+          .selectFrom('field_definition')
+          .select('id')
+          .where('project_id', '=', alpi)
+          .where('first_value_at', 'is not', null)
+          .execute(),
+      ).not.toEqual([])
       expect(await runSeed(deps, ['--reset'])).toBe(0)
       expect(await projectId('alpi')).toBeUndefined()
+      for (const table of ['field_group', 'field_definition', 'field_option'] as const) {
+        expect(await h.owner.selectFrom(table).select('id').execute(), table).toEqual([])
+      }
       expect(await projectId('franch')).toBeUndefined()
       expect(await projectId('hand-made')).toBe(other.id)
       expect(

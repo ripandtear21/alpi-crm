@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { applyProjectPreset, createProject, type Database, PROJECT_PRESETS } from '@alpi/db'
+import { type FieldType, type FieldValue, normalizeFieldValue } from '@alpi/shared'
 import { type Kysely, type SqlBool, sql, type Transaction } from 'kysely'
-import type { ProjectPlan } from './plan.ts'
+import type { PlannedFieldValue, ProjectPlan } from './plan.ts'
 
 // Запись тестовых данных служебной ролью (владелец таблиц) — напрямую в таблицы, а не через
 // API: 5 000 сделок запросами по одной шли бы минуты, а функции API принимают контекст запроса
@@ -12,6 +13,10 @@ import type { ProjectPlan } from './plan.ts'
 // Каждая созданная запись помечена внешней ссылкой external_link с системой `seed` и ключом из
 // плана: по ней повторный запуск находит созданное и досоздаёт только недостающее, а --reset
 // удаляет только помеченное.
+//
+// Пользовательские поля заводит стартовая настройка (applyProjectPreset, тикет crm-fields/08);
+// значения полей у части сделок ALPI пишутся в `custom` при вставке сделки и уходят вместе со
+// сделкой, поля — вместе с проектом.
 
 export const SEED_SOURCE = 'seed'
 
@@ -355,7 +360,10 @@ export async function writeProject(
       .orderBy('r.position')
       .execute()
 
+    const customOf = await customResolver(db, pid, userId)
+
     const deals = await ensure(db, pid, 'deal', plan.deals, async (rows) => {
+      const custom = new Map(rows.map(({ id, item }) => [id, customOf(item.custom)]))
       const inserted = await db
         .insertInto('deal')
         .values(
@@ -389,6 +397,7 @@ export async function writeProject(
               created_at: item.createdAt,
               updated_at: item.stageChangedAt,
               created_by: ownerId ?? adminId,
+              custom: JSON.stringify(custom.get(id)?.values ?? {}),
             }
           }),
         )
@@ -399,6 +408,17 @@ export async function writeProject(
         .execute()
       const done = new Set(inserted.map((r) => r.id))
       const kept = rows.filter((r) => done.has(r.id))
+      // Первое значение поля ставит ему first_value_at, как запись значений через API
+      // (apps/api/src/fields/values.ts, finishCustom): после него код поля не меняется.
+      const filled = [...new Set(kept.flatMap((r) => custom.get(r.id)?.fieldIds ?? []))]
+      if (filled.length > 0) {
+        await db
+          .updateTable('field_definition')
+          .set({ first_value_at: sql`now()` })
+          .where('id', 'in', filled)
+          .where('first_value_at', 'is', null)
+          .execute()
+      }
       // Участники и строки товаров тоже помечены: --reset отличает их от добавленных руками.
       const participants = kept.flatMap(({ id, item }) =>
         item.participants.map((p, n) => ({
@@ -466,6 +486,74 @@ export async function writeProject(
       skippedDeals: plan.deals.length - deals.ids.size,
     }
   })
+}
+
+/**
+ * Переводит значения полей сделки из плана в `custom`: вариант — в id по названию, пользователь —
+ * в id; каждое значение проверяет packages/shared/src/fields/values.ts, как при записи через API.
+ * Поле, которого в проекте нет (администратор удалил, переименовал код, отправил в архив), и
+ * вариант, которого нет среди действующих, пропускаются: seed не спорит с правками руками.
+ */
+async function customResolver(db: Trx, pid: string, userId: (key: string) => string) {
+  const fields = await db
+    .selectFrom('field_definition')
+    .select(['id', 'code', 'type'])
+    .where('project_id', '=', pid)
+    .where('entity', '=', 'deal')
+    .where('archived_at', 'is', null)
+    .where('purge_requested_at', 'is', null)
+    .where('converting_to', 'is', null)
+    .execute()
+  const options = await db
+    .selectFrom('field_option')
+    .select(['id', 'field_id', 'name_uk', 'archived_at'])
+    .where('project_id', '=', pid)
+    .orderBy('position')
+    .execute()
+  const members = await db
+    .selectFrom('project_member')
+    .select(['user_id', 'disabled_at'])
+    .where('project_id', '=', pid)
+    .execute()
+  const users = new Map(members.map((m) => [m.user_id, { disabled: m.disabled_at !== null }]))
+  const byCode = new Map(fields.map((f) => [f.code, f]))
+
+  return (planned: Record<string, PlannedFieldValue>) => {
+    const values: Record<string, FieldValue> = {}
+    const fieldIds: string[] = []
+    for (const [code, value] of Object.entries(planned)) {
+      const field = byCode.get(code)
+      if (!field) continue
+      const fieldOptions = options.filter((o) => o.field_id === field.id)
+      let raw: unknown
+      if (value.kind === 'option') {
+        raw = fieldOptions.find((o) => o.name_uk === value.name && o.archived_at === null)?.id
+        if (raw === undefined) continue
+      } else if (value.kind === 'user') {
+        raw = userId(value.userKey)
+      } else {
+        raw = value.value
+      }
+      const result = normalizeFieldValue(
+        {
+          type: field.type as FieldType,
+          options: fieldOptions.map((o) => ({
+            id: o.id,
+            archivedAt: o.archived_at === null ? null : 'archived',
+          })),
+        },
+        raw,
+        { users },
+      )
+      if (!result.ok) {
+        throw new Error(`значение поля ${code} не проходит проверку типа: ${result.problem}`)
+      }
+      if (result.value === null) continue
+      values[code] = result.value
+      fieldIds.push(field.id)
+    }
+    return { values, fieldIds }
+  }
 }
 
 export interface ResetOutcome {
@@ -593,7 +681,7 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
 /**
  * Есть ли в проекте записи, созданные не командой seed: сделки, контакты, организации, товары,
  * заметки, файлы, массовые операции; участники проекта, команды, строки товаров и участники
- * сделок без пометки seed; свои роли и воронки
+ * сделок без пометки seed; свои роли, воронки и пользовательские поля
  * не из стартовой настройки. Сам проект seed помечен ссылкой только тогда, когда его создал seed.
  */
 async function hasHandMadeData(db: Trx, pid: string): Promise<boolean> {
@@ -606,6 +694,9 @@ async function hasHandMadeData(db: Trx, pid: string): Promise<boolean> {
     .executeTakeFirst()
   if (!projectLink) return true
   const presetCodes = Object.values(PROJECT_PRESETS).flatMap((p) => p.pipelines.map((x) => x.code))
+  const presetFieldCodes = Object.values(PROJECT_PRESETS).flatMap((p) =>
+    p.fields.map((x) => x.code),
+  )
   const unmarked = (table: 'project_member' | 'team' | 'deal_product' | 'deal_participant') => sql`
     exists (select 1 from ${sql.table(table)} t where t.project_id = ${pid} and not exists (
       select 1 from external_link l
@@ -624,6 +715,10 @@ async function hasHandMadeData(db: Trx, pid: string): Promise<boolean> {
       or exists (select 1 from role where project_id = ${pid} and template_key is null)
       or exists (
         select 1 from pipeline where project_id = ${pid} and not (code = any(${presetCodes}::text[]))
+      )
+      or exists (
+        select 1 from field_definition
+        where project_id = ${pid} and not (code = any(${presetFieldCodes}::text[]))
       )
       or ${unmarked('project_member')}
       or ${unmarked('team')}

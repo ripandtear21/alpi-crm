@@ -5,6 +5,12 @@ import type { Database } from './schema.ts'
 export { APP_GROUP_ROLE, assertRestrictedRole, ensureAppLoginRole } from './app-role.ts'
 export { FAILED_SIGN_IN_RETENTION_DAYS, purgeExpiredFailedSignIns } from './audit.ts'
 export { createMigrator, migrateToLatest } from './migrate.ts'
+export type {
+  FieldGroupPreset,
+  FieldPreset,
+  FieldPresetEntity,
+  FieldRequiredRulePreset,
+} from './presets/alpi-fields.ts'
 export {
   applyProjectPreset,
   isPresetKey,
@@ -13,6 +19,7 @@ export {
   type PresetKey,
   type PresetResult,
   type ProjectPreset,
+  presetCreatedAnything,
 } from './presets/project-preset.ts'
 export { createProject, withProject } from './project.ts'
 export type {
