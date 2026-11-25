@@ -6,6 +6,12 @@ import { BULK_BATCH_SIZE, type BulkJobMessage, failBulkJob, runBulkJob } from '.
 import { FIELD_PURGE_BATCH_SIZE, type FieldPurgeMessage, purgeField } from '../fields/purge.ts'
 import { FIELD_RETYPE_BATCH_SIZE, type FieldRetypeMessage, retypeField } from '../fields/retype.ts'
 import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
+import {
+  buildFieldIndex,
+  FIELD_INDEX_BATCH_SIZE,
+  type FieldIndexMessage,
+  pendingFieldIndexes,
+} from './field-index.ts'
 
 // Фоновые задачи на pg-boss (тикет crm-deals/04). Обработчик работает в процессе API (решено без
 // владельца, подтвердить; отдельный процесс — эпик эксплуатации) и ходит в базу той же ролью
@@ -21,7 +27,10 @@ import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
 // - field-purge — окончательное удаление пользовательского поля по запросу администратора
 //   (fields/purge.ts): ключ поля уходит из `custom` записей порциями, потом описание;
 // - field-retype — смена типа поля с данными по запросу администратора (fields/retype.ts):
-//   значения в `custom` переписываются порциями, потом поле получает новый тип.
+//   значения в `custom` переписываются порциями, потом поле получает новый тип;
+// - field-index — копия значений поля с отметкой «часто фильтруют» для быстрого фильтра
+//   (field-index.ts, тикет crm-fields/07). При старте задача ставится заново всем полям, у
+//   которых копия строится (отмеченные служебными скриптами, потерявшие задачу).
 // Задачи по расписанию трогают только корзину и журнал входов и никогда не меняют сделки
 // (ADR 0003).
 
@@ -40,6 +49,7 @@ export const QUEUES = {
   signInPurge: 'failed-sign-in-purge',
   fieldPurge: 'field-purge',
   fieldRetype: 'field-retype',
+  fieldIndex: 'field-index',
 } as const
 
 /** Время расписания — киевское: ночью, когда в CRM никто не работает. */
@@ -64,6 +74,8 @@ export interface JobsOptions {
   fieldPurgeBatchSize?: number
   /** Записей в порции смены типа поля; по умолчанию FIELD_RETYPE_BATCH_SIZE. */
   fieldRetypeBatchSize?: number
+  /** Записей в порции копии «часто фильтруют»; по умолчанию FIELD_INDEX_BATCH_SIZE. */
+  fieldIndexBatchSize?: number
   /** Повторов массовой операции; по умолчанию BULK_RETRY_LIMIT. Тесты ставят 0. */
   bulkRetryLimit?: number
   /** Как часто опрашивать очередь, с; по умолчанию — как у pg-boss. Тесты ставят 0.5. */
@@ -82,6 +94,8 @@ export interface Jobs {
   enqueueFieldPurge(trx: Transaction<Database>, message: FieldPurgeMessage): Promise<void>
   /** Ставит смену типа поля с данными в очередь той же транзакцией проекта, что её запросила. */
   enqueueFieldRetype(trx: Transaction<Database>, message: FieldRetypeMessage): Promise<void>
+  /** Ставит построение копии «часто фильтруют» той же транзакцией проекта, что отметила поле. */
+  enqueueFieldIndex(trx: Transaction<Database>, message: FieldIndexMessage): Promise<void>
   /** Перестаёт брать задачи и дожидается текущих (не дольше stopTimeoutMs). Повторный вызов — тот же. */
   stop(): Promise<void>
 }
@@ -121,6 +135,8 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   await boss.createQueue(QUEUES.signInPurge, { retryLimit: 3, retryDelay: 15 * 60 })
   await boss.createQueue(QUEUES.fieldPurge, { retryLimit: 5, retryDelay: 60, retryBackoff: true })
   await boss.createQueue(QUEUES.fieldRetype, { retryLimit: 5, retryDelay: 60, retryBackoff: true })
+  // Ошибку построения задача пишет полю сама (failed) и не повторяется.
+  await boss.createQueue(QUEUES.fieldIndex, { retryLimit: 2, retryDelay: 60 })
 
   await boss.work<BulkJobMessage>(QUEUES.bulk, polling, async (batch) => {
     for (const job of batch) {
@@ -157,6 +173,18 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
       )
     }
   })
+  await boss.work<FieldIndexMessage>(QUEUES.fieldIndex, polling, async (batch) => {
+    for (const job of batch) {
+      await buildFieldIndex(
+        options.db,
+        job.data,
+        options.fieldIndexBatchSize ?? FIELD_INDEX_BATCH_SIZE,
+      )
+    }
+  })
+  for (const message of await pendingFieldIndexes(options.db)) {
+    await boss.send(QUEUES.fieldIndex, message, { singletonKey: message.fieldId })
+  }
   if (schedule) {
     await boss.schedule(QUEUES.trashPurge, TRASH_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.signInPurge, SIGN_IN_PURGE_CRON, null, { tz: TIMEZONE })
@@ -178,6 +206,12 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
     },
     async enqueueFieldRetype(trx, message) {
       await boss.send(QUEUES.fieldRetype, message, {
+        db: fromKysely(trx),
+        singletonKey: message.fieldId,
+      })
+    },
+    async enqueueFieldIndex(trx, message) {
+      await boss.send(QUEUES.fieldIndex, message, {
         db: fromKysely(trx),
         singletonKey: message.fieldId,
       })

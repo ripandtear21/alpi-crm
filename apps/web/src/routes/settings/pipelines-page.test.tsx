@@ -170,6 +170,78 @@ describe('экран воронок', () => {
   })
 })
 
+describe('поля на карточке канбана в настройках воронки', () => {
+  const field = (id: string, code: string, pipelines: 'all' | string[] = 'all') =>
+    ({
+      id,
+      entity: 'deal',
+      groupId: '00000000-0000-4000-9700-000000009999',
+      code,
+      type: 'text',
+      nameUk: `Поле ${code}`,
+      nameRu: null,
+      position: 1,
+      pipelines,
+      required: { mode: 'none' },
+      isImportant: false,
+      isFrequentlyFiltered: false,
+      firstValueAt: null,
+      convertingTo: null,
+      archivedAt: null,
+      purgeRequestedAt: null,
+      options: [],
+    }) as unknown as FakePipelinesApi['dealFieldList'][number]
+
+  it('до трёх полей, видимых в воронке; выбор сохраняется у воронки', async () => {
+    const api = fakePipelinesApi()
+    const alpi = api.pipelines[0]?.id ?? ''
+    api.dealFieldList = [
+      field('00000000-0000-4000-9700-000000000001', 'city'),
+      field('00000000-0000-4000-9700-000000000002', 'vip'),
+      field('00000000-0000-4000-9700-000000000003', 'other', [
+        '00000000-0000-4000-9700-00000000ffff',
+      ]),
+    ]
+    api.cardFieldIds = { [alpi]: ['00000000-0000-4000-9700-000000000002'] }
+    await renderAt('/settings/pipelines', { api })
+    const form = await screen.findByRole('form', { name: 'Поля на картці канбану: ALPI' })
+    const slots = within(form).getAllByRole('combobox') as HTMLSelectElement[]
+    expect(slots).toHaveLength(3)
+    expect(slots[0]?.value).toBe('00000000-0000-4000-9700-000000000002')
+    // Поле другой воронки не предлагается.
+    expect(
+      within(slots[1] as HTMLElement)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['— немає —', 'Поле city', 'Поле vip'])
+    fireEvent.change(slots[1] as HTMLElement, {
+      target: { value: '00000000-0000-4000-9700-000000000001' },
+    })
+    fireEvent.click(within(form).getByRole('button', { name: 'Зберегти поля картки' }))
+    expect(await within(form).findByText('Поля картки збережено.')).toBeTruthy()
+    expect(api.cardFieldIds[alpi]).toEqual([
+      '00000000-0000-4000-9700-000000000002',
+      '00000000-0000-4000-9700-000000000001',
+    ])
+  })
+
+  it('отказ API показан сообщением', async () => {
+    const api = fakePipelinesApi()
+    api.dealFieldList = [field('00000000-0000-4000-9700-000000000001', 'city')]
+    await renderAt('/settings/pipelines', { api })
+    const form = await screen.findByRole('form', { name: 'Поля на картці канбану: ALPI' })
+    api.dealFieldList = []
+    const [slot] = within(form).getAllByRole('combobox')
+    fireEvent.change(slot as HTMLElement, {
+      target: { value: '00000000-0000-4000-9700-000000000001' },
+    })
+    fireEvent.click(within(form).getByRole('button', { name: 'Зберегти поля картки' }))
+    expect((await within(form).findByRole('alert')).textContent).toBe(
+      'Поле недоступне в цій воронці або приховане від вас.',
+    )
+  })
+})
+
 describe('экран причин проигрыша', () => {
   it('группа с причинами; новая причина; архив причины; порядок групп', async () => {
     const api = await renderAt('/settings/lost-reasons')

@@ -1,6 +1,12 @@
-import type { PipelineSummary, StageSummary } from '@alpi/shared'
+import {
+  type FieldDefinitionSummary,
+  fieldName,
+  KANBAN_CARD_FIELDS_LIMIT,
+  type PipelineSummary,
+  type StageSummary,
+} from '@alpi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   projectQueryKey,
@@ -24,7 +30,7 @@ import { RolesApiError } from './roles-api.ts'
 // сменить код и отметку «воронка допродажу», переставить кнопками, отправить воронку в архив,
 // удалить этап (после подтверждения; этап с открытыми сделками API не удалит). Смотреть может
 // каждый с правом «сделки: смотреть», менять — право «воронки и этапы»: отказ API показывается
-// сообщением.
+// сообщением. У каждой воронки — до 3 полей сделки на карточке канбана (тикет crm-fields/07).
 
 export function PipelinesPage({ api }: { api: PipelinesApi }) {
   const { t } = useTranslation('settings')
@@ -46,6 +52,11 @@ function PipelinesEditor({ api, projectId }: { api: PipelinesApi; projectId: str
   const queryClient = useQueryClient()
   const key = projectQueryKey(projectId, 'pipelines')
   const pipelines = useQuery({ queryKey: key, queryFn: () => api.list(projectId), retry: false })
+  const dealFields = useQuery({
+    queryKey: projectQueryKey(projectId, 'pipelines', 'deal-fields'),
+    queryFn: () => api.dealFields(projectId),
+    retry: false,
+  })
   const [notice, setNotice] = useState<Notice>(null)
 
   const change = useMutation({
@@ -102,6 +113,14 @@ function PipelinesEditor({ api, projectId }: { api: PipelinesApi; projectId: str
             run(() => api.reorderStages(projectId, pipeline.id, stageIds))
           }
           onDeleteStage={(stageId) => run(() => api.removeStage(projectId, pipeline.id, stageId))}
+          cardFields={
+            <CardFieldsForm
+              api={api}
+              projectId={projectId}
+              pipeline={pipeline}
+              fields={dealFields.data ?? []}
+            />
+          }
         />
       ))}
       <CreatePipelineForm
@@ -123,6 +142,7 @@ function PipelineCard({
   onRenameStage,
   onReorderStages,
   onDeleteStage,
+  cardFields,
 }: {
   pipeline: PipelineSummary
   index: number
@@ -134,6 +154,8 @@ function PipelineCard({
   onRenameStage: (stageId: string, name: string) => void
   onReorderStages: (ids: string[]) => void
   onDeleteStage: (stageId: string) => void
+  /** Выбор полей карточки канбана воронки. */
+  cardFields?: ReactNode
 }) {
   const { t } = useTranslation('settings')
   const archived = pipeline.archivedAt !== null
@@ -191,6 +213,7 @@ function PipelineCard({
         pending={pending}
         onAdd={onAddStage}
       />
+      {cardFields}
     </article>
   )
 }
@@ -369,6 +392,138 @@ function CreatePipelineForm({
       <Button size="sm" type="submit" variant="primary" disabled={pending}>
         {t('pipelines.create')}
       </Button>
+    </form>
+  )
+}
+
+/** Номера мест для полей карточки канбана: 1…3. */
+const SLOT_NUMBERS = Array.from({ length: KANBAN_CARD_FIELDS_LIMIT }, (_, i) => i + 1)
+
+/** Поле сделки показывается в воронке: не в архиве и «во всех воронках» или в этой. */
+function shownInPipeline(field: FieldDefinitionSummary, pipelineId: string): boolean {
+  return (
+    field.archivedAt === null &&
+    field.purgeRequestedAt === null &&
+    (field.pipelines === 'all' || field.pipelines.includes(pipelineId))
+  )
+}
+
+/**
+ * Поля на карточке канбана воронки (тикет crm-fields/07): до трёх полей сделки, видимых в этой
+ * воронке, по порядку. Четвёртое API не примет (422); поле, которое скрыто или убрано в архив,
+ * с карточки пропадает само.
+ */
+function CardFieldsForm({
+  api,
+  projectId,
+  pipeline,
+  fields,
+}: {
+  api: PipelinesApi
+  projectId: string
+  pipeline: PipelineSummary
+  fields: readonly FieldDefinitionSummary[]
+}) {
+  const { t, i18n } = useTranslation('settings')
+  const queryClient = useQueryClient()
+  const key = projectQueryKey(projectId, 'pipelines', 'card-fields', pipeline.id)
+  const current = useQuery({
+    queryKey: key,
+    queryFn: () => api.cardFields(projectId, pipeline.id),
+    retry: false,
+  })
+  const eligible = fields.filter((field) => shownInPipeline(field, pipeline.id))
+  if (current.isPending || current.isError || eligible.length === 0) return null
+  return (
+    <CardFieldSlots
+      key={current.data.fieldIds.join('|')}
+      pipeline={pipeline}
+      eligible={eligible}
+      initial={current.data.fieldIds}
+      language={i18n.language === 'ru' ? 'ru' : 'uk'}
+      title={t('pipelines.cardFields.title')}
+      onSave={async (fieldIds) => {
+        const saved = await api.setCardFields(projectId, pipeline.id, fieldIds)
+        await queryClient.invalidateQueries({ queryKey: key })
+        return saved
+      }}
+    />
+  )
+}
+
+function CardFieldSlots({
+  pipeline,
+  eligible,
+  initial,
+  language,
+  title,
+  onSave,
+}: {
+  pipeline: PipelineSummary
+  eligible: readonly FieldDefinitionSummary[]
+  initial: readonly string[]
+  language: 'uk' | 'ru'
+  title: string
+  onSave: (fieldIds: string[]) => Promise<unknown>
+}) {
+  const { t } = useTranslation('settings')
+  const [slots, setSlots] = useState<string[]>(() =>
+    Array.from({ length: KANBAN_CARD_FIELDS_LIMIT }, (_, index) => initial[index] ?? ''),
+  )
+  const [notice, setNotice] = useState<Notice>(null)
+  const [pending, setPending] = useState(false)
+  return (
+    <form
+      className="directory__settings"
+      aria-label={`${title}: ${pipeline.name}`}
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault()
+        setNotice(null)
+        setPending(true)
+        const fieldIds = [...new Set(slots.filter((id) => id !== ''))]
+        onSave(fieldIds)
+          .then(() => setNotice({ kind: 'status', text: t('pipelines.cardFields.saved') }))
+          .catch((error: unknown) => {
+            const code = error instanceof RolesApiError ? error.code : ''
+            setNotice({
+              kind: 'alert',
+              text: t(`pipelines.cardFields.errors.${code}` as 'pipelines.cardFields.failed', {
+                defaultValue: t('pipelines.cardFields.failed'),
+              }),
+            })
+          })
+          .finally(() => setPending(false))
+      }}
+    >
+      <fieldset>
+        <legend>{title}</legend>
+        <p className="directory__hint">{t('pipelines.cardFields.hint')}</p>
+        {SLOT_NUMBERS.map((n) => (
+          <label key={n}>
+            {t('pipelines.cardFields.slot', { n })}{' '}
+            <select
+              className="ui-input ui-input--sm"
+              value={slots[n - 1] ?? ''}
+              onChange={(event) =>
+                setSlots((current) =>
+                  current.map((slot, i) => (i === n - 1 ? event.target.value : slot)),
+                )
+              }
+            >
+              <option value="">{t('pipelines.cardFields.none')}</option>
+              {eligible.map((field) => (
+                <option key={field.id} value={field.id}>
+                  {fieldName(field, language)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </fieldset>
+      <Button size="sm" type="submit" disabled={pending}>
+        {t('pipelines.cardFields.save')}
+      </Button>
+      <NoticeLine notice={notice} />
     </form>
   )
 }

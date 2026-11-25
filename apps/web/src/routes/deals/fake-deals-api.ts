@@ -1,4 +1,9 @@
-import type { FilterGroup, LostReasonGroupSummary, PipelineSummary } from '@alpi/shared'
+import type {
+  FieldDefinitionSummary,
+  FilterGroup,
+  LostReasonGroupSummary,
+  PipelineSummary,
+} from '@alpi/shared'
 import {
   type BoardDeal,
   type ContactOption,
@@ -34,6 +39,10 @@ export interface FakeDealsCall {
 
 export interface FakeDealsApi extends DealsApi {
   deals: BoardDeal[]
+  /** Пользовательские поля сделки (тикет crm-fields/07). */
+  customFields: FieldDefinitionSummary[]
+  /** Поля карточки канбана по воронкам. */
+  cardFieldIds: Record<string, string[]>
   calls: FakeDealsCall[]
   failNext: DealsApiError | null
   pageSize: number
@@ -132,14 +141,31 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
     owner: OwnerFilter | undefined,
     filter: FilterGroup | undefined,
   ): boolean {
-    if (filter && !matchesFilter('deals', { archivedAt: null, ...deal }, filter)) return false
+    if (
+      filter &&
+      !matchesFilter('deals', { archivedAt: null, ...deal }, filter, api.customFields)
+    ) {
+      return false
+    }
     if (owner === undefined) return true
     if (owner === 'none') return deal.ownerId === null
     return deal.ownerId === (owner === 'me' ? FAKE_ME.id : owner)
   }
 
+  /** Как выдача канбана API: в `custom` только поля карточки воронки. */
+  function onCard(deal: BoardDeal): BoardDeal {
+    const ids = api.cardFieldIds[deal.pipelineId] ?? []
+    const codes = new Set(api.customFields.filter((f) => ids.includes(f.id)).map((f) => f.code))
+    const custom = Object.fromEntries(
+      Object.entries(deal.custom ?? {}).filter(([code]) => codes.has(code)),
+    )
+    return { ...deal, custom }
+  }
+
   const api: FakeDealsApi = {
     deals,
+    customFields: [],
+    cardFieldIds: {},
     calls: [],
     failNext: null,
     pageSize: 50,
@@ -160,6 +186,12 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
     async owners() {
       return [FAKE_ME, FAKE_COLLEAGUE]
     },
+    async fields() {
+      return api.customFields.filter((f) => f.archivedAt === null)
+    },
+    async cardFields(_projectId, pipelineId) {
+      return { fieldIds: api.cardFieldIds[pipelineId] ?? [] }
+    },
     async stagePage(_projectId, { pipelineId, stageId, owner, filter, cursor }) {
       if (filter) api.calls.push({ action: 'stagePage', value: filter })
       const column = api.deals.filter(
@@ -169,7 +201,7 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
       const items = column.slice(start, start + api.pageSize)
       const next = start + api.pageSize
       return {
-        items: structuredClone(items),
+        items: structuredClone(items.map(onCard)),
         nextCursor: next < column.length ? String(next) : null,
       }
     },

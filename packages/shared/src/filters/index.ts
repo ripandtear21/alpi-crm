@@ -11,8 +11,23 @@
 //                    { field: 'createdAt', op: 'lt', value: '2026-11-01T00:00:00.000Z' } ] },
 //           { field: 'owner', op: 'empty' } ] }
 //
-// Пользовательские поля, регистрации и «следующая задача» добавят их эпики — новыми полями в
-// FILTER_FIELDS.
+// Пользовательские поля (тикет crm-fields/07) — условия `custom.<id>` (filters/custom.ts):
+// parseFilter принимает их по каталогу полей, которые пользователь видит. Регистрации и
+// «следующая задача» добавят их эпики — новыми полями в FILTER_FIELDS.
+
+import {
+  type CustomFilterField,
+  customFieldKey,
+  customOperators,
+  customSortable,
+  findCustomField,
+  parseCustomRef,
+  readCustomValue,
+} from './custom.ts'
+import { FILTER_LIMITS } from './limits.ts'
+
+export * from './custom.ts'
+export * from './limits.ts'
 
 /** Списки, у которых есть фильтры. */
 export const FILTER_ENTITIES = ['deals', 'contacts', 'organizations'] as const
@@ -51,6 +66,8 @@ export const FILTER_OPERATORS = [
   'contains',
   'empty',
   'not_empty',
+  /** Между [от, до] включительно (пользовательские поля). */
+  'between',
 ] as const
 export type FilterOperator = (typeof FILTER_OPERATORS)[number]
 
@@ -114,7 +131,7 @@ export const FILTER_FIELDS = {
 
 export type FilterField<E extends FilterEntity> = keyof (typeof FILTER_FIELDS)[E] & string
 
-export type FilterValue = string | number | boolean | readonly string[]
+export type FilterValue = string | number | boolean | readonly string[] | readonly number[]
 
 export interface FilterCondition {
   field: string
@@ -129,23 +146,14 @@ export type FilterNode = FilterCondition | FilterGroup
 /** Пустой фильтр: все записи (архивные сделки скрыты). */
 export const EMPTY_FILTER: FilterGroup = { and: [] }
 
-/** Пределы фильтра: защита базы от огромных запросов. */
-export const FILTER_LIMITS = {
-  /** Глубина вложенности групп (корень — 1). */
-  depth: 3,
-  /** Условий во всём дереве. */
-  conditions: 50,
-  /** Значений в списке in / not_in. */
-  listValues: 200,
-  /** Длина текстового значения. */
-  text: 200,
-  /** Наибольшее число (сумма сделки — numeric(14, 2)). */
-  number: 999_999_999_999,
-} as const
-
 export interface FilterError {
   path: string
   message: string
+  /**
+   * Условие по пользовательскому полю, которого нет в каталоге: неизвестный код, поле скрытой
+   * группы, архивное. API отвечает на это 422 CUSTOM_FIELD_UNKNOWN, как на запись в такое поле.
+   */
+  unknownCustomField?: string
 }
 
 export type FilterParseResult =
@@ -211,7 +219,11 @@ function readScalar(spec: FilterFieldSpec, value: unknown): string | number | bo
  * списки без повторов. Неизвестное поле, оператор не своего типа или значение не той формы —
  * ошибка с путём, а не молча отброшенное условие.
  */
-export function parseFilter(entity: FilterEntity, input: unknown): FilterParseResult {
+export function parseFilter(
+  entity: FilterEntity,
+  input: unknown,
+  custom: readonly CustomFilterField[] = [],
+): FilterParseResult {
   const fields: Record<string, FilterFieldSpec> = FILTER_FIELDS[entity]
   let conditions = 0
   let error: FilterError | null = null
@@ -253,6 +265,28 @@ export function parseFilter(entity: FilterEntity, input: unknown): FilterParseRe
     conditions += 1
     if (conditions > FILTER_LIMITS.conditions) return fail(path, 'слишком много условий')
     const { field, op } = value
+    const ref = typeof field === 'string' ? parseCustomRef(field) : null
+    if (ref) {
+      const found = findCustomField(custom, ref.key)
+      if (!found) {
+        error ??= {
+          path: `${path}.field`,
+          message: 'неизвестное поле',
+          unknownCustomField: String(field),
+        }
+        return null
+      }
+      const operator = op as FilterOperator
+      if (typeof op !== 'string' || !customOperators(found.type, ref.part).includes(operator)) {
+        return fail(`${path}.op`, 'оператор не подходит к полю')
+      }
+      const read = readCustomValue(found.type, operator, value.value)
+      if (!read.ok) return fail(`${path}.value`, read.message)
+      const canonical = customFieldKey(found.id, ref.part)
+      return read.value === undefined
+        ? { field: canonical, op: operator }
+        : { field: canonical, op: operator, value: read.value }
+    }
     if (typeof field !== 'string' || !Object.hasOwn(fields, field)) {
       return fail(`${path}.field`, 'неизвестное поле')
     }
@@ -345,20 +379,94 @@ export const SORTABLE_COLUMNS = {
 } as const satisfies { [E in FilterEntity]: readonly ListColumn<E>[] }
 
 export type SortableColumn<E extends FilterEntity> = (typeof SORTABLE_COLUMNS)[E][number]
+/** Колонка пользовательского поля: `custom.<id>`. */
+export type CustomColumn = `custom.${string}`
 export type SortDirection = 'asc' | 'desc'
 
 export interface ListSort<E extends FilterEntity> {
-  column: SortableColumn<E>
+  column: SortableColumn<E> | CustomColumn
   direction: SortDirection
 }
 
-/** Сортировка из параметра `sort=<колонка>:<asc|desc>`; null — не годится. */
-export function parseSort<E extends FilterEntity>(entity: E, raw: string): ListSort<E> | null {
+/**
+ * Сортировка из параметра `sort=<колонка>:<asc|desc>`; null — не годится. Пользовательское поле
+ * (`custom.<id|код>`) — из каталога `custom`, кроме «несколько вариантов» (customSortable);
+ * в ответе — `custom.<id>`.
+ */
+export function parseSort<E extends FilterEntity>(
+  entity: E,
+  raw: string,
+  custom: readonly CustomFilterField[] = [],
+): ListSort<E> | null {
   const [column, direction, ...rest] = raw.split(':')
   if (rest.length > 0 || (direction !== 'asc' && direction !== 'desc')) return null
+  if (column === undefined) return null
+  const ref = parseCustomRef(column)
+  if (ref) {
+    const found = findCustomField(custom, ref.key)
+    if (!found || ref.part || !customSortable(found.type)) return null
+    return { column: customFieldKey(found.id) as CustomColumn, direction }
+  }
   const columns: readonly string[] = SORTABLE_COLUMNS[entity]
-  if (column === undefined || !columns.includes(column)) return null
+  if (!columns.includes(column)) return null
   return { column: column as SortableColumn<E>, direction }
+}
+
+/**
+ * Колонки списка из перечня `raw` (выгрузка: `columns=a,b,c`): системные — из LIST_COLUMNS,
+ * пользовательские — `custom.<id|код>` из каталога `custom` (в ответе — `custom.<id>`).
+ * Повторы убираются. Пустой перечень, незнакомая колонка — `{ ok: false }`; пользовательское
+ * поле не из каталога — ещё и `unknownCustomField` (API отвечает 422, как на неизвестный код).
+ */
+export function parseColumns(
+  entity: FilterEntity,
+  raw: readonly string[],
+  custom: readonly CustomFilterField[] = [],
+): { ok: true; columns: string[] } | { ok: false; unknownCustomField?: string } {
+  const known: readonly string[] = LIST_COLUMNS[entity]
+  const columns: string[] = []
+  for (const column of raw) {
+    const ref = parseCustomRef(column)
+    const found = ref && !ref.part ? findCustomField(custom, ref.key) : undefined
+    if (ref && !found) return { ok: false, unknownCustomField: column }
+    if (!ref && !known.includes(column)) return { ok: false }
+    const key = found ? customFieldKey(found.id) : column
+    if (!columns.includes(key)) columns.push(key)
+  }
+  return columns.length === 0 ? { ok: false } : { ok: true, columns }
+}
+
+/**
+ * Фильтр без условий по пользовательским полям, которых нет в каталоге `custom` (поле в архиве,
+ * удалено или скрыто от того, кто открыл фильтр): так открывается сохранённый фильтр —
+ * условие не применяется, интерфейс показывает «умова недоступна» (решено без владельца,
+ * подтвердить). `removed` — сколько условий убрано.
+ */
+export function withoutUnavailable(
+  filter: FilterGroup,
+  custom: readonly CustomFilterField[],
+): { filter: FilterGroup; removed: number } {
+  let removed = 0
+  const keep = (group: FilterGroup): FilterGroup => {
+    const { op, items } = groupParts(group)
+    const kept: FilterNode[] = []
+    for (const item of items) {
+      if (isFilterGroup(item)) {
+        // Вложенная группа, у которой убрали все условия, уходит целиком: пустая группа
+        // в базе — «истина», и внутри «или» она расширила бы выборку до всех записей.
+        const before = removed
+        const child = keep(item)
+        if (removed === before || groupParts(child).items.length > 0) kept.push(child)
+        continue
+      }
+      const ref = parseCustomRef(item.field)
+      if (ref && !findCustomField(custom, ref.key)) removed += 1
+      else kept.push(item)
+    }
+    return op === 'and' ? { and: kept } : { or: kept }
+  }
+  const result = keep(filter)
+  return { filter: result, removed }
 }
 
 /**
@@ -388,8 +496,24 @@ export interface SavedFilterSummary {
   /** Команда фильтра с видимостью team. */
   teamId: string | null
   ownerId: string
+  /** Условия, которые пользователь может применить (withoutUnavailable). */
   filter: FilterGroup
+  /** Сколько условий не применяется: поле в архиве, удалено или скрыто — «умова недоступна». */
+  unavailableConditions: number
   /** Может ли пользователь удалить фильтр. */
   canDelete: boolean
   createdAt: string
+}
+
+// ---- Карточка канбана -------------------------------------------------------------------------
+
+/** Сколько пользовательских полей показывает карточка канбана (тикет crm-fields/07). */
+export const KANBAN_CARD_FIELDS_LIMIT = 3
+
+/**
+ * Поля сделки на карточке канбана воронки (`/v1/pipelines/:id/card-fields`): id по порядку.
+ * В ответе — только действующие поля, видимые в воронке и роли того, кто спрашивает.
+ */
+export interface KanbanCardFields {
+  fieldIds: string[]
 }

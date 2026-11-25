@@ -1,8 +1,8 @@
 import {
+  type CustomFilterField,
   DEFAULT_LIST_COLUMNS,
   type FilterEntity,
-  LIST_COLUMNS,
-  type ListColumn,
+  parseColumns,
 } from '@alpi/shared'
 
 // Выгрузка списков в CSV (тикет crm-deals/12): текущие колонки и фильтр списка, с охватом
@@ -39,16 +39,22 @@ export function csvRow(values: readonly CsvValue[]): string {
   return `${values.map(csvCell).join(',')}\r\n`
 }
 
-/** Колонки выгрузки из параметра `columns=a,b,c`; нет параметра — колонки по умолчанию. */
-export function readColumns<E extends FilterEntity>(
-  entity: E,
+/**
+ * Колонки выгрузки из параметра `columns=a,b,c`; нет параметра — колонки по умолчанию.
+ * Пользовательские поля — `custom.<id|код>` из каталога `custom` (тикет crm-fields/07); поле не
+ * из каталога — `unknownCustomField` (ответ 422 CUSTOM_FIELD_UNKNOWN).
+ */
+export function readColumns(
+  entity: FilterEntity,
   raw: string | undefined,
-): ListColumn<E>[] | null {
-  if (raw === undefined) return [...DEFAULT_LIST_COLUMNS[entity]]
-  const known: readonly string[] = LIST_COLUMNS[entity]
-  const columns = [...new Set(raw.split(',').filter((column) => column !== ''))]
-  if (columns.length === 0 || !columns.every((column) => known.includes(column))) return null
-  return columns as ListColumn<E>[]
+  custom: readonly CustomFilterField[] = [],
+): { ok: true; columns: string[] } | { ok: false; unknownCustomField?: string } {
+  if (raw === undefined) return { ok: true, columns: [...DEFAULT_LIST_COLUMNS[entity]] }
+  return parseColumns(
+    entity,
+    raw.split(',').filter((column) => column !== ''),
+    custom,
+  )
 }
 
 export function readLanguage(raw: string | undefined): ExportLanguage | null {
@@ -110,8 +116,13 @@ const HEADERS: Record<ExportLanguage, Record<string, string>> = {
   },
 }
 
-export function csvHeader(columns: readonly string[], language: ExportLanguage): string {
-  return csvRow(columns.map((column) => HEADERS[language][column] ?? column))
+/** Строка заголовков; `extra` — заголовки колонок пользовательских полей (export/custom.ts). */
+export function csvHeader(
+  columns: readonly string[],
+  language: ExportLanguage,
+  extra: Record<string, string> = {},
+): string {
+  return csvRow(columns.map((column) => extra[column] ?? HEADERS[language][column] ?? column))
 }
 
 /** Статусы сделки по языкам. */

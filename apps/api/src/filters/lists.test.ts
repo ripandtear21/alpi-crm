@@ -344,7 +344,8 @@ describe('списки и фильтры', () => {
           }
         }
       }
-      expect([...seen].sort()).toEqual([...FILTER_OPERATORS].sort())
+      // «Между» — только у пользовательских полей (filters/custom-fields.test.ts).
+      expect([...seen].sort()).toEqual(FILTER_OPERATORS.filter((op) => op !== 'between').sort())
       // 'me' у поля-пользователя — id того, кто смотрит, тоже параметром.
       const me = h.appDb
         .selectFrom('deal')

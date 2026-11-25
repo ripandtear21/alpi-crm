@@ -4,6 +4,7 @@ import { recordInRequest } from '../audit/record.ts'
 import { type Ctx, fail, refuse } from '../contacts/http.ts'
 import { type BoardDeal, decodeCursor, listDealsPage, readDealsQuery } from '../deals/board.ts'
 import { dealContext } from '../deals/store.ts'
+import type { CatalogField } from '../filters/custom.ts'
 import {
   type CsvValue,
   csvHeader,
@@ -18,11 +19,18 @@ import {
   STATUS_LABELS,
   UTF8_BOM,
 } from './csv.ts'
+import {
+  type CustomNames,
+  customCell,
+  customColumnField,
+  customHeaders,
+  loadCustomNames,
+} from './custom.ts'
 
 // Выгрузка списка сделок: `GET /v1/deals/export.csv` с теми же параметрами, что у списка
 // (filter, sort, pipeline, status, archived…), плюс columns=a,b,c и lang=uk|ru. Строки берёт
 // та же функция выдачи, что у списка и канбана (deals/board.ts, listDealsPage), — значит, и тот
-// же охват.
+// же охват. Колонки пользовательских полей — `custom.<id|код>` (export/custom.ts).
 
 interface Names {
   pipelines: Map<string, string>
@@ -45,7 +53,10 @@ function dealCell(
   column: string,
   names: Names,
   language: ExportLanguage,
+  custom: { fields: readonly CatalogField[]; names: CustomNames },
 ): CsvValue {
+  const field = customColumnField(column, custom.fields)
+  if (field) return customCell(field, deal.custom[field.code], custom.names, language)
   switch (column) {
     case 'title':
       return deal.title
@@ -89,15 +100,24 @@ function dealCell(
  */
 export async function exportDeals(c: Ctx, rootDb: Kysely<Database>): Promise<Response> {
   const ctx = await dealContext(c)
-  const query = readDealsQuery(c, ctx)
+  const query = await readDealsQuery(c, ctx)
   if (!query.ok) return fail(c, query)
-  const chosen = readColumns('deals', c.req.query('columns'))
-  if (!chosen) return fail(c, refuse(400, 'INVALID_DEAL', { path: 'columns' }))
+  const { filters, sort, cursor: start } = query.value
+  const catalog = filters.custom ?? []
+  const chosen = readColumns('deals', c.req.query('columns'), catalog)
+  if (!chosen.ok) {
+    return fail(
+      c,
+      chosen.unknownCustomField === undefined
+        ? refuse(400, 'INVALID_DEAL', { path: 'columns' })
+        : refuse(422, 'CUSTOM_FIELD_UNKNOWN', { field: chosen.unknownCustomField }),
+    )
+  }
   const lang = readLanguage(c.req.query('lang'))
   if (!lang) return fail(c, refuse(400, 'INVALID_DEAL', { path: 'lang' }))
-  const columns: readonly string[] = chosen
+  const columns: readonly string[] = chosen.columns
   const language: ExportLanguage = lang
-  const { filters, sort, cursor: start } = query.value
+  const customFields = catalog.filter((field) => columns.includes(`custom.${field.id}`))
   const names = await loadNames(ctx.db)
   await recordInRequest(c, {
     action: 'export.downloaded',
@@ -113,23 +133,28 @@ export async function exportDeals(c: Ctx, rootDb: Kysely<Database>): Promise<Res
 
   const { projectId } = ctx
   async function* rows(): AsyncGenerator<string> {
-    yield UTF8_BOM + csvHeader(columns, language)
+    yield UTF8_BOM + csvHeader(columns, language, customHeaders(columns, catalog, language))
     let cursor = start
     while (true) {
-      const page = await withProject(rootDb, projectId, (trx) =>
-        listDealsPage({ ...ctx, db: trx }, filters, {
+      const { page, customNames } = await withProject(rootDb, projectId, async (trx) => {
+        const page = await listDealsPage({ ...ctx, db: trx }, filters, {
           limit: EXPORT_BATCH,
           sort,
           ...(cursor ? { cursor } : {}),
-        }),
-      )
+        })
+        const values = page.items.map((deal) => deal.custom)
+        return { page, customNames: await loadCustomNames(trx, customFields, values) }
+      })
+      const custom = { fields: customFields, names: customNames }
       if (page.items.length > 0) {
         yield page.items
-          .map((deal) => csvRow(columns.map((column) => dealCell(deal, column, names, language))))
+          .map((deal) =>
+            csvRow(columns.map((column) => dealCell(deal, column, names, language, custom))),
+          )
           .join('')
       }
       if (page.nextCursor === null) return
-      cursor = decodeCursor(page.nextCursor, sort)
+      cursor = decodeCursor(page.nextCursor, sort, catalog)
       if (!cursor) throw new Error('выгрузка: курсор своей же страницы не разобрался')
     }
   }

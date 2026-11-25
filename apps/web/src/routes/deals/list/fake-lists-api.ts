@@ -1,4 +1,6 @@
 import {
+  FILTER_FIELD_ENTITY,
+  type FieldDefinitionSummary,
   type FilterEntity,
   type FilterGroup,
   type FilterNode,
@@ -7,6 +9,7 @@ import {
   isFilterGroup,
   mentionsField,
   type PipelineSummary,
+  parseCustomRef,
   type RolePermissions,
   type SavedFilterSummary,
 } from '@alpi/shared'
@@ -117,6 +120,8 @@ export interface FakeListsCall {
 export interface FakeListsApi extends ListsApi {
   rows: { deals: DealRow[]; contacts: ContactRow[]; organizations: OrganizationRow[] }
   saved: SavedFilterSummary[]
+  /** Пользовательские поля всех сущностей (отдаются по сущности, без архивных). */
+  customFields: FieldDefinitionSummary[]
   trashItems: TrashItem[]
   calls: FakeListsCall[]
   permissions: RolePermissions
@@ -128,8 +133,27 @@ export interface FakeListsApi extends ListsApi {
   failNext: ListsApiError | null
 }
 
-/** Значение строки для поля фильтра. */
-function fieldValue(entity: FilterEntity, row: Record<string, unknown>, field: string): unknown {
+/** Значение строки для поля фильтра; `custom.<id>[.start|.end]` — из `custom` строки. */
+function fieldValue(
+  entity: FilterEntity,
+  row: Record<string, unknown>,
+  field: string,
+  custom: readonly FieldDefinitionSummary[] = [],
+): unknown {
+  const ref = parseCustomRef(field)
+  if (ref) {
+    const definition = custom.find((f) => f.id === ref.key || f.code === ref.key)
+    const value = definition
+      ? (row.custom as Record<string, unknown> | undefined)?.[definition.code]
+      : undefined
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const parts = value as { amount?: unknown; from?: unknown; to?: unknown }
+      if (ref.part === 'start') return parts.from
+      if (ref.part === 'end') return parts.to
+      return parts.amount
+    }
+    return value
+  }
   if (entity === 'deals') {
     const map: Record<string, unknown> = {
       pipeline: row.pipelineId,
@@ -148,38 +172,54 @@ function fieldValue(entity: FilterEntity, row: Record<string, unknown>, field: s
   return row[field]
 }
 
+/** Числа сравниваются как числа, остальное — как строки. */
+function compare(value: unknown, target: unknown): number {
+  if (typeof value === 'number' && typeof target === 'number') return value - target
+  return String(value).localeCompare(String(target))
+}
+
 /** Подходит ли строка под фильтр (подставные клиенты списка и канбана). */
 export function matchesFilter(
   entity: FilterEntity,
   row: Record<string, unknown>,
   node: FilterNode,
+  custom: readonly FieldDefinitionSummary[] = [],
 ): boolean {
   if (isFilterGroup(node)) {
     const { op, items } = groupParts(node)
     if (items.length === 0) return true
     return op === 'and'
-      ? items.every((item) => matchesFilter(entity, row, item))
-      : items.some((item) => matchesFilter(entity, row, item))
+      ? items.every((item) => matchesFilter(entity, row, item, custom))
+      : items.some((item) => matchesFilter(entity, row, item, custom))
   }
-  const value = fieldValue(entity, row, node.field)
+  const value = fieldValue(entity, row, node.field, custom)
   const target = node.value === 'me' ? LIST_ME.id : node.value
+  const many = Array.isArray(value) ? (value as unknown[]) : [value]
   switch (node.op) {
     case 'eq':
       return value === target
     case 'neq':
       return value !== target
     case 'in':
-      return Array.isArray(target) && target.includes(value as string)
+      return Array.isArray(target) && many.some((v) => (target as unknown[]).includes(v))
     case 'not_in':
-      return Array.isArray(target) && !target.includes(value as string)
+      return Array.isArray(target) && !many.some((v) => (target as unknown[]).includes(v))
+    case 'between': {
+      if (!Array.isArray(target) || value === null || value === undefined) return false
+      const [from, to] = target as (string | number)[]
+      return (
+        (from as string | number) <= (value as string | number) &&
+        (value as string | number) <= (to as string | number)
+      )
+    }
     case 'lt':
-      return String(value) < String(target)
+      return compare(value, target) < 0
     case 'lte':
-      return String(value) <= String(target)
+      return compare(value, target) <= 0
     case 'gt':
-      return String(value) > String(target)
+      return compare(value, target) > 0
     case 'gte':
-      return String(value) >= String(target)
+      return compare(value, target) >= 0
     case 'contains':
       return String(value ?? '')
         .toLowerCase()
@@ -199,6 +239,7 @@ export function fakeListsApi(
   const api: FakeListsApi = {
     rows: { deals: [], contacts: [], organizations: [], ...initial },
     saved: [],
+    customFields: [],
     trashItems: [],
     calls: [],
     permissions,
@@ -218,6 +259,9 @@ export function fakeListsApi(
     async lostReasons() {
       return []
     },
+    async fields(_projectId, entity) {
+      return api.customFields.filter((f) => f.entity === entity && f.archivedAt === null)
+    },
     async page<E extends FilterEntity>(
       _projectId: string,
       entity: E,
@@ -229,18 +273,21 @@ export function fakeListsApi(
     ) {
       api.calls.push({ method: 'page', entity, value: query })
       const [column = '', direction] = query.sort.split(':')
+      const custom = api.customFields.filter((f) => f.entity === FILTER_FIELD_ENTITY[entity])
+      const sortValue = (row: Record<string, unknown>) =>
+        parseCustomRef(column) ? fieldValue(entity, row, column, custom) : row[column]
       const filter =
         entity === 'deals' && !mentionsField(query.filter, 'archived')
           ? { and: [query.filter, { field: 'archived', op: 'eq' as const, value: false }] }
           : query.filter
       const rows = (api.rows[entity] as unknown as Record<string, unknown>[])
-        .filter((row) => matchesFilter(entity, row, filter))
+        .filter((row) => matchesFilter(entity, row, filter, custom))
         .sort((a, b) => {
-          const left = String(a[column] ?? '')
-          const right = String(b[column] ?? '')
+          const left = String(sortValue(a) ?? '')
+          const right = String(sortValue(b) ?? '')
           const order =
-            typeof a[column] === 'number'
-              ? (a[column] as number) - (b[column] as number)
+            typeof sortValue(a) === 'number' && typeof sortValue(b) === 'number'
+              ? (sortValue(a) as number) - (sortValue(b) as number)
               : left.localeCompare(right)
           return direction === 'desc' ? -order : order
         })
@@ -280,6 +327,7 @@ export function fakeListsApi(
         ownerId: LIST_ME.id,
         canDelete: true,
         createdAt: new Date().toISOString(),
+        unavailableConditions: 0,
       }
       api.saved.push(saved)
       return saved

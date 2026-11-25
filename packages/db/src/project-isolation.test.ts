@@ -30,6 +30,7 @@ const migrationNames = [
   '0015_search',
   '0016_fields',
   '0017_field_values',
+  '0018_field_filters',
 ]
 
 const tablesOfMigration = [
@@ -81,6 +82,9 @@ const tablesOfMigration = [
   'field_pipeline',
   'field_required_stage',
   'field_option',
+  // 0018_field_filters
+  'custom_value',
+  'pipeline_card_field',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -329,6 +333,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'contact', rls: true, policies: 1 },
         { table: 'contact_email', rls: true, policies: 1 },
         { table: 'contact_phone', rls: true, policies: 1 },
+        { table: 'custom_value', rls: true, policies: 1 },
         { table: 'deal', rls: true, policies: 1 },
         { table: 'deal_participant', rls: true, policies: 1 },
         { table: 'deal_product', rls: true, policies: 1 },
@@ -344,6 +349,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'note', rls: true, policies: 1 },
         { table: 'organization', rls: true, policies: 1 },
         { table: 'pipeline', rls: true, policies: 1 },
+        { table: 'pipeline_card_field', rls: true, policies: 1 },
         { table: 'product', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },

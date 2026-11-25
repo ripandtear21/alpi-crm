@@ -6,10 +6,12 @@ import {
   groupParts,
   isFilterGroup,
   mentionsField,
+  parseCustomRef,
   parseFilter,
 } from '@alpi/shared'
 import { type RawBuilder, type SqlBool, sql } from 'kysely'
 import { likePattern } from '../contacts/http.ts'
+import { type CatalogField, compileCustomCondition, type RecordTable } from './custom.ts'
 
 // Построитель условий фильтра (тикет crm-deals/12): дерево формата packages/shared/src/filters
 // → условие WHERE. Одна функция на список, канбан, счётчик, выгрузку и массовые действия.
@@ -18,6 +20,8 @@ import { likePattern } from '../contacts/http.ts'
 // FIELD_SQL, и в запрос идёт столбец, записанный здесь в коде. Оператор — тоже из белого
 // списка: каждый оператор — своя ветка switch с готовым текстом SQL. Значения — только
 // параметрами запроса ($1, $2…), с явным приведением типа. sql.raw здесь не используется.
+// Пользовательские поля (`custom.<id>`, тикет crm-fields/07) — по каталогу того, кто смотрит
+// (filters/custom.ts): код поля тоже идёт параметром.
 
 /** Как сравнивать значения поля: тип базы, к которому приводится параметр. */
 type Cast = 'uuid' | 'text' | 'numeric' | 'timestamptz'
@@ -86,6 +90,18 @@ const FIELD_SQL: { [E in FilterEntity]: Record<string, FieldSql> } = {
 /** Для кого строится фильтр: значение 'me' у поля-пользователя — это он. */
 export interface FilterViewer {
   actorId: string
+  /**
+   * Пользовательские поля, которые он видит (loadFilterCatalog): по ним проверены условия
+   * `custom.<id>`. Нет — в фильтре таких условий быть не может.
+   */
+  custom?: readonly CatalogField[]
+}
+
+/** Таблица списка в запросе. */
+const RECORD_TABLE: Record<FilterEntity, RecordTable> = {
+  deals: 'deal',
+  contacts: 'contact',
+  organizations: 'organization',
 }
 
 const TRUE = sql<SqlBool>`true`
@@ -95,6 +111,13 @@ function compileCondition(
   condition: FilterCondition,
   viewer: FilterViewer,
 ): RawBuilder<SqlBool> {
+  const ref = parseCustomRef(condition.field)
+  if (ref) {
+    const custom = viewer.custom?.find((f) => f.id === ref.key)
+    // parseFilter с тем же каталогом пропускает только его поля и приводит ссылку к id.
+    if (!custom) throw new Error(`поле фильтра ${condition.field} не из каталога`)
+    return compileCustomCondition(RECORD_TABLE[entity], custom, condition, viewer.actorId)
+  }
   const field = FIELD_SQL[entity][condition.field]
   // parseFilter пропускает только поля из FILTER_FIELDS; расхождение каталога и этой таблицы —
   // ошибка кода, а не запроса.
@@ -129,6 +152,8 @@ function compileCondition(
       return sql<SqlBool>`(${column} is null)`
     case 'not_empty':
       return sql<SqlBool>`(${column} is not null)`
+    case 'between':
+      throw new Error(`оператор between у системного поля ${entity}.${condition.field}`)
   }
 }
 
@@ -177,10 +202,23 @@ const MAX_FILTER_PARAM = 20_000
 
 export type FilterParam =
   | { ok: true; filter: FilterGroup | undefined }
-  | { ok: false; path: string; message: string }
+  | {
+      ok: false
+      path: string
+      message: string
+      /** Пользовательское поле не из каталога: ответ 422 CUSTOM_FIELD_UNKNOWN. */
+      unknownCustomField?: string
+    }
 
-/** Фильтр из параметра запроса `filter` (JSON); нет параметра — undefined. */
-export function readFilterParam(entity: FilterEntity, raw: string | undefined): FilterParam {
+/**
+ * Фильтр из параметра запроса `filter` (JSON); нет параметра — undefined. Условия по
+ * пользовательским полям — из каталога `custom` того, кто смотрит.
+ */
+export function readFilterParam(
+  entity: FilterEntity,
+  raw: string | undefined,
+  custom: readonly CatalogField[] = [],
+): FilterParam {
   if (raw === undefined) return { ok: true, filter: undefined }
   if (raw.length > MAX_FILTER_PARAM) {
     return { ok: false, path: 'filter', message: 'слишком длинный фильтр' }
@@ -191,12 +229,15 @@ export function readFilterParam(entity: FilterEntity, raw: string | undefined): 
   } catch {
     return { ok: false, path: 'filter', message: 'фильтр — не JSON' }
   }
-  const parsed = parseFilter(entity, value)
+  const parsed = parseFilter(entity, value, custom)
   if (!parsed.ok) {
     return {
       ok: false,
       path: parsed.error.path ? `filter${parsed.error.path}` : 'filter',
       message: parsed.error.message,
+      ...(parsed.error.unknownCustomField === undefined
+        ? {}
+        : { unknownCustomField: parsed.error.unknownCustomField }),
     }
   }
   return { ok: true, filter: parsed.filter }

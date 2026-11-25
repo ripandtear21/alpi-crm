@@ -188,3 +188,37 @@
     scrollbar-width: none;
   }
 }
+
+/* Поля карточки канбана (тикет crm-fields/07): до 3 значений под карточкой сделки. */
+.kanban-card {
+  display: grid;
+}
+
+.kanban-card__fields {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 6px 12px 8px;
+  border-radius: 0 0 var(--r-chip) var(--r-chip);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 12px;
+}
+
+.kanban-card__field {
+  display: flex;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.kanban-card__field dt {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.kanban-card__field dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

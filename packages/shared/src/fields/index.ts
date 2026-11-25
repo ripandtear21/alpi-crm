@@ -254,7 +254,17 @@ export interface FieldDefinitionSummary extends FieldNames {
   purgeRequestedAt: string | null
   /** Варианты по порядку, вместе с архивными (только у типов со списком). */
   options: FieldOptionSummary[]
+  /**
+   * Ускорение «часто фильтруют» (тикет 07): building — строится фоновой задачей, ready — готово,
+   * failed — ошибка (текст в indexError); null — поле не отмечено. API отдаёт всегда.
+   */
+  indexState?: FieldIndexState | null
+  /** Текст ошибки построения при indexState 'failed'. */
+  indexError?: string | null
 }
+
+/** Состояние ускорения «часто фильтруют» у поля. */
+export type FieldIndexState = 'building' | 'ready' | 'failed'
 
 /** Варианты, которые предлагаются для нового значения: без архивных. */
 export function offeredOptions(field: Pick<FieldDefinitionSummary, 'options'>) {

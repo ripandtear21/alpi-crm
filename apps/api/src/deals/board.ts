@@ -1,10 +1,12 @@
 import type { Database } from '@alpi/db'
 import { type FilterGroup, type ListCount, type ListSort, parseSort } from '@alpi/shared'
 import { type Expression, type ExpressionBuilder, type SqlBool, sql } from 'kysely'
-import { type Ctx, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
+import type { ContactsErrorCode } from '../contacts/contacts.ts'
+import { type Ctx, type Outcome, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { compileDealFilter, readFilterParam } from '../filters/compile.ts'
+import { type CatalogField, catalogFor, listSortKey, unknownCustomSort } from '../filters/custom.ts'
 import {
   afterPosition,
   countRows,
@@ -16,8 +18,9 @@ import {
   textKey,
   timeKey,
 } from '../filters/page.ts'
+import { loadCardFields } from '../pipelines/card-fields.ts'
 import { dealInScope, ownerInScope } from './scope.ts'
-import type { DealContext, DealCurrency, DealStatus, Result } from './store.ts'
+import type { DealContext, DealCurrency, DealStatus, DealsErrorCode } from './store.ts'
 
 // Выдача сделок для канбана и агрегаты его колонок (тикет crm-deals/11).
 //
@@ -34,8 +37,13 @@ import type { DealContext, DealCurrency, DealStatus, Result } from './store.ts'
 //   filter=<JSON>      дерево условий фильтра (packages/shared/src/filters, тикет 12) — то же
 //                      для списка, канбана, агрегатов, счётчика, выгрузки и массовых действий;
 //                      без условия на архив архивные скрыты, если archived=any;
-//   sort=<колонка>:<asc|desc>  сортировка списка (title, amount, createdAt, stageChangedAt),
-//                      по умолчанию stageChangedAt:desc.
+//   sort=<колонка>:<asc|desc>  сортировка списка (title, amount, createdAt, stageChangedAt
+//                      или пользовательское поле `custom.<id|код>`), по умолчанию
+//                      stageChangedAt:desc;
+//   view=kanban        выдача канбана (нужен pipeline): `custom` — только поля карточки канбана
+//                      этой воронки (pipelines/card-fields.ts, тикет crm-fields/07).
+// Условие, сортировка или колонка по пользовательскому полю, которого пользователь не видит
+// (скрытая группа, архив, неизвестный код), — 422 CUSTOM_FIELD_UNKNOWN (filters/custom.ts).
 // Ответ — { items: BoardDeal[], nextCursor: string | null }; null — страниц больше нет.
 // Порядок — (stage_changed_at desc, id desc); курсор — непрозрачная строка base64url с
 // временем смены этапа (до микросекунд) и id последней сделки страницы: следующая страница
@@ -120,12 +128,20 @@ export interface DealFilters {
   archived: (typeof ARCHIVED_FILTERS)[number]
   /** Фильтр списка (тикет 12), уже проверенный parseFilter. */
   filter?: FilterGroup
+  /**
+   * Пользовательские поля, которые видит пользователь (filters/custom.ts): по ним проверены
+   * условия фильтра и сортировка `custom.<id>`.
+   */
+  custom?: readonly CatalogField[]
 }
 
 /** Кто смотрит: охват сделок и id пользователя (значение «я» в фильтре). */
 export type DealViewer = Pick<DealContext, 'actorId' | 'scope' | 'viewer'>
 
+type Result<T> = Outcome<T, DealsErrorCode | ContactsErrorCode | 'CUSTOM_FIELD_UNKNOWN'>
+
 const invalid = (path: string) => refuse(400, 'INVALID_DEAL', { path })
+const unknownField = (field: string) => refuse(422, 'CUSTOM_FIELD_UNKNOWN', { field })
 
 function oneOf<T extends string>(values: readonly T[], raw: string | undefined, fallback: T) {
   if (raw === undefined) return fallback
@@ -138,8 +154,20 @@ function readUuidParam(c: Ctx, name: string): Result<string | undefined> {
   return UUID.test(raw) ? ok(raw.toLowerCase()) : invalid(name)
 }
 
+/** Пользовательские поля сделок для фильтра, сортировки и колонок запроса (если упомянуты). */
+function dealCatalog(c: Ctx, ctx: Pick<DealContext, 'db' | 'permissions'>) {
+  return catalogFor(
+    ctx.db,
+    ctx.permissions,
+    'deal',
+    c.req.query('filter'),
+    c.req.query('sort'),
+    c.req.query('columns'),
+  )
+}
+
 /** Фильтры из параметров запроса; `pipelineId` маршрута агрегатов передаёт вызывающий. */
-function readFilters(c: Ctx, ctx: DealViewer): Result<DealFilters> {
+async function readFilters(c: Ctx, ctx: DealContext): Promise<Result<DealFilters>> {
   const pipeline = readUuidParam(c, 'pipeline')
   if (!pipeline.ok) return pipeline
   const stage = readUuidParam(c, 'stage')
@@ -154,9 +182,13 @@ function readFilters(c: Ctx, ctx: DealViewer): Result<DealFilters> {
   if (archived === undefined) return invalid('archived')
   const owner = c.req.query('owner')
   if (owner !== undefined && (owner === '' || owner.length > 100)) return invalid('owner')
-  const filter = readFilterParam('deals', c.req.query('filter'))
-  if (!filter.ok) return refuse(400, 'INVALID_DEAL', { path: filter.path, message: filter.message })
-  const filters: DealFilters = { status, archived }
+  const custom = await dealCatalog(c, ctx)
+  const filter = readFilterParam('deals', c.req.query('filter'), custom)
+  if (!filter.ok) {
+    if (filter.unknownCustomField !== undefined) return unknownField(filter.unknownCustomField)
+    return refuse(400, 'INVALID_DEAL', { path: filter.path, message: filter.message })
+  }
+  const filters: DealFilters = { status, archived, custom }
   if (filter.filter !== undefined) filters.filter = filter.filter
   if (pipeline.value !== undefined) filters.pipelineId = pipeline.value
   if (stage.value !== undefined) filters.stageId = stage.value
@@ -214,7 +246,11 @@ export function dealsWhere(
   }
   if (filters.filter !== undefined) {
     conditions.push(
-      compileDealFilter(filters.filter, { actorId: ctx.actorId }, filters.archived === 'any'),
+      compileDealFilter(
+        filters.filter,
+        { actorId: ctx.actorId, custom: filters.custom ?? [] },
+        filters.archived === 'any',
+      ),
     )
   }
   if (extra) conditions.push(extra(eb))
@@ -239,6 +275,11 @@ const DEAL_SORT_KEYS: Record<DealSort['column'], SortKey> = {
 const sortName = (sort: DealSort) => `${sort.column}:${sort.direction}`
 const isDefaultSort = (sort: DealSort) => sortName(sort) === sortName(DEFAULT_DEAL_SORT)
 
+/** Ключ сортировки: системная колонка или пользовательское поле из каталога `custom`. */
+function dealSortKey(sort: DealSort, custom: readonly CatalogField[] = []): SortKey {
+  return listSortKey(sort.column, DEAL_SORT_KEYS, 'deal', custom)
+}
+
 /** Позиция в выдаче: значение колонки сортировки и id сделки. */
 export type Cursor = PagePosition
 
@@ -247,9 +288,13 @@ export type Cursor = PagePosition
  * ошибка базы). У порядка канбана курсор прежний (тикет 11): `{ t, id }` — время смены этапа
  * до микросекунд и id последней сделки.
  */
-export function decodeCursor(raw: string, sort: DealSort = DEFAULT_DEAL_SORT): Cursor | undefined {
+export function decodeCursor(
+  raw: string,
+  sort: DealSort = DEFAULT_DEAL_SORT,
+  custom: readonly CatalogField[] = [],
+): Cursor | undefined {
   if (!isDefaultSort(sort)) {
-    return decodePageCursor(raw, sortName(sort), DEAL_SORT_KEYS[sort.column].cast)
+    return decodePageCursor(raw, sortName(sort), dealSortKey(sort, custom).cast)
   }
   let value: unknown
   try {
@@ -291,9 +336,17 @@ export async function listDealsPage(
     limit,
     extra,
     sort = DEFAULT_DEAL_SORT,
-  }: { cursor?: Cursor; limit: number; extra?: DealCondition; sort?: DealSort },
+    customCodes,
+  }: {
+    cursor?: Cursor
+    limit: number
+    extra?: DealCondition
+    sort?: DealSort
+    /** Отдавать в `custom` только эти коды (карточка канбана); нет — все видимые. */
+    customCodes?: readonly string[]
+  },
 ): Promise<DealsPage> {
-  const key = DEAL_SORT_KEYS[sort.column]
+  const key = dealSortKey(sort, filters.custom)
   let query = ctx.db
     .selectFrom('deal')
     .select([
@@ -372,10 +425,15 @@ export async function listDealsPage(
             .execute()
         ).map((row) => [row.id, row.name]),
   )
+  const only = customCodes === undefined ? undefined : new Set(customCodes)
   const custom = await visibleCustom(
     ctx,
     'deal',
-    page.map((row) => row.custom),
+    page.map((row) =>
+      only === undefined
+        ? row.custom
+        : Object.fromEntries(Object.entries(row.custom).filter(([code]) => only.has(code))),
+    ),
   )
 
   return {
@@ -415,31 +473,39 @@ export interface DealsQuery {
 }
 
 /** Параметры выдачи `GET /v1/deals` (их же читают счётчик и выгрузка). */
-export function readDealsQuery(c: Ctx, ctx: DealViewer): Result<DealsQuery> {
-  const filters = readFilters(c, ctx)
+export async function readDealsQuery(c: Ctx, ctx: DealContext): Promise<Result<DealsQuery>> {
+  const filters = await readFilters(c, ctx)
   if (!filters.ok) return filters
+  const custom = filters.value.custom ?? []
   const limit = readLimit(c.req.query('limit'))
   if (limit === undefined) return invalid('limit')
   const rawSort = c.req.query('sort')
-  const sort = rawSort === undefined ? DEFAULT_DEAL_SORT : parseSort('deals', rawSort)
-  if (!sort) return invalid('sort')
+  const sort = rawSort === undefined ? DEFAULT_DEAL_SORT : parseSort('deals', rawSort, custom)
+  if (!sort) {
+    const unknown = rawSort === undefined ? null : unknownCustomSort(rawSort, custom)
+    return unknown === null ? invalid('sort') : unknownField(unknown)
+  }
   const rawCursor = c.req.query('cursor')
-  const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, sort)
+  const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, sort, custom)
   if (rawCursor !== undefined && cursor === undefined) return invalid('cursor')
   return ok({ filters: filters.value, sort, limit, ...(cursor ? { cursor } : {}) })
 }
 
-/** `GET /v1/deals`. */
+/** `GET /v1/deals`; `view=kanban` — `custom` только с полями карточки канбана воронки. */
 export async function listDeals(c: Ctx, ctx: DealContext): Promise<Result<DealsPage>> {
-  const query = readDealsQuery(c, ctx)
+  const query = await readDealsQuery(c, ctx)
   if (!query.ok) return query
   const { filters, ...page } = query.value
-  return ok(await listDealsPage(ctx, filters, page))
+  const view = c.req.query('view')
+  if (view === undefined) return ok(await listDealsPage(ctx, filters, page))
+  if (view !== 'kanban' || filters.pipelineId === undefined) return invalid('view')
+  const card = await loadCardFields(ctx.db, filters.pipelineId)
+  return ok(await listDealsPage(ctx, filters, { ...page, customCodes: card.map((f) => f.code) }))
 }
 
 /** `GET /v1/deals/count`: число сделок выдачи (до порога точно, выше — оценка). */
 export async function countDeals(c: Ctx, ctx: DealContext): Promise<Result<ListCount>> {
-  const filters = readFilters(c, ctx)
+  const filters = await readFilters(c, ctx)
   if (!filters.ok) return filters
   const query = ctx.db
     .selectFrom('deal')
@@ -491,7 +557,7 @@ export async function dealAggregates(
         .executeTakeFirst()
     : undefined
   if (!pipeline) return refuse(404, 'PIPELINE_NOT_FOUND')
-  const filters = readFilters(c, ctx)
+  const filters = await readFilters(c, ctx)
   if (!filters.ok) return filters
   return ok(await pipelineAggregates(ctx, { ...filters.value, pipelineId: pipeline.id }))
 }

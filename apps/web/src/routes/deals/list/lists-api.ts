@@ -1,4 +1,6 @@
 import type {
+  FieldDefinitionSummary,
+  FieldEntity,
   FilterEntity,
   FilterGroup,
   ListCount,
@@ -9,6 +11,7 @@ import type {
   SavedFilterVisibility,
 } from '@alpi/shared'
 import { projectHeaders } from '../../../components/project-switcher/projects-api.ts'
+import type { CustomValues } from './custom-values.ts'
 
 // Запросы списков сделок, контактов и организаций (тикет crm-deals/12) к API: страницы с
 // фильтром, сортировкой и курсором, счётчик, выгрузка CSV, сохранённые фильтры, массовые
@@ -35,6 +38,8 @@ export interface DealRow {
   wonAt: string | null
   lostAt: string | null
   archivedAt: string | null
+  /** Значения видимых пользователю пользовательских полей (тикет crm-fields/07). */
+  custom?: CustomValues
 }
 
 /** Строка списка контактов (apps/api/src/contacts/list.ts). */
@@ -50,6 +55,7 @@ export interface ContactRow {
   possibleDuplicate: boolean
   createdAt: string
   updatedAt: string
+  custom?: CustomValues
 }
 
 /** Строка списка организаций (apps/api/src/organizations/list.ts). */
@@ -60,6 +66,7 @@ export interface OrganizationRow {
   website: string | null
   createdAt: string
   updatedAt: string
+  custom?: CustomValues
 }
 
 export interface ListRows {
@@ -147,6 +154,8 @@ export interface ListsApi {
   pipelines(projectId: string): Promise<PipelineSummary[]>
   owners(projectId: string): Promise<ListOwner[]>
   lostReasons(projectId: string): Promise<LostReasonGroupSummary[]>
+  /** Пользовательские поля сущности, видимые пользователю, без архивных. */
+  fields(projectId: string, entity: FieldEntity): Promise<FieldDefinitionSummary[]>
   page<E extends FilterEntity>(
     projectId: string,
     entity: E,
@@ -249,6 +258,7 @@ export function createListsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     pipelines: (projectId) => json(projectId, 'GET', '/pipelines'),
     owners: (projectId) => json(projectId, 'GET', '/deals/owners'),
     lostReasons: (projectId) => json(projectId, 'GET', '/lost-reasons'),
+    fields: (projectId, entity) => json(projectId, 'GET', `/fields?${search({ entity })}`),
     page: (projectId, entity, { filter, sort, cursor }) =>
       json(
         projectId,

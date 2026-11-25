@@ -1,5 +1,6 @@
 import {
   EMPTY_FILTER,
+  type FieldDefinitionSummary,
   type FilterGroup,
   type PipelineSummary,
   type StageSummary,
@@ -36,6 +37,12 @@ import {
   type OwnerFilter,
   type StageAggregate,
 } from './deals-api.ts'
+import {
+  type CustomFormat,
+  customFieldName,
+  formatCustomValue,
+  liveFields,
+} from './list/custom-values.ts'
 import { conditionCount, FilterEditor } from './list/filter-editor.tsx'
 import { dealFilterOptions } from './list/filter-options.ts'
 import { LostDialog } from './lost-dialog.tsx'
@@ -184,7 +191,7 @@ function Board({
   projectCode: string
   userId: string
 } & PipelineInAddress) {
-  const { t } = useTranslation('deals')
+  const { t, i18n } = useTranslation('deals')
   const { t: tl } = useTranslation('lists')
   const queryClient = useQueryClient()
   const phone = useMediaQuery(PHONE_QUERY)
@@ -229,6 +236,29 @@ function Board({
     enabled: pipeline !== undefined,
     retry: false,
   })
+  // Пользовательские поля (тикет crm-fields/07): условия фильтра и до 3 полей на карточке,
+  // их выбирает администратор в настройках воронки.
+  const fields = useQuery({
+    queryKey: boardKey(projectId, 'fields'),
+    queryFn: () => api.fields(projectId),
+    retry: false,
+  })
+  const cardFieldIds = useQuery({
+    queryKey: boardKey(projectId, 'card-fields', pipeline?.id),
+    queryFn: () => api.cardFields(projectId, pipeline?.id ?? ''),
+    enabled: pipeline !== undefined,
+    retry: false,
+  })
+  const customFields = liveFields(fields.data)
+  const cardFields = (cardFieldIds.data?.fieldIds ?? []).flatMap((id) =>
+    customFields.filter((f) => f.id === id),
+  )
+  const cardFormat: CustomFormat = {
+    language: i18n.language,
+    users: new Map((owners.data ?? []).map((o) => [o.id, o.name] as const)),
+    yes: t('card.yes'),
+    no: t('card.no'),
+  }
   const lostReasons = useQuery({
     queryKey: boardKey(projectId, 'lost-reasons'),
     queryFn: () => api.lostReasons(projectId),
@@ -298,6 +328,7 @@ function Board({
           open
           value={filter}
           options={dealFilterOptions(active, owners.data ?? [])}
+          customFields={customFields}
           onApply={(next) => {
             setFilter(next)
             setFilterOpen(false)
@@ -464,6 +495,8 @@ function Board({
       }}
       actionsFor={actionsFor}
       onTake={takeDeal}
+      cardFields={cardFields}
+      cardFormat={cardFormat}
     />
   )
 
@@ -592,6 +625,8 @@ function StageColumn({
   onDrop,
   actionsFor,
   onTake,
+  cardFields,
+  cardFormat,
 }: {
   api: DealsApi
   projectId: string
@@ -608,6 +643,9 @@ function StageColumn({
   onDrop: (deal: BoardDeal) => void
   actionsFor: (deal: BoardDeal) => MenuItem[]
   onTake: (deal: BoardDeal) => void
+  /** Поля карточки канбана воронки, видимые пользователю, по порядку. */
+  cardFields: readonly FieldDefinitionSummary[]
+  cardFormat: CustomFormat
 }) {
   const { t, i18n } = useTranslation('deals')
   const [over, setOver] = useState(false)
@@ -693,17 +731,19 @@ function StageColumn({
           <p className="kanban-col__empty">{t('kanban.empty')}</p>
         ) : (
           items.map((deal) => (
-            <DealCard
-              key={deal.id}
-              deal={deal}
-              href={projectHref(projectCode, `/deals/${deal.id}`)}
-              draggable={!phone}
-              dragging={dragged?.id === deal.id}
-              onDragStart={() => onDragStart(deal)}
-              onDragEnd={onDragEnd}
-              actions={actionsFor(deal)}
-              {...(deal.ownerId === null ? { onTake: () => onTake(deal) } : {})}
-            />
+            <div key={deal.id} className="kanban-card">
+              <DealCard
+                deal={deal}
+                href={projectHref(projectCode, `/deals/${deal.id}`)}
+                draggable={!phone}
+                dragging={dragged?.id === deal.id}
+                onDragStart={() => onDragStart(deal)}
+                onDragEnd={onDragEnd}
+                actions={actionsFor(deal)}
+                {...(deal.ownerId === null ? { onTake: () => onTake(deal) } : {})}
+              />
+              <CardFieldValues deal={deal} fields={cardFields} format={cardFormat} />
+            </div>
           ))
         )}
         {canLoadMore && (
@@ -728,5 +768,34 @@ function StageColumn({
         )}
       </div>
     </section>
+  )
+}
+
+/**
+ * Значения полей карточки канбана (до 3, тикет crm-fields/07) под карточкой сделки. Пустое
+ * поле не показывается; скрытое от роли сервер не отдаёт. Нет ни одного значения — ничего.
+ */
+function CardFieldValues({
+  deal,
+  fields,
+  format,
+}: {
+  deal: BoardDeal
+  fields: readonly FieldDefinitionSummary[]
+  format: CustomFormat
+}) {
+  const shown = fields
+    .map((field) => ({ field, text: formatCustomValue(field, deal.custom?.[field.code], format) }))
+    .filter((item) => item.text !== '')
+  if (shown.length === 0) return null
+  return (
+    <dl className="kanban-card__fields">
+      {shown.map(({ field, text }) => (
+        <div key={field.id} className="kanban-card__field">
+          <dt>{customFieldName(field, format.language)}</dt>
+          <dd>{text}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }

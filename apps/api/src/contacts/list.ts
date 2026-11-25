@@ -22,8 +22,16 @@ import {
   readLanguage,
   UTF8_BOM,
 } from '../export/csv.ts'
+import {
+  type CustomNames,
+  customCell,
+  customColumnField,
+  customHeaders,
+  loadCustomNames,
+} from '../export/custom.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { compileFilter, readFilterParam } from '../filters/compile.ts'
+import { type CatalogField, catalogFor, listSortKey, unknownCustomSort } from '../filters/custom.ts'
 import {
   afterPosition,
   countRows,
@@ -100,17 +108,22 @@ export interface ContactListContext {
 
 export interface ContactListQuery {
   filter: FilterGroup | undefined
+  /** Пользовательские поля, которые видит пользователь (filters/custom.ts). */
+  custom: readonly CatalogField[]
   sort: ContactSort
   cursor?: PagePosition
   limit: number
 }
 
-type Result<T> = Outcome<T, 'INVALID_CONTACT'>
+type Result<T> = Outcome<T, 'INVALID_CONTACT' | 'CUSTOM_FIELD_UNKNOWN'>
 
 const invalid = (path: string, message?: string) =>
   refuse(400, 'INVALID_CONTACT', { path, ...(message ? { message } : {}) })
+const unknownField = (field: string) => refuse(422, 'CUSTOM_FIELD_UNKNOWN', { field })
 
 const sortName = (sort: ContactSort) => `${sort.column}:${sort.direction}`
+const sortKey = (sort: ContactSort, custom: readonly CatalogField[]) =>
+  listSortKey(sort.column, SORT_KEYS, 'contact', custom)
 
 export async function contactListContext(c: Ctx): Promise<ContactListContext> {
   const db = c.get('db')
@@ -125,41 +138,58 @@ export async function contactListContext(c: Ctx): Promise<ContactListContext> {
   }
 }
 
-export function readContactListQuery(c: Ctx): Result<ContactListQuery> {
-  const filter = readFilterParam('contacts', c.req.query('filter'))
-  if (!filter.ok) return invalid(filter.path, filter.message)
+export async function readContactListQuery(c: Ctx): Promise<Result<ContactListQuery>> {
+  const custom = await catalogFor(
+    c.get('db'),
+    c.get('access').permissions,
+    'contact',
+    c.req.query('filter'),
+    c.req.query('sort'),
+    c.req.query('columns'),
+  )
+  const filter = readFilterParam('contacts', c.req.query('filter'), custom)
+  if (!filter.ok) {
+    if (filter.unknownCustomField !== undefined) return unknownField(filter.unknownCustomField)
+    return invalid(filter.path, filter.message)
+  }
   const limit = readLimit(c.req.query('limit'))
   if (limit === undefined) return invalid('limit')
   const rawSort = c.req.query('sort')
-  const sort = rawSort === undefined ? DEFAULT_SORT : parseSort('contacts', rawSort)
-  if (!sort) return invalid('sort')
+  const sort = rawSort === undefined ? DEFAULT_SORT : parseSort('contacts', rawSort, custom)
+  if (!sort) {
+    const unknown = rawSort === undefined ? null : unknownCustomSort(rawSort, custom)
+    return unknown === null ? invalid('sort') : unknownField(unknown)
+  }
   const rawCursor = c.req.query('cursor')
   const cursor =
     rawCursor === undefined
       ? undefined
-      : decodePageCursor(rawCursor, sortName(sort), SORT_KEYS[sort.column].cast)
+      : decodePageCursor(rawCursor, sortName(sort), sortKey(sort, custom).cast)
   if (rawCursor !== undefined && cursor === undefined) return invalid('cursor')
-  return ok({ filter: filter.filter, sort, limit, ...(cursor ? { cursor } : {}) })
+  return ok({ filter: filter.filter, custom, sort, limit, ...(cursor ? { cursor } : {}) })
 }
 
 /** Контакты в охвате, не в корзине, по фильтру. */
-function baseQuery(ctx: ContactListContext, filter: FilterGroup | undefined) {
+function baseQuery(
+  ctx: ContactListContext,
+  { filter, custom }: Pick<ContactListQuery, 'filter' | 'custom'>,
+) {
   let query = ctx.db
     .selectFrom('contact')
     .where('contact.deleted_at', 'is', null)
     .where((eb) => contactScopePredicate(eb, ctx.scope, ctx.viewer))
   if (filter !== undefined) {
-    query = query.where(compileFilter('contacts', filter, { actorId: ctx.actorId }))
+    query = query.where(compileFilter('contacts', filter, { actorId: ctx.actorId, custom }))
   }
   return query
 }
 
 export async function listContactsPage(
   ctx: ContactListContext,
-  { filter, sort, cursor, limit }: ContactListQuery,
+  { filter, custom: catalog, sort, cursor, limit }: ContactListQuery,
 ): Promise<ContactListPage> {
-  const key = SORT_KEYS[sort.column]
-  let query = baseQuery(ctx, filter)
+  const key = sortKey(sort, catalog)
+  let query = baseQuery(ctx, { filter, custom: catalog })
     .select([
       'contact.id',
       'contact.first_name',
@@ -247,9 +277,9 @@ export async function listContactsPage(
 
 export async function countContacts(
   ctx: ContactListContext,
-  filter: FilterGroup | undefined,
+  query: Pick<ContactListQuery, 'filter' | 'custom'>,
 ): Promise<ListCount> {
-  return countRows(ctx.db, baseQuery(ctx, filter).select('contact.id'))
+  return countRows(ctx.db, baseQuery(ctx, query).select('contact.id'))
 }
 
 const LANGUAGE_LABELS: Record<ExportLanguage, Record<string, string>> = {
@@ -257,7 +287,14 @@ const LANGUAGE_LABELS: Record<ExportLanguage, Record<string, string>> = {
   ru: { uk: 'Украинский', ru: 'Русский' },
 }
 
-function contactCell(item: ContactListItem, column: string, language: ExportLanguage): CsvValue {
+function contactCell(
+  item: ContactListItem,
+  column: string,
+  language: ExportLanguage,
+  custom: { fields: readonly CatalogField[]; names: CustomNames },
+): CsvValue {
+  const field = customColumnField(column, custom.fields)
+  if (field) return customCell(field, item.custom[field.code], custom.names, language)
   switch (column) {
     case 'name':
       return [item.firstName, item.lastName].filter(Boolean).join(' ')
@@ -283,36 +320,49 @@ function contactCell(item: ContactListItem, column: string, language: ExportLang
 /** `GET /v1/contacts/export.csv`: как у сделок (export/deals.ts), порции — в своих транзакциях. */
 export async function exportContacts(c: Ctx, rootDb: Kysely<Database>): Promise<Response> {
   const ctx = await contactListContext(c)
-  const query = readContactListQuery(c)
+  const query = await readContactListQuery(c)
   if (!query.ok) return fail(c, query)
-  const chosen = readColumns('contacts', c.req.query('columns'))
-  if (!chosen) return fail(c, invalid('columns'))
+  const { filter, custom: catalog, sort, cursor: start } = query.value
+  const chosen = readColumns('contacts', c.req.query('columns'), catalog)
+  if (!chosen.ok) {
+    return fail(
+      c,
+      chosen.unknownCustomField === undefined
+        ? invalid('columns')
+        : unknownField(chosen.unknownCustomField),
+    )
+  }
   const lang = readLanguage(c.req.query('lang'))
   if (!lang) return fail(c, invalid('lang'))
-  const columns: readonly string[] = chosen
+  const columns: readonly string[] = chosen.columns
   const language: ExportLanguage = lang
-  const { filter, sort, cursor: start } = query.value
+  const customFields = catalog.filter((field) => columns.includes(`custom.${field.id}`))
   await recordInRequest(c, {
     action: 'export.downloaded',
     details: { list: 'contacts', columns, sort: sortName(sort), ...(filter ? { filter } : {}) },
   })
   async function* rows(): AsyncGenerator<string> {
-    yield UTF8_BOM + csvHeader(columns, language)
+    yield UTF8_BOM + csvHeader(columns, language, customHeaders(columns, catalog, language))
     let cursor = start
     while (true) {
-      const page = await withProject(rootDb, ctx.projectId, (trx) =>
-        listContactsPage(
+      const { page, names } = await withProject(rootDb, ctx.projectId, async (trx) => {
+        const page = await listContactsPage(
           { ...ctx, db: trx },
-          { filter, sort, limit: EXPORT_BATCH, ...(cursor ? { cursor } : {}) },
-        ),
-      )
+          { filter, custom: catalog, sort, limit: EXPORT_BATCH, ...(cursor ? { cursor } : {}) },
+        )
+        const values = page.items.map((item) => item.custom)
+        return { page, names: await loadCustomNames(trx, customFields, values) }
+      })
+      const custom = { fields: customFields, names }
       if (page.items.length > 0) {
         yield page.items
-          .map((item) => csvRow(columns.map((column) => contactCell(item, column, language))))
+          .map((item) =>
+            csvRow(columns.map((column) => contactCell(item, column, language, custom))),
+          )
           .join('')
       }
       if (page.nextCursor === null) return
-      cursor = decodePageCursor(page.nextCursor, sortName(sort), SORT_KEYS[sort.column].cast)
+      cursor = decodePageCursor(page.nextCursor, sortName(sort), sortKey(sort, catalog).cast)
       if (!cursor) throw new Error('выгрузка: курсор своей же страницы не разобрался')
     }
   }
@@ -327,16 +377,16 @@ export function contactListRoutes(rootDb: Kysely<Database>) {
   const view = requirePermission('contacts', 'view')
   return new Hono<PermissionsEnv>()
     .get('/list', view, async (c) => {
-      const query = readContactListQuery(c)
+      const query = await readContactListQuery(c)
       if (!query.ok) return fail(c, query)
       return c.json<ContactListPage>(
         await listContactsPage(await contactListContext(c), query.value),
       )
     })
     .get('/count', view, async (c) => {
-      const query = readContactListQuery(c)
+      const query = await readContactListQuery(c)
       if (!query.ok) return fail(c, query)
-      return c.json<ListCount>(await countContacts(await contactListContext(c), query.value.filter))
+      return c.json<ListCount>(await countContacts(await contactListContext(c), query.value))
     })
     .get('/export.csv', view, requireStandalone('export'), (c) => exportContacts(c, rootDb))
 }

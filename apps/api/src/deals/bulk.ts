@@ -3,6 +3,7 @@ import { parseFilter } from '@alpi/shared'
 import { type Kysely, sql, type Transaction } from 'kysely'
 import { type BulkAction, type BulkContext, BulkRecordError } from '../bulk/registry.ts'
 import { type FieldChange, recordChanges } from '../change-log/record.ts'
+import { loadFilterCatalog } from '../filters/custom.ts'
 import { dealsWhere } from './board.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
 
@@ -32,21 +33,24 @@ async function selectByFilter(
   filter: Record<string, unknown>,
   ctx: BulkContext,
 ): Promise<string[]> {
-  const parsed = parseFilter('deals', filter)
+  // Пользовательские поля — те, что инициатор видит сейчас (тикет crm-fields/07). Условие по
+  // полю, которое с запуска ушло в архив или стало скрытым, не отбрасывается молча (выбор стал
+  // бы шире), а останавливает операцию.
+  const custom = await loadFilterCatalog(trx, ctx.access.permissions, 'deal')
+  const parsed = parseFilter('deals', filter, custom)
   // Фильтр проверен при запуске (validate); сюда неверный попадает, только если строку
-  // bulk_job меняли в обход API.
+  // bulk_job меняли в обход API или поле фильтра стало недоступно.
   if (!parsed.ok) throw new Error('массовая операция сделок: неверный фильтр')
   const viewer = {
     actorId: ctx.initiatorId,
     scope: ctx.access.permissions.scopes.deals,
     viewer: ctx.viewer,
   }
+  const filters = { status: 'any', archived: 'any', filter: parsed.filter, custom } as const
   const rows = await trx
     .selectFrom('deal')
     .select('deal.id')
-    .where((eb) =>
-      dealsWhere(eb, viewer, { status: 'any', archived: 'any', filter: parsed.filter }, undefined),
-    )
+    .where((eb) => dealsWhere(eb, viewer, filters, undefined))
     .orderBy('deal.id')
     .execute()
   return rows.map((row) => row.id)
@@ -71,10 +75,16 @@ async function writable(
   return new Set(rows.map((row) => row.id))
 }
 
+/**
+ * Проверка фильтра при запуске — без каталога пользовательских полей (validate синхронный):
+ * условие по пользовательскому полю здесь пропускается, его проверяет выбор записей
+ * (selectByFilter) с каталогом инициатора и при неверном останавливает операцию.
+ */
 function validateFilter(filter: Record<string, unknown> | undefined): string | null {
   if (filter === undefined) return null
   const parsed = parseFilter('deals', filter)
-  return parsed.ok ? null : `фильтр: ${parsed.error.path || 'корень'} — ${parsed.error.message}`
+  if (parsed.ok || parsed.error.unknownCustomField !== undefined) return null
+  return `фильтр: ${parsed.error.path || 'корень'} — ${parsed.error.message}`
 }
 
 /** Сделка под блокировкой до конца порции; в корзине (удалили, пока шла операция) — ошибка. */
