@@ -1,7 +1,8 @@
 # Поля в карточках сделки, контакта и организации
 
 Type: task
-Status: claimed 2026-11-25T12:50Z
+Status: done 2026-11-25T15:57Z
+PR: #23
 Branch: crm-fields/06
 Blocked by: 02, 03
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 3); .scratch/crm-mvp/issues/06-custom-fields.md (Answer: группы, видимость по воронкам, «важное»); .scratch/crm-mvp/spec.md, раздел 5.2 («Пользовательские поля по группам, с учётом видимости по воронке и прав на группы»; «карточки контакта и организации устроены так же»); .scratch/crm-deals/issues/13-deal-card.md, 14-contact-org-cards.md
@@ -46,3 +47,23 @@ apps/web/src/components/custom-fields/**, apps/web/src/routes/deals/$dealId/**, 
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
   - evidence: gate pass · `gate fast` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
+
+## Результат
+
+- Общие редакторы значений по 15 типам — `apps/web/src/components/custom-fields/` (`field-editor.tsx`, `field-values.ts`, `custom-field-groups.tsx`, клиент `custom-fields-api.tsx`); ими же пользуется форма заполнения тикета 04. Ссылка `javascript:` не сохраняется и показывается текстом; http(s) открывается с `rel="noopener noreferrer"`.
+- Карточки сделки, контакта и организации показывают группы полей после основных блоков: видимость по воронкам, группа «только чтение» без редактора, скрытая группа не выводится, пустое «важное» подсвечено, подсказка «обов’язкове з етапу …» только для воронки сделки. Правка на месте — `PUT` записи с одним кодом в `custom`; на 422 `CUSTOM_FIELD_INVALID` значение откатывается и у поля показывается причина.
+- Лента: строка `custom.<код>` показывается текущим названием поля и названиями вариантов. Строки переводов — новое пространство имён `custom-fields` (`apps/web/src/locales/{uk,ru}/custom-fields.json`, путь тикета `apps/web/src/i18n/locales` не существует).
+- Пункт 7 (375 px): not verified в тикете — снимки проверяющего PR #23 (`deal|contact|organization-375-{light,dark}.png`, в отчёт не приложены) показывают поля в одну колонку.
+
+Решено без владельца — подтвердить:
+
+- Свёрнутые группы запоминаются в `localStorage` браузера под id пользователя, не на сервере (`shortcut:` в `custom-field-groups.tsx`).
+- Без права «пользователи и роли» (`GET /members` — 403) в поле «пользователь» можно выбрать только себя; чужое значение показывается как «Користувач».
+- Подсказка обязательности показывается для любого правила «с этапа» воронки сделки, в том числе для этапа раньше текущего.
+
+Долги (найдены проверкой PR #23):
+
+- Подпись пользовательского поля в карточках контакта и организации на 8 px шире подписей основных полей.
+- Вне тикета: карточка сделки на 375 px шире экрана из-за `deal-card__head` и `deal-card__path` (было до тикета) — кандидат в отдельный тикет.
+
+- Проверка: VERIFIED с первого круга (PR #23, голова 55f2dc2; две мутации пойманы; снимки в двух темах и на 375 px). `GATE_SCOPE=all` gate full зелёный, слит squash-коммитом edfc682; CI на `main`: https://github.com/ripandtear21/alpi-crm/actions/runs/45622835207 — success.

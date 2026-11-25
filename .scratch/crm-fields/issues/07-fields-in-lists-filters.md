@@ -1,7 +1,8 @@
 # Поля в списке, фильтрах, сохранённых фильтрах и на карточке канбана; индекс «часто фильтруют»
 
 Type: task
-Status: claimed 2026-11-25T12:50Z
+Status: done 2026-11-25T15:57Z
+PR: #24
 Blocked by: 02, 03
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 3: «до 3 полей, выбирает администратор», «ускорение „часто фильтруют“ строится в фоне»); .scratch/crm-mvp/issues/06-custom-fields.md (Answer: фильтры и скорость); .scratch/crm-mvp/spec.md, разделы 5.1, 5.3, 9.1, 10; .scratch/crm-deals/issues/11-kanban.md, 12-lists-filters-bulk.md
 
@@ -79,3 +80,6 @@ packages/shared/src/filters/**, apps/api/src/filters/**, apps/api/src/deals/** (
 - Гонка триггера и задачи копии (`packages/db/migrations/0018_field_filters.ts:128-133`, `apps/api/src/jobs/field-index.ts:74-80`): запись, вставленная транзакцией до отметки поля и закоммиченная после того, как задача поставила «готово», не получает строк `custom_value` и не находится фильтром по копии до следующей правки записи.
 - Число вне диапазона `float8`, записанное в `custom` в обход API, срывает запись триггером (`0018_field_filters.ts:91,132`), в том числе при `index_state = failed`.
 - Выбор поля карточки канбана (`apps/web/src/routes/settings/pipelines-page.tsx:505`) — нативный `select` с `ui-input` вместо общего `Select` (`ui-select`): стрелка отличается от остальных списков.
+- Новый код отказа массовой операции `FILTER_UNAVAILABLE` показывается в окне операции (`apps/web/src/routes/deals/list/bulk-dialog.tsx:213`) без перевода, сырым кодом.
+
+- Проверка: первый вердикт REJECTED (PR #24, голова d05b5df): не было теста, что массовая операция по фильтру с полем, ушедшим в архив или ставшим скрытым, останавливается и не меняет сделок; запуск `POST /bulk-jobs` не проверял фильтр с пользовательским полем. Исправлено доработкой (`BulkSelectionError` → `failed`/`FILTER_UNAVAILABLE` без повторов; проверка фильтра при запуске по каталогу инициатора). Повторная проверка — VERIFIED (голова 654d7de; мутации пойманы). `GATE_SCOPE=all` gate full зелёный, слит squash-коммитом 2e0f7c3; CI на `main`: https://github.com/ripandtear21/alpi-crm/actions/runs/45633138091 — success.
