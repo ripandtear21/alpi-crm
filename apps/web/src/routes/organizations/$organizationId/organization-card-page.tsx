@@ -18,6 +18,9 @@ import {
 import { RecordDealsList } from '../../../components/contact-form/record-deals.tsx'
 import { type RecordRights, recordRights } from '../../../components/contact-form/record-rights.ts'
 import { CopyLinkButton } from '../../../components/copy-link/copy-link-button.tsx'
+import { useDescribeCustomChange } from '../../../components/custom-fields/custom-change.tsx'
+import { CustomFieldGroups } from '../../../components/custom-fields/custom-field-groups.tsx'
+import { customOf } from '../../../components/custom-fields/custom-fields-api.tsx'
 import {
   projectQueryKey,
   useCurrentProject,
@@ -34,8 +37,9 @@ import { Field, Input } from '../../../ui/field.tsx'
 import '../../../components/contact-form/record-card.css'
 
 // Карточка организации (тикет crm-deals/14; spec.md MVP, раздел 5.2): название, адрес, сайт
-// (без права «організації: змінювати» — только чтение); контакты организации в охвате
-// пользователя (добавить существующий или нового, убрать); сделки организации; лента.
+// (без права «організації: змінювати» — только чтение); группы пользовательских полей (тикет
+// crm-fields/06); контакты организации в охвате пользователя (добавить существующий или нового,
+// убрать); сделки организации; лента.
 //
 // Удаление — в корзину с предупреждением, сколько контактов и сделок с ней связано (видимых
 // пользователю). Организация удалённая или несуществующая — экран «немає доступу».
@@ -120,6 +124,7 @@ function OrganizationCardScreen({
     enabled: organization.isSuccess,
     retry: false,
   })
+  const describeCustom = useDescribeCustomChange(projectId, 'organization')
 
   if (organization.isError) {
     const status = organization.error instanceof ContactsApiError ? organization.error.status : 0
@@ -190,6 +195,18 @@ function OrganizationCardScreen({
               <OrganizationDetails organization={record} />
             )}
           </section>
+          <CustomFieldGroups<OrganizationRecord>
+            entity="organization"
+            projectId={projectId}
+            user={{ userId: user.id, name: user.name, disabled: false }}
+            record={{ id: record.id, custom: customOf(record) }}
+            permissions={access.data.permissions}
+            canEdit={rights.organizationEdit}
+            onSaved={(saved) => {
+              queryClient.setQueryData(organizationKey, saved)
+              void refreshTimeline()
+            }}
+          />
           <section className="record-card__block" aria-labelledby="organization-contacts">
             <h2 id="organization-contacts" className="record-card__block-head">
               {t('contacts.title')}
@@ -229,6 +246,7 @@ function OrganizationCardScreen({
             currentUserId={user.id}
             canWrite={rights.organizationEdit}
             canDeleteOthers={rights.organizationDelete}
+            describeChange={describeCustom}
           />
         </div>
       </div>

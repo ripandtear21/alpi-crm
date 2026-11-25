@@ -1,6 +1,7 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { type FormEvent, type ReactNode, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CustomFieldGroups } from '../../../components/custom-fields/custom-field-groups.tsx'
 import { DealProducts, formatMoney } from '../../../components/deal-products/deal-products.tsx'
 import { Participants } from '../../../components/participants/participants.tsx'
 import { projectQueryKey } from '../../../components/project-switcher/current-project.tsx'
@@ -18,8 +19,9 @@ import type { DealCardModel } from './deal-card-page.tsx'
 import { ActionError, useCardErrorText } from './deal-errors.tsx'
 
 // Левая колонка карточки: поиск по полям, затем сворачиваемые блоки — «Заповніть» (важные
-// пустые поля), «Підсумок», «Деталі», «Контакт», «Організація», «Учасники», «Товари» и
-// заглушки «Платежі» и «Реєстрації» до их эпиков.
+// пустые поля), «Підсумок», «Деталі», группы пользовательских полей (тикет crm-fields/06),
+// «Контакт», «Організація», «Учасники», «Товари» и заглушки «Платежі» и «Реєстрації» до их
+// эпиков.
 
 export const contactName = (contact: ContactCard) =>
   [contact.firstName, contact.lastName].filter(Boolean).join(' ')
@@ -69,6 +71,18 @@ export function DealSidebar({ card }: { card: DealCardModel }) {
       <Block title={t('details.title')}>
         <Details card={card} matches={matches} />
       </Block>
+      <CustomFieldGroups<DealCard>
+        entity="deal"
+        projectId={projectId}
+        user={{ userId: card.user.id, name: card.user.name, disabled: false }}
+        record={deal}
+        permissions={card.permissions}
+        canEdit={card.rights.edit}
+        deal={deal}
+        pipelines={card.pipelines}
+        matches={matches}
+        onSaved={card.replace}
+      />
       <Block title={t('contact.title')}>
         <PrimaryContact card={card} contact={card.contact} hidden={card.contactHidden} />
       </Block>

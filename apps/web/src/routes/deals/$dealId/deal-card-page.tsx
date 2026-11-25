@@ -1,6 +1,12 @@
-import type { LostReasonGroupSummary, MemberSummary, PipelineSummary } from '@alpi/shared'
+import type {
+  LostReasonGroupSummary,
+  MemberSummary,
+  PipelineSummary,
+  RolePermissions,
+} from '@alpi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { useDescribeCustomChange } from '../../../components/custom-fields/custom-change.tsx'
 import {
   projectQueryKey,
   useCurrentProject,
@@ -44,6 +50,8 @@ export interface DealCardModel {
   projectId: string
   deal: DealCard
   rights: DealRights
+  /** Права роли в проекте: доступ к группам пользовательских полей (тикет crm-fields/06). */
+  permissions: RolePermissions
   user: CardUser
   /** Основной контакт; null — загружается или вне доступа (`contactHidden`). */
   contact: ContactCard | null
@@ -59,6 +67,8 @@ export interface DealCardModel {
    * Возвращает отказ API или null.
    */
   act: (action: () => Promise<DealCard | undefined>) => Promise<unknown>
+  /** Сделка из ответа правки пользовательского поля: в кэш, лента перечитывается. */
+  replace: (changed: DealCard) => void
   busy: boolean
 }
 
@@ -147,6 +157,7 @@ function DealCardScreen({
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: timelineQueryKey(projectId, 'deals', dealId) }),
   })
+  const describeCustom = useDescribeCustomChange(projectId, 'deal')
   const describeChange = useDescribeChange({
     pipelines: pipelines.data ?? [],
     reasons: reasons.data ?? [],
@@ -184,6 +195,7 @@ function DealCardScreen({
     projectId,
     deal: deal.data,
     rights: dealRights(access.data, deal.data),
+    permissions: access.data.permissions,
     user,
     contact: contact.data ?? null,
     contactHidden: contact.isError,
@@ -196,6 +208,12 @@ function DealCardScreen({
         () => null,
         (error: unknown) => error,
       ),
+    replace: (changed) => {
+      queryClient.setQueryData(dealKey, changed)
+      void queryClient.invalidateQueries({
+        queryKey: timelineQueryKey(projectId, 'deals', dealId),
+      })
+    },
     busy: action.isPending,
   }
 
@@ -213,7 +231,7 @@ function DealCardScreen({
             currentUserId={user.id}
             canWrite={model.rights.edit}
             canDeleteOthers={model.rights.remove}
-            describeChange={describeChange}
+            describeChange={(change) => describeCustom(change) ?? describeChange(change)}
             focus={
               <section className="deal-card__focus" aria-labelledby="deal-focus">
                 <h2 id="deal-focus" className="deal-card__focus-title">

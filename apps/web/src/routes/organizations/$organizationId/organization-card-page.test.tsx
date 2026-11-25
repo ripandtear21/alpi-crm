@@ -12,6 +12,13 @@ import {
   sampleContact,
   sampleDeal,
 } from '../../../components/contact-form/fake-contacts-api.ts'
+import { CustomFieldsApiProvider } from '../../../components/custom-fields/custom-fields-api.tsx'
+import {
+  type FakeCustomFieldsApi,
+  fakeCustomFieldsApi,
+  fieldDef,
+  fieldGroup,
+} from '../../../components/custom-fields/fake-custom-fields-api.ts'
 import { fakeProjectsApi } from '../../../components/project-switcher/fake-projects-api.ts'
 import { fakeTimelineApi } from '../../../components/timeline/fake-timeline-api.ts'
 import { createI18n } from '../../../i18n/index.ts'
@@ -26,9 +33,12 @@ import { fakeDealsApi } from '../../deals/fake-deals-api.ts'
 async function renderCard({
   api = fakeContactsApi(),
   organizationId = ORGANIZATION_ID,
+  fields = fakeCustomFieldsApi(),
 }: {
   api?: FakeContactsApi
   organizationId?: string
+  /** Пользовательские поля (тикет crm-fields/06); по умолчанию — ни одного. */
+  fields?: FakeCustomFieldsApi
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -43,7 +53,9 @@ async function renderCard({
   render(
     <I18nextProvider i18n={createI18n('uk')}>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <CustomFieldsApiProvider api={fields}>
+          <RouterProvider router={router} />
+        </CustomFieldsApiProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )
@@ -174,5 +186,24 @@ describe('карточка организации: удаление', () => {
     fireEvent.click(within(again).getByRole('button', { name: 'Видалити' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/p/alpi/contacts'))
     expect(api.calls).toEqual([`removeOrganization:${ORGANIZATION_ID}`])
+  })
+})
+
+describe('карточка организации: пользовательские поля (тикет crm-fields/06)', () => {
+  it('без права «організації: змінювати» поля организации только для чтения', async () => {
+    const access = accessOf('manager')
+    access.permissions.actions.organizations = ['view']
+    const group = fieldGroup({ entity: 'organization', nameUk: 'Реквізити' })
+    const api = fakeContactsApi({ access })
+    const fields = fakeCustomFieldsApi({
+      groups: [group],
+      fields: [
+        fieldDef({ entity: 'organization', groupId: group.id, code: 'edrpou', nameUk: 'ЄДРПОУ' }),
+      ],
+    })
+    await renderCard({ api, fields })
+    const block = await screen.findByRole('region', { name: 'Реквізити' })
+    expect(within(block).getByText('Не заповнено')).toBeTruthy()
+    expect(within(block).queryByRole('button', { name: 'Змінити «ЄДРПОУ»' })).toBeNull()
   })
 })

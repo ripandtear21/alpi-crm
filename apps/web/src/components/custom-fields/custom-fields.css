@@ -1,0 +1,164 @@
+/*
+ * Пользовательские поля в карточках сделки, контакта и организации (тикет crm-fields/06):
+ * блоки групп, строки «название — значение», правка на месте. Только токены из
+ * styles/tokens.css; буквальные px — волосяные линии и ширина подписи, как у строк карточек.
+ * До 480 px подпись встаёт над значением — поля идут одной колонкой.
+ */
+
+.custom-fields {
+  display: grid;
+}
+
+.custom-fields__group {
+  border-bottom: 1px solid var(--line);
+}
+
+.custom-fields__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  min-height: 48px;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+
+.custom-fields__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--touch-min);
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.custom-fields__chevron {
+  color: var(--ink-3);
+}
+
+.custom-fields__rows {
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+  padding-bottom: var(--s-4);
+}
+
+.custom-field {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: start;
+  min-height: 32px;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-inner);
+}
+
+.custom-field--attention {
+  background: var(--ask-wash);
+  box-shadow: inset 2px 0 0 var(--ask);
+}
+
+.custom-field dt {
+  display: grid;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+}
+
+.custom-field__hint {
+  color: var(--ask);
+  font-size: var(--fs-small);
+}
+
+.custom-field dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+
+.custom-field__value,
+.custom-field__edit {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-inner);
+}
+
+.custom-field__value:hover,
+.custom-field__edit:hover {
+  background: var(--hover);
+}
+
+.custom-field__edit {
+  min-width: var(--touch-min);
+  color: var(--ink-3);
+}
+
+.custom-field__linked,
+.custom-field__options,
+.custom-field__option {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.custom-field__empty {
+  color: var(--ink-3);
+}
+
+.custom-field__long {
+  white-space: pre-wrap;
+}
+
+.custom-field__form {
+  display: grid;
+  gap: var(--s-2);
+  width: 100%;
+}
+
+.custom-field__pair,
+.custom-field__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}
+
+.custom-field__checks {
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.custom-field__error {
+  width: 100%;
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .custom-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-1);
+  }
+
+  .custom-field dt {
+    text-align: left;
+  }
+}

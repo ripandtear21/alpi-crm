@@ -44,7 +44,10 @@ export interface TimelineProps {
   canWrite: boolean
   /** Право «удалять» эту часть системы: чужие заметки и файлы. */
   canDeleteOthers: boolean
-  /** Текст изменения поля записи; без него — «поле: было → стало» как есть. */
+  /**
+   * Текст изменения поля записи; без него или если он вернул null — «поле: было → стало» как
+   * есть.
+   */
   describeChange?: (change: NonNullable<TimelineItem['change']>) => ReactNode
   /** Блок между панелью ввода и историей («Фокус» карточки). */
   focus?: ReactNode
@@ -276,11 +279,7 @@ function TimelineRow(props: TimelineProps & { item: TimelineItem; onChanged: () 
         )}
         {item.kind === 'change' && item.change && (
           <p className="timeline__change">
-            {props.describeChange ? (
-              props.describeChange(item.change)
-            ) : (
-              <RawChange {...item.change} />
-            )}
+            {props.describeChange?.(item.change) ?? <RawChange {...item.change} />}
           </p>
         )}
         <p className="timeline__meta">

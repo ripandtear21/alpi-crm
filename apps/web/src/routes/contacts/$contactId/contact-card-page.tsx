@@ -13,6 +13,9 @@ import {
 import { RecordDealsList } from '../../../components/contact-form/record-deals.tsx'
 import { recordRights } from '../../../components/contact-form/record-rights.ts'
 import { CopyLinkButton } from '../../../components/copy-link/copy-link-button.tsx'
+import { useDescribeCustomChange } from '../../../components/custom-fields/custom-change.tsx'
+import { CustomFieldGroups } from '../../../components/custom-fields/custom-field-groups.tsx'
+import { customOf } from '../../../components/custom-fields/custom-fields-api.tsx'
 import {
   projectQueryKey,
   useCurrentProject,
@@ -31,8 +34,9 @@ import '../../../components/contact-form/record-card.css'
 
 // Карточка контакта (тикет crm-deals/14; spec.md MVP, раздел 5.2): шапка с именем, пометкой
 // «можливий дубль» и действиями; слева — телефоны (основной первым, в международном виде),
-// email, язык общения, организация и сделки контакта (основной или участник, с воронкой, этапом
-// и статусом, кнопка «+ Угода»); справа — лента (тикет 07) с заметками и файлами.
+// email, язык общения, организация, группы пользовательских полей (тикет crm-fields/06) и сделки
+// контакта (основной или участник, с воронкой, этапом и статусом, кнопка «+ Угода»); справа —
+// лента (тикет 07) с заметками и файлами.
 //
 // Контакт меняется только действием пользователя (ADR 0003). Контакт вне охвата, удалённый и
 // несуществующий — один экран «немає доступу» без его данных: API отвечает на всё это 404.
@@ -129,6 +133,7 @@ function ContactCardScreen({
     enabled: dialog === 'deal',
     retry: false,
   })
+  const describeCustom = useDescribeCustomChange(projectId, 'contact')
 
   if (contact.isError) {
     const status = contact.error instanceof ContactsApiError ? contact.error.status : 0
@@ -203,6 +208,18 @@ function ContactCardScreen({
             </h2>
             <ContactDetails contact={record} organizationName={organization.data?.name ?? null} />
           </section>
+          <CustomFieldGroups<ContactRecord>
+            entity="contact"
+            projectId={projectId}
+            user={{ userId: user.id, name: user.name, disabled: false }}
+            record={{ id: record.id, custom: customOf(record) }}
+            permissions={access.data.permissions}
+            canEdit={rights.contactEdit}
+            onSaved={(saved) => {
+              queryClient.setQueryData(contactKey, saved)
+              void refreshTimeline()
+            }}
+          />
           <section className="record-card__block" aria-labelledby="contact-deals">
             <h2 id="contact-deals" className="record-card__block-head">
               {t('deals.title')}
@@ -224,6 +241,7 @@ function ContactCardScreen({
             currentUserId={user.id}
             canWrite={rights.contactEdit}
             canDeleteOthers={rights.contactDelete}
+            describeChange={describeCustom}
           />
         </div>
       </div>

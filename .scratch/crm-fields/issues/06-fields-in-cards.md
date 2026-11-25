@@ -1,7 +1,8 @@
 # Поля в карточках сделки, контакта и организации
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T12:50Z
+Branch: crm-fields/06
 Blocked by: 02, 03
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 3); .scratch/crm-mvp/issues/06-custom-fields.md (Answer: группы, видимость по воронкам, «важное»); .scratch/crm-mvp/spec.md, раздел 5.2 («Пользовательские поля по группам, с учётом видимости по воронке и прав на группы»; «карточки контакта и организации устроены так же»); .scratch/crm-deals/issues/13-deal-card.md, 14-contact-org-cards.md
 

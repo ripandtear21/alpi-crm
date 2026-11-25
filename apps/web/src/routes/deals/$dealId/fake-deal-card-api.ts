@@ -98,6 +98,7 @@ export function sampleDeal(overrides: Partial<DealCard> = {}): DealCard {
       },
     ],
     productsTotal: 200,
+    custom: {},
     ...overrides,
   }
 }

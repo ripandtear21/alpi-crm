@@ -3,6 +3,13 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
+import { CustomFieldsApiProvider } from '../../../components/custom-fields/custom-fields-api.tsx'
+import {
+  type FakeCustomFieldsApi,
+  fakeCustomFieldsApi,
+  fieldDef,
+  fieldGroup,
+} from '../../../components/custom-fields/fake-custom-fields-api.ts'
 import { fakeProjectsApi } from '../../../components/project-switcher/fake-projects-api.ts'
 import {
   type FakeTimelineApi,
@@ -19,6 +26,7 @@ import {
   type FakeDealCardApi,
   fakeDealCardApi,
   OTHER_USER_ID,
+  PIPELINE_ID,
   STAGES,
   sampleDeal,
   UPSELL_PIPELINE_ID,
@@ -74,6 +82,7 @@ async function renderCard({
   dealId = DEAL_ID,
   kanban = fakeDealsApi(),
   path = `/p/alpi/deals/${dealId}`,
+  fields = fakeCustomFieldsApi(),
 }: {
   api?: FakeDealCardApi
   timeline?: FakeTimelineApi
@@ -81,6 +90,8 @@ async function renderCard({
   /** Канбан «/deals» (тикет crm-deals/11): туда ведёт удаление сделки. */
   kanban?: FakeDealsApi
   path?: string
+  /** Пользовательские поля (тикет crm-fields/06); по умолчанию — ни одного. */
+  fields?: FakeCustomFieldsApi
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -95,7 +106,9 @@ async function renderCard({
   render(
     <I18nextProvider i18n={createI18n('uk')}>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <CustomFieldsApiProvider api={fields}>
+          <RouterProvider router={router} />
+        </CustomFieldsApiProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )
@@ -393,5 +406,165 @@ describe('карточка сделки: допродажа', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Ірина Мельник — допродаж' }),
     ).toBeTruthy()
+  })
+})
+
+describe('карточка сделки: пользовательские поля (тикет crm-fields/06)', () => {
+  const GROUP = fieldGroup({ nameUk: 'Анкета' })
+  const OPTIONS = [
+    { id: 'opt-a', nameUk: 'Ранок', nameRu: null, position: 1, archivedAt: null },
+    { id: 'opt-c', nameUk: 'Вечір', nameRu: null, position: 2, archivedAt: null },
+  ]
+
+  function withFields(
+    api: FakeDealCardApi,
+    options: Parameters<typeof fakeCustomFieldsApi>[0] = {},
+  ): FakeCustomFieldsApi {
+    return fakeCustomFieldsApi({
+      groups: [GROUP],
+      record: (_entity, id) => api.deals.find((deal) => deal.id === id),
+      ...options,
+    })
+  }
+
+  it('поле, видимое только в воронке B, появляется после переноса сделки в B со старым значением', async () => {
+    const api = fakeDealCardApi({
+      deals: [sampleDeal({ custom: { upsell_note: 'Друга група' } })],
+    })
+    const fields = withFields(api, {
+      fields: [
+        fieldDef({ groupId: GROUP.id, code: 'source', nameUk: 'Джерело', position: 1 }),
+        fieldDef({
+          groupId: GROUP.id,
+          code: 'upsell_note',
+          nameUk: 'Примітка допродажу',
+          position: 2,
+          pipelines: [UPSELL_PIPELINE_ID],
+        }),
+      ],
+    })
+    await renderCard({ api, fields })
+    await screen.findByText('Джерело')
+    expect(screen.queryByText('Примітка допродажу')).toBeNull()
+    expect(screen.queryByText('Друга група')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Воронка ALPI → / }))
+    const dialog = await screen.findByRole('dialog', { name: 'Воронка й етап' })
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Воронка' }), {
+      target: { value: UPSELL_PIPELINE_ID },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Перенести' }))
+
+    expect(await screen.findByText('Примітка допродажу')).toBeTruthy()
+    expect(screen.getByText('Друга група')).toBeTruthy()
+    expect(api.deals[0]?.pipelineId).toBe(UPSELL_PIPELINE_ID)
+    expect(api.deals[0]?.custom).toEqual({ upsell_note: 'Друга група' })
+  })
+
+  it('поле группы «только чтение» не открывает редактор; полей скрытой группы нет в разметке', async () => {
+    const api = fakeDealCardApi({
+      deals: [sampleDeal({ custom: { source: 'Instagram', salary: '1000' } })],
+    })
+    const hidden = fieldGroup({ nameUk: 'Фінанси', position: 2 })
+    api.me.permissions.fieldGroups[GROUP.id] = 'read'
+    api.me.permissions.fieldGroups[hidden.id] = 'hidden'
+    // Подставной API отдаёт и скрытую группу (сервер её не отдаёт): карточка не покажет её и сама.
+    const fields = withFields(api, {
+      groups: [GROUP, hidden],
+      fields: [
+        fieldDef({ groupId: GROUP.id, code: 'source', nameUk: 'Джерело' }),
+        fieldDef({ groupId: hidden.id, code: 'salary', nameUk: 'Зарплата' }),
+      ],
+    })
+    await renderCard({ api, fields })
+    const group = await screen.findByRole('region', { name: 'Анкета' })
+    expect(within(group).getByText('Instagram')).toBeTruthy()
+    expect(within(group).queryByRole('button', { name: 'Змінити «Джерело»' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Фінанси' })).toBeNull()
+    expect(document.body.textContent).not.toContain('Зарплата')
+  })
+
+  it('правка на месте уходит запросом записи с одним кодом в custom', async () => {
+    const api = fakeDealCardApi()
+    const fields = withFields(api, {
+      fields: [
+        fieldDef({ groupId: GROUP.id, code: 'source', nameUk: 'Джерело' }),
+        fieldDef({ groupId: GROUP.id, code: 'city', nameUk: 'Місто', position: 2 }),
+      ],
+    })
+    await renderCard({ api, fields })
+    fireEvent.click(await screen.findByRole('button', { name: 'Змінити «Джерело»' }))
+    const form = await screen.findByRole('form', { name: 'Джерело' })
+    fireEvent.change(within(form).getByLabelText('Джерело'), { target: { value: 'Instagram' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Зберегти' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Змінити «Джерело»' }).textContent).toBe(
+        'Instagram',
+      ),
+    )
+    expect(fields.saves).toEqual([{ entity: 'deal', id: DEAL_ID, custom: { source: 'Instagram' } }])
+    expect(api.deals[0]?.custom).toEqual({ source: 'Instagram' })
+  })
+
+  it('поле, обязательное с этапа воронки сделки, помечено подсказкой', async () => {
+    const api = fakeDealCardApi()
+    const fields = withFields(api, {
+      fields: [
+        fieldDef({
+          groupId: GROUP.id,
+          code: 'budget',
+          nameUk: 'Бюджет',
+          required: {
+            mode: 'stages',
+            stages: [{ pipelineId: PIPELINE_ID, stageId: STAGES.decision }],
+          },
+        }),
+        fieldDef({
+          groupId: GROUP.id,
+          code: 'upsell_only',
+          nameUk: 'Лише допродаж',
+          position: 2,
+          required: {
+            mode: 'stages',
+            stages: [{ pipelineId: UPSELL_PIPELINE_ID, stageId: STAGES.upsellFirst }],
+          },
+        }),
+      ],
+    })
+    await renderCard({ api, fields })
+    expect(await screen.findByText('обов’язкове з етапу «Рішення»')).toBeTruthy()
+    expect(screen.getAllByText(/^обов’язкове/)).toHaveLength(1)
+  })
+
+  it('изменение поля в ленте — «було → стало» с текущим названием поля и названиями вариантов', async () => {
+    const api = fakeDealCardApi()
+    const fields = withFields(api, {
+      fields: [
+        fieldDef({
+          groupId: GROUP.id,
+          code: 'slot',
+          nameUk: 'Зручний час',
+          type: 'single_option',
+          options: OPTIONS,
+        }),
+      ],
+    })
+    const timeline = fakeTimelineApi([
+      {
+        kind: 'change',
+        id: '00000000-0000-4000-9300-200000000001',
+        occurredAt: '2026-11-06T10:00:00.000Z',
+        actorId: USER_ID,
+        actorName: 'Власник',
+        change: { field: 'custom.slot', before: 'opt-a', after: 'opt-c' },
+      },
+    ])
+    await renderCard({ api, fields, timeline })
+    const history = await historyList()
+    await waitFor(() =>
+      expect(within(history).getByText(/^Зручний час:/).textContent).toBe(
+        'Зручний час: Ранок → Вечір',
+      ),
+    )
   })
 })
