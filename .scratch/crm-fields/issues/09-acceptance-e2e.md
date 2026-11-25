@@ -1,7 +1,8 @@
 # Приёмка: сценарий владельца автотестом Playwright
 
 Type: task
-Status: claimed 2026-11-25T16:07Z
+Status: done 2026-11-25T16:48Z
+PR: #27
 Blocked by: 04, 05, 06, 07, 08
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 5); .scratch/crm-fields/spec.md («Приёмка владельцем»); .scratch/crm-mvp/spec.md, раздел 12 («Эпик 7», «Готово, когда»); .scratch/crm-deals/issues/16-acceptance-e2e.md
 
@@ -28,13 +29,17 @@ e2e/** (сценарии и помощники Playwright), при необхо�
 
 - [ ] `pnpm e2e` проходит локально все 6 шагов и прогон на 375 px; вывод с кодом выхода приложен к отчёту.
   - evidence: test-run pass · `pnpm e2e` exit 0 (17 passed: fields 1-6 и 375 px) · windows - · 88f8db998f317318d9bace1ccf216d93386892c7
+  - evidence: review pass · PR #27 · - - · 5c839ecae36659556151d376e1d1f461e5e3f7ba
 - [ ] Тест падает, если сломать права: отключение фильтра скрытых полей в ответе делает шаг 5 красным; отключение проверки требований этапа делает шаг 2 красным (проверено один раз, результат записан в отчёт).
   - evidence: test-run pass · `pnpm exec playwright test --project fields` exit 1 при каждой подмене: фильтр скрытых групп — шаг 5 красный, проверка этапа — шаг 2 красный; подмены откачены · windows - · 88f8db998f317318d9bace1ccf216d93386892c7
+  - evidence: review pass · PR #27 · - - · 5c839ecae36659556151d376e1d1f461e5e3f7ba
 - [ ] Задание CI зелёное на ветке (ссылка на запуск).
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45654416733 · ci - · 5c839ecae36659556151d376e1d1f461e5e3f7ba
 - [ ] Владелец прошёл сценарий руками на `pnpm seed` и подтвердил приёмку (отметка с датой в этом тикете).
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 88f8db998f317318d9bace1ccf216d93386892c7
   - evidence: gate pass · `gate fast` exit 0 · windows - · 88f8db998f317318d9bace1ccf216d93386892c7
+  - evidence: review pass · PR #27 · - - · 5c839ecae36659556151d376e1d1f461e5e3f7ba
 
 ## Результат
 
@@ -50,5 +55,9 @@ e2e/** (сценарии и помощники Playwright), при необхо�
 - Подмены (один раз, откачены, в коммиты не попали), команда `pnpm exec playwright test --project fields`:
   - фильтр скрытых групп в `visibleCustom` (`apps/api/src/fields/values.ts`, строка с `!== 'hidden'`) убран — exit 1, красный шаг 5: ответ `/api/v1/deals/:id` менеджеру содержит `pryiom_gotovnist`; шаги 1–4 зелёные;
   - `CUSTOM_FIELD_REQUIREMENTS.missingFields` (`apps/api/src/deals/stage-requirements.ts`) возвращает «ничего не нужно» — exit 1, красный шаг 2: формы заполнения после перетаскивания нет; шаг 1 зелёный.
-- not verified: задание CI на ветке — ждёт оркестратор (ссылка на запуск — после PR).
-- not verified: нужна ручная приёмка владельца — пункт «Владелец прошёл сценарий руками» остаётся `[ ]`.
+- CI на голове PR #27 (5c839ec) зелёный, включая `e2e (Playwright)` и `ci-ok`: https://github.com/ripandtear21/alpi-crm/actions/runs/45654416733.
+- Проверка (verify-09, глубина low): VERIFIED с первого круга — все утверждения подтверждены, мутацию фильтра скрытых групп проверяющий повторил сам (exit 1, красный шаг 5). Перед мержем: `GATE_SCOPE=all` gate full на 5c839ec — exit 0, `[gate] green (full)`. Мерж — squash f6e55b0.
+- Noted (не блокирует): `e2e/fields-acceptance.spec.ts:444` — проверка «у менеджера нет колонки поля в шапке списка» проходит при любом коде: выбор колонок хранится в localStorage по пользователю (`apps/web/src/routes/deals/list/list-view.tsx:61`), у менеджера набор по умолчанию. Шаг 5 всё равно защищён проверкой окна «Колонки» (:447–448). Исправление — убрать :444 или заранее сохранить менеджеру колонку.
+- Замечено исполнителем, не исправлено: после сохранения полей карточки в «Налаштування → Воронки» слоты уплотняются (поле из «Поле 2» встаёт в «Поле 1») — косметика.
+- Ждёт владельца: ручная приёмка — пункт «Владелец прошёл сценарий руками» остаётся `[ ]` до отметки владельца с датой. При ручном прогоне шага 4 фильтр по полю «один вариант» — «одне з», варианта «дорівнює» нет.
+- Ждёт владельца: в `E:/projects/alpi-crm/.claude/worktrees/09` лежит старая папка от 2026-11-04 (не git worktree) — занимает путь шаблона рабочей копии для тикета 09 любого эпика; удалить или оставить — решение владельца.
