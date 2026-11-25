@@ -12,7 +12,7 @@ import type { ContactView } from '../contacts/contacts.ts'
 import type { DealsPage } from '../deals/board.ts'
 import type { DealHistoryEntry } from '../deals/deals.ts'
 import type { DealView } from '../deals/store.ts'
-import { type Jobs, QUEUES, startJobs } from '../jobs/jobs.ts'
+import { type Jobs, startJobs } from '../jobs/jobs.ts'
 import type { OrganizationView } from '../organizations/organizations.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
 import { NO_TRASH_PURGERS } from '../trash/purge.ts'
@@ -553,8 +553,13 @@ describe('значения пользовательских полей', () => {
         (await refusal(await callA('PUT', `/fields/${field.id}`, { type: 'long_text' }), 409)).code,
       ).toBe('FIELD_CONVERTING')
 
-      // Та же задача — через настоящую очередь.
-      await jobs.boss.send(QUEUES.fieldRetype, message ?? {})
+      // Задача так и не дошла до очереди (как будто очередь исчерпала повторы): повтор той же
+      // смены ставит её снова — уже в настоящую очередь.
+      const again = await json<FieldDefinitionSummary>(
+        await callA('PUT', `/fields/${field.id}`, { type: 'text' }),
+        202,
+      )
+      expect(again).toMatchObject({ type: 'number', convertingTo: 'text' })
       await vi.waitFor(
         async () => {
           expect(await fieldRow(field.id)).toMatchObject({ type: 'text', converting_to: null })

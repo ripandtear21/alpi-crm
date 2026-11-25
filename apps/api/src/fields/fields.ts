@@ -574,8 +574,12 @@ async function updateField(c: Ctx, deps: FieldsDeps) {
   }
   // Смена типа поля с данными, которая переписывает значения: тип меняет фоновая задача.
   let convertTo: FieldType | null = null
-  if (body.type !== undefined && body.type !== row.type) {
-    if (row.converting_to !== null) return fail(c, refuse(409, 'FIELD_CONVERTING'))
+  if (body.type !== undefined && body.type !== row.type && row.converting_to !== null) {
+    // Повтор той же смены снова ставит задачу (если очередь исчерпала повторы, поле не
+    // останется только для чтения навсегда; singletonKey не даст двух задач); другая — 409.
+    if (body.type !== row.converting_to) return fail(c, refuse(409, 'FIELD_CONVERTING'))
+    convertTo = row.converting_to as FieldType
+  } else if (body.type !== undefined && body.type !== row.type) {
     const to = body.type as FieldType
     const mode =
       row.first_value_at === null ? 'keep' : typeChangeWithValues(row.type as FieldType, to)
