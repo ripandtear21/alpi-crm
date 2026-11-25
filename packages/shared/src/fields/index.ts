@@ -1,3 +1,4 @@
+import { can, type FieldGroupAccess, type Resource, type RolePermissions } from '../permissions.ts'
 import { transliterateUk } from './transliterate.ts'
 
 // Конструктор полей (эпик crm-fields, тикет 01; spec.md MVP, раздел 3.3): группы полей,
@@ -12,6 +13,29 @@ export * from './values.ts'
 /** Сущности, у которых есть пользовательские поля. */
 export const FIELD_ENTITIES = ['deal', 'contact', 'organization'] as const
 export type FieldEntity = (typeof FIELD_ENTITIES)[number]
+
+/** Часть системы сущности: её права решают, кто читает описания и какой доступ к группе. */
+export const FIELD_ENTITY_RESOURCE: Record<FieldEntity, Resource> = {
+  deal: 'deals',
+  contact: 'contacts',
+  organization: 'organizations',
+}
+
+/**
+ * Доступ роли к группе полей (тикет crm-fields/03) — одно правило для сервера и редактора
+ * ролей. Запись роли о группе — как записано; группы без записи — по правам части системы её
+ * сущности: «изменять», если роль может изменять сделки (контакты, организации), иначе
+ * «только чтение». Администратор действует с fullPermissions() без записей — у него всегда
+ * «изменять».
+ */
+export function fieldGroupAccess(
+  permissions: RolePermissions,
+  group: { id: string; entity: FieldEntity },
+): FieldGroupAccess {
+  const recorded = permissions.fieldGroups[group.id]
+  if (recorded) return recorded
+  return can(permissions, FIELD_ENTITY_RESOURCE[group.entity], 'edit') ? 'edit' : 'read'
+}
 
 /** 15 типов поля (раздел 3.3 спецификации MVP). */
 export const FIELD_TYPES = [
@@ -288,6 +312,12 @@ export type FieldsErrorCode =
   | 'FIELD_PURGE_TOO_EARLY'
   /** Окончательное удаление уже идёт: поле не меняется и не возвращается из архива. */
   | 'FIELD_PURGE_PENDING'
+  /**
+   * Создание поля в группе или перенос поля между группами, когда у роли на исходную или
+   * целевую группу не «изменять» (403, тикет crm-fields/03) — тот же код, что у отказа ролей
+   * при выдаче прав сверх своих.
+   */
+  | 'EXCEEDS_OWN_PERMISSIONS'
 
 /**
  * Коды ошибок записи значений (`custom`) в запросах сделок, контактов и организаций;
@@ -300,3 +330,5 @@ export type CustomFieldErrorCode =
   | 'CUSTOM_FIELD_INVALID'
   /** Идёт смена типа поля: поле только для чтения (409). */
   | 'CUSTOM_FIELD_CONVERTING'
+  /** Группа поля у роли «только чтение» (403). Поле скрытой группы — CUSTOM_FIELD_UNKNOWN. */
+  | 'CUSTOM_FIELD_READ_ONLY'

@@ -81,3 +81,16 @@
   flex-wrap: wrap;
   gap: var(--s-2);
 }
+
+/* Раздел «Групи полів»: группы по сущностям, заголовок сущности — строкой над её группами. */
+.roles__groups th[scope="row"] {
+  font-weight: normal;
+  text-align: left;
+}
+
+.roles__groups .roles__groups-entity {
+  padding-top: var(--s-3);
+  color: var(--ink-2);
+  font-size: var(--fs-ui);
+  text-align: left;
+}

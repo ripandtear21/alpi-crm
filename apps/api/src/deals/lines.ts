@@ -76,10 +76,10 @@ async function changeLines(
 ): Promise<Result<DealView>> {
   const found = await writableDeal(ctx, id)
   if (!found.ok) return found
-  const before = await dealView(ctx.db, found.value)
+  const before = await dealView(ctx, found.value)
   const changed = await change(found.value)
   if (!changed.ok) return changed
-  const after = await dealView(ctx.db, found.value)
+  const after = await dealView(ctx, found.value)
   await recordChanges(ctx, { type: 'deal', id }, diffFields(before, after, ['products']))
   return ok(after)
 }

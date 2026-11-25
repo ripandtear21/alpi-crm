@@ -13,6 +13,7 @@ import {
   fieldCodeFromName,
   fieldCodeProblem,
   fieldCodeWithSuffix,
+  fieldGroupAccess,
   hasOptions,
   typeChangeWithValues,
 } from '@alpi/shared'
@@ -23,8 +24,9 @@ import { type Ctx, fail, readBody, refuse, UUID } from '../contacts/http.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { isoOrNull, readIds, reorder } from '../pipelines/directory.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
+import { fieldVisible } from './access.ts'
 import {
-  canViewEntity,
+  entityReader,
   type FieldsDeps,
   type FieldsRefusal,
   invalid,
@@ -54,6 +56,11 @@ import {
 //   значениями удаляется окончательно не раньше чем через 30 дней после архивирования —
 //   фоновой задачей (purge.ts), которая убирает ключ поля из `custom` всех записей.
 // - Создание поля не меняет ни одной записи.
+// - Права на группы (тикет crm-fields/03): поле скрытой от роли группы для изменяющих запросов —
+//   как несуществующее (тот же ответ), скрытая группа — тоже; создать поле в группе и перенести
+//   поле между группами можно, только если у роли «изменять» на обе группы, иначе 403
+//   EXCEEDS_OWN_PERMISSIONS. Код поля уникален в сущности проекта: занятый кодом скрытого поля
+//   код отвечает FIELD_CODE_TAKEN (известное ограничение, решено без владельца).
 
 const UNIQUE_VIOLATION = '23505'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -216,25 +223,52 @@ async function fieldSummary(db: Kysely<Database>, id: string): Promise<FieldDefi
   return field
 }
 
-/** Поле текущего проекта, заблокированное до конца транзакции; undefined — нет такого. */
-async function lockField(db: Kysely<Database>, id: string): Promise<FieldRow | undefined> {
+/** Права того, кто меняет описания: requirePermission маршрута уже загрузил роль. */
+const editorPermissions = (c: Ctx) => c.get('access').permissions
+
+/**
+ * Поле `:id` текущего проекта, заблокированное до конца транзакции; undefined — нет такого или
+ * его группа скрыта от роли: ответ — как на несуществующее поле, не выдаёт, что оно есть
+ * (тикет crm-fields/03). У администратора скрытых групп нет.
+ */
+async function lockField(c: Ctx): Promise<FieldRow | undefined> {
+  const id = c.req.param('id') ?? ''
   if (!UUID.test(id)) return undefined
-  return db
+  const row = await c
+    .get('db')
     .selectFrom('field_definition')
     .select(FIELD_COLUMNS)
     .where('id', '=', id)
     .forUpdate()
     .executeTakeFirst()
+  if (!row) return undefined
+  return fieldVisible(editorPermissions(c), { groupId: row.group_id, entity: row.entity })
+    ? row
+    : undefined
 }
 
-async function groupOf(db: Kysely<Database>, id: unknown) {
+/**
+ * Группа текущего проекта и доступ роли к ней; undefined — нет такой или она скрыта от роли
+ * (как несуществующая, тикет crm-fields/03).
+ */
+async function groupFor(c: Ctx, id: unknown) {
   if (typeof id !== 'string' || !UUID.test(id)) return undefined
-  return db
+  const group = await c
+    .get('db')
     .selectFrom('field_group')
     .select(['id', 'entity'])
     .where('id', '=', id)
     .executeTakeFirst()
+  if (!group) return undefined
+  const access = fieldGroupAccess(editorPermissions(c), group)
+  return access === 'hidden' ? undefined : { ...group, access }
 }
+
+/**
+ * Поле создают и переносят только в группу, на которую у роли «изменять», и переносят только из
+ * такой (тикет crm-fields/03): иначе роль с правом «поля» сама подняла бы себе доступ к полю.
+ */
+const exceedsOwn = (): FieldsRefusal => refuse(403, 'EXCEEDS_OWN_PERMISSIONS', { path: 'groupId' })
 
 async function nextPosition(
   db: Kysely<Database>,
@@ -449,8 +483,9 @@ async function createField(c: Ctx) {
   if (options === null) return fail(c, invalid('options'))
 
   const db = c.get('db')
-  const group = await groupOf(db, body.groupId)
+  const group = await groupFor(c, body.groupId)
   if (!group) return fail(c, refuse(422, 'FIELD_GROUP_NOT_FOUND', { path: 'groupId' }))
+  if (group.access !== 'edit') return fail(c, exceedsOwn())
   const entity = group.entity
   if (options.length > 0 && !hasOptions(type)) {
     return fail(c, refuse(422, 'FIELD_OPTIONS_NOT_ALLOWED', { path: 'options' }))
@@ -541,7 +576,7 @@ async function updateField(c: Ctx, deps: FieldsDeps) {
   if (isFrequentlyFiltered === null) return fail(c, invalid('isFrequentlyFiltered'))
 
   const db = c.get('db')
-  const row = await lockField(db, c.req.param('id') ?? '')
+  const row = await lockField(c)
   if (!row) return fail(c, notFound())
   if (row.purge_requested_at !== null) return fail(c, refuse(409, 'FIELD_PURGE_PENDING'))
   const current = await fieldSummary(db, row.id)
@@ -557,10 +592,12 @@ async function updateField(c: Ctx, deps: FieldsDeps) {
   }
 
   if (body.groupId !== undefined && body.groupId !== row.group_id) {
-    const group = await groupOf(db, body.groupId)
+    const group = await groupFor(c, body.groupId)
     if (!group || group.entity !== row.entity) {
       return fail(c, refuse(422, 'FIELD_GROUP_NOT_FOUND', { path: 'groupId' }))
     }
+    const from = fieldGroupAccess(editorPermissions(c), { id: row.group_id, entity: row.entity })
+    if (from !== 'edit' || group.access !== 'edit') return fail(c, exceedsOwn())
     change('groupId', 'group_id', row.group_id, group.id)
     set.position = await nextPosition(db, 'field_definition', 'group_id', group.id)
   }
@@ -661,7 +698,7 @@ async function updateField(c: Ctx, deps: FieldsDeps) {
 async function reorderFields(c: Ctx) {
   const body = await readBody(c)
   const db = c.get('db')
-  const group = await groupOf(db, body?.groupId)
+  const group = await groupFor(c, body?.groupId)
   if (!group) return fail(c, invalid('groupId'))
   const ids = readIds(body)
   if (!ids) return fail(c, invalid('ids'))
@@ -695,7 +732,7 @@ async function reorderFields(c: Ctx) {
 
 async function archiveField(c: Ctx, deps: FieldsDeps, archived: boolean) {
   const db = c.get('db')
-  const row = await lockField(db, c.req.param('id') ?? '')
+  const row = await lockField(c)
   if (!row) return fail(c, notFound())
   if (row.purge_requested_at !== null) return fail(c, refuse(409, 'FIELD_PURGE_PENDING'))
   if ((row.archived_at !== null) !== archived) {
@@ -725,7 +762,7 @@ async function setArchived(c: Ctx, row: FieldRow, at: Date | null) {
  */
 async function deleteField(c: Ctx, deps: FieldsDeps) {
   const db = c.get('db')
-  const row = await lockField(db, c.req.param('id') ?? '')
+  const row = await lockField(c)
   if (!row) return fail(c, notFound())
   if (row.first_value_at === null) {
     await db.deleteFrom('field_definition').where('id', '=', row.id).execute()
@@ -774,12 +811,15 @@ async function readField(c: Ctx) {
   if (!UUID.test(id)) return fail(c, notFound())
   const [field] = await loadFields(c.get('db'), { ids: [id], includeArchived: true })
   if (!field) return fail(c, notFound())
-  if (!(await canViewEntity(c, field.entity))) return fail(c, refuse(403, 'PERMISSION_DENIED'))
+  const permissions = await entityReader(c, field.entity)
+  if (!permissions) return fail(c, refuse(403, 'PERMISSION_DENIED'))
+  // Поле скрытой группы — как несуществующее: ответ не выдаёт, что оно есть (тикет 03).
+  if (!fieldVisible(permissions, field)) return fail(c, notFound())
   return c.json<FieldDefinitionSummary>(field)
 }
 
 async function lockOptionField(c: Ctx): Promise<FieldRow | FieldsRefusal> {
-  const row = await lockField(c.get('db'), c.req.param('id') ?? '')
+  const row = await lockField(c)
   if (!row) return notFound()
   if (row.purge_requested_at !== null) return refuse(409, 'FIELD_PURGE_PENDING')
   if (!hasOptions(row.type as FieldType)) return refuse(422, 'FIELD_OPTIONS_NOT_ALLOWED')
@@ -918,10 +958,14 @@ export function fieldsRoutes(deps: FieldsDeps) {
         if (archived !== undefined && archived !== 'true' && archived !== 'false') {
           return fail(c, invalid('includeArchived'))
         }
-        if (!(await canViewEntity(c, entity))) return fail(c, refuse(403, 'PERMISSION_DENIED'))
-        return c.json<FieldDefinitionSummary[]>(
-          await loadFields(c.get('db'), { entity, includeArchived: archived === 'true' }),
-        )
+        const permissions = await entityReader(c, entity)
+        if (!permissions) return fail(c, refuse(403, 'PERMISSION_DENIED'))
+        const fields = await loadFields(c.get('db'), {
+          entity,
+          includeArchived: archived === 'true',
+        })
+        // Поля скрытых от роли групп не отдаются (тикет 03).
+        return c.json<FieldDefinitionSummary[]>(fields.filter((f) => fieldVisible(permissions, f)))
       })
       .post('/', requirePermission('fields', 'create'), createField)
       // /order — до /:id: иначе «order» читался бы как id поля.

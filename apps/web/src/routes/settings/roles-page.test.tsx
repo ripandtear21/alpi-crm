@@ -1,3 +1,4 @@
+import type { FieldGroupSummary } from '@alpi/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -124,6 +125,83 @@ describe('экран ролей', () => {
     api.failNextWith = 'ROLE_NAME_TAKEN'
     fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }))
     await screen.findByText('Роль з такою назвою вже є.')
+  })
+
+  describe('раздел «Групи полів»', () => {
+    const group = (id: number, entity: FieldGroupSummary['entity'], nameUk: string) => ({
+      id: `00000000-0000-4000-9000-${String(id).padStart(12, '0')}`,
+      entity,
+      nameUk,
+      nameRu: `${nameUk} (ru)`,
+      position: id,
+    })
+    const GROUPS: FieldGroupSummary[] = [
+      group(1, 'deal', 'Фінанси'),
+      group(2, 'deal', 'Логістика'),
+      group(3, 'contact', 'Анкета'),
+    ]
+    const select = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement
+
+    it('группы по сущностям; без записи — доступ по правам, выбор пишет запись', async () => {
+      const api = await renderRoles('uk', fakeRolesApi({ fieldGroups: GROUPS }))
+      fireEvent.click(await screen.findByRole('button', { name: /^Менеджер/ }))
+      const section = await screen.findByRole('group', { name: 'Групи полів' })
+      expect(within(section).getByRole('columnheader', { name: 'Угоди' })).toBeTruthy()
+      expect(within(section).getByRole('columnheader', { name: 'Контакти' })).toBeTruthy()
+      expect(within(section).queryByRole('columnheader', { name: 'Організації' })).toBeNull()
+      // Менеджер изменяет сделки и контакты — без записей у него «Бачить і змінює».
+      expect(select('Доступ до групи «Фінанси»').value).toBe('edit')
+      expect(select('Доступ до групи «Анкета»').value).toBe('edit')
+
+      fireEvent.change(select('Доступ до групи «Фінанси»'), { target: { value: 'hidden' } })
+      fireEvent.change(select('Доступ до групи «Анкета»'), { target: { value: 'read' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }))
+      await screen.findByText('Роль збережено.')
+      expect(api.calls[0]?.input?.permissions.fieldGroups).toEqual({
+        [GROUPS[0]?.id ?? '']: 'hidden',
+        [GROUPS[2]?.id ?? '']: 'read',
+      })
+    })
+
+    it('роль, которая только смотрит сделки: без записи — «Лише читання»', async () => {
+      await renderRoles('uk', fakeRolesApi({ fieldGroups: GROUPS }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Нова роль' }))
+      fireEvent.click(checkbox('Угоди: Бачити'))
+      expect(select('Доступ до групи «Логістика»').value).toBe('read')
+      fireEvent.click(checkbox('Угоди: Змінювати'))
+      expect(select('Доступ до групи «Логістика»').value).toBe('edit')
+    })
+
+    it('администратор — только «Бачить і змінює», без выбора', async () => {
+      await renderRoles('uk', fakeRolesApi({ fieldGroups: GROUPS }))
+      const section = await screen.findByRole('group', { name: 'Групи полів' })
+      expect(within(section).queryAllByRole('combobox')).toHaveLength(0)
+      expect(within(section).getAllByText('Бачить і змінює')).toHaveLength(GROUPS.length)
+      expect(within(section).getByText(/Адміністратор завжди бачить і змінює/)).toBeTruthy()
+    })
+
+    it('ru: названия групп и доступа по-русски', async () => {
+      await renderRoles('ru', fakeRolesApi({ fieldGroups: GROUPS }))
+      fireEvent.click(await screen.findByRole('button', { name: /^Менеджер/ }))
+      await screen.findByRole('group', { name: 'Группы полей' })
+      expect(select('Доступ к группе «Фінанси (ru)»').value).toBe('edit')
+      expect(screen.getAllByRole('option', { name: 'Скрыто' }).length).toBe(GROUPS.length)
+    })
+
+    it('групп в проекте нет — пояснение', async () => {
+      await renderRoles('uk')
+      expect(await screen.findByText('У проєкті ще немає груп полів.')).toBeTruthy()
+    })
+
+    it('группы не загрузились — сообщение, которое читает скринридер (role="alert")', async () => {
+      const api = fakeRolesApi({ fieldGroups: GROUPS })
+      api.fieldGroups = async () => {
+        throw new Error('сеть недоступна')
+      }
+      await renderRoles('uk', api)
+      const alert = await screen.findByRole('alert')
+      expect(alert.textContent).toBe('Не вдалося завантажити групи полів. Оновіть сторінку.')
+    })
   })
 
   it('без права «пользователи и роли» — пояснение вместо редактора', async () => {

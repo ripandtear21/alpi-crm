@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { sql } from 'kysely'
 import { type Ctx, fail, type Outcome, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
+import { CUSTOM_HISTORY_PREFIX, visibleHistoryFields } from '../fields/access.ts'
 import { filesRoutes } from '../files/files.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { notesRoutes } from '../notes/notes.ts'
@@ -100,15 +101,18 @@ function readKinds(raw: string | undefined): TimelineKind[] | undefined {
  * Ветка запроса ленты на каждый вид: одинаковые столбцы с именами и типами в каждой ветке (первой
  * может оказаться любая — по фильтру `type`), недостающие — null.
  */
-function branch(kind: TimelineKind, type: EntityType, id: string) {
+function branch(kind: TimelineKind, type: EntityType, id: string, customFields: string[]) {
   switch (kind) {
     case 'change':
+      // Изменения пользовательских полей — только тех, что роль видит (тикет crm-fields/03).
       return sql`
         select 'change'::text as kind, l.id, l.occurred_at, l.actor_id, l.field, l.before, l.after,
           null::text as text, null::timestamptz as updated_at, null::text as name,
           null::text as content_type, null::bigint as size
         from change_log l
-        where l.entity_type = ${type} and l.entity_id = ${id}`
+        where l.entity_type = ${type} and l.entity_id = ${id}
+          and (l.field not like ${`${CUSTOM_HISTORY_PREFIX}%`}
+            or l.field = any(${customFields}::text[]))`
     case 'note':
       return sql`
         select 'note'::text as kind, n.id, n.created_at as occurred_at, n.author_id as actor_id,
@@ -167,11 +171,17 @@ async function timeline(
   const after = cursor
     ? sql`(t.occurred_at, t.id) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)`
     : sql`true`
+  const customFields = kinds.includes('change')
+    ? await visibleHistoryFields(
+        { db: c.get('db'), permissions: c.get('access').permissions },
+        type,
+      )
+    : []
   const { rows } = await sql<TimelineRow>`
     select t.*, u.name as actor_name,
       to_char(t.occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_at
     from (${sql.join(
-      kinds.map((kind) => branch(kind, type, entity.value.id)),
+      kinds.map((kind) => branch(kind, type, entity.value.id, customFields)),
       sql` union all `,
     )}) t
     left join "user" u on u.id = t.actor_id

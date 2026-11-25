@@ -12,6 +12,7 @@ import { APIError } from 'better-auth/api'
 import { type Kysely, sql } from 'kysely'
 import { type AuditEvent, audit } from '../audit/record.ts'
 import type { Auth } from '../auth/auth.ts'
+import { type FieldGroupRef, loadFieldGroupRefs } from '../fields/access.ts'
 import type { MemberAccess } from '../roles/access.ts'
 import { effectivePermissions } from '../roles/access.ts'
 import {
@@ -48,6 +49,11 @@ export interface MemberContext {
   actor: MemberActor
   /** Адрес клиента для журнала; null — не определён. */
   ip: string | null
+}
+
+/** Группы полей проекта для проверки прав guard.ts; администратору проверка не нужна. */
+function guardGroups(ctx: MemberContext): Promise<FieldGroupRef[]> {
+  return ctx.actor.isAdmin ? Promise.resolve([]) : loadFieldGroupRefs(ctx.db)
 }
 
 /** Запись в журнал проекта от имени того, кто меняет, в транзакции проекта. */
@@ -290,7 +296,7 @@ export async function assignRole(
   if (!role) return refuse(404, 'ROLE_NOT_FOUND')
   const target = await lockMember(ctx.db, ctx.projectId, userId)
   if (!target) return refuse(404, 'MEMBER_NOT_FOUND')
-  const failure = checkAssignment(ctx.actor, target, role)
+  const failure = checkAssignment(ctx.actor, target, role, await guardGroups(ctx))
   if (failure) return refuse(403, failure)
   try {
     await inSavepoint(ctx.db, () =>
@@ -341,7 +347,7 @@ async function checkNewMember(
   // Команду новому участнику выбирает только администратор (guard.ts, правило (д)): иначе
   // не-администратор завёл бы учётную запись, пароль которой знает, сразу в чужую команду.
   const failure =
-    checkAssignment(ctx.actor, target, role) ??
+    checkAssignment(ctx.actor, target, role, await guardGroups(ctx)) ??
     (input.teamId === null ? null : checkTeamChange(ctx.actor))
   if (failure) return refuse(403, failure)
   return ok(null)
@@ -515,7 +521,7 @@ export async function setAcceptsNewDeals(
 ): Promise<Outcome<MemberSummary>> {
   const target = await lockMember(ctx.db, ctx.projectId, userId)
   if (!target) return refuse(404, 'MEMBER_NOT_FOUND')
-  const failure = checkMemberChange(ctx.actor, target)
+  const failure = checkMemberChange(ctx.actor, target, await guardGroups(ctx))
   if (failure) return refuse(403, failure)
   await ctx.db
     .updateTable('project_member')
@@ -538,7 +544,7 @@ export async function disableMember(
 ): Promise<Outcome<MemberSummary>> {
   const target = await lockMember(ctx.db, ctx.projectId, userId)
   if (!target) return refuse(404, 'MEMBER_NOT_FOUND')
-  const failure = checkMemberChange(ctx.actor, target)
+  const failure = checkMemberChange(ctx.actor, target, await guardGroups(ctx))
   if (failure) return refuse(403, failure)
   if (target.disabled) return ok(await memberSummary(ctx.db, userId))
   // Проверка — заново при каждом отключении: сделки, полученные участником, пока шла передача,
@@ -573,7 +579,7 @@ export async function enableMember(
 ): Promise<Outcome<MemberSummary>> {
   const target = await lockMember(ctx.db, ctx.projectId, userId)
   if (!target) return refuse(404, 'MEMBER_NOT_FOUND')
-  const failure = checkMemberChange(ctx.actor, target)
+  const failure = checkMemberChange(ctx.actor, target, await guardGroups(ctx))
   if (failure) return refuse(403, failure)
   if (!target.disabled) return ok(await memberSummary(ctx.db, userId))
   await ctx.db

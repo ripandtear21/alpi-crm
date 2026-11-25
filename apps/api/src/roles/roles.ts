@@ -11,6 +11,7 @@ import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
+import { type FieldGroupRef, loadFieldGroupRefs } from '../fields/access.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { effectivePermissions } from './access.ts'
 import { checkRoleCreate, checkRoleEdit, type GuardFailure } from './guard.ts'
@@ -35,7 +36,12 @@ const LAST_ADMIN = 'AR002'
 
 type Ctx = Context<PermissionsEnv>
 
-function fail(c: Ctx, status: 400 | 403 | 404 | 409, code: RolesErrorCode, details?: unknown) {
+function fail(
+  c: Ctx,
+  status: 400 | 403 | 404 | 409 | 422,
+  code: RolesErrorCode,
+  details?: unknown,
+) {
   return c.json(details === undefined ? { code } : { code, details }, status)
 }
 
@@ -75,6 +81,35 @@ function protectionFailure(c: Ctx, error: unknown) {
 
 function denied(c: Ctx, failure: GuardFailure) {
   return fail(c, 403, failure)
+}
+
+/**
+ * Каждый id в `fieldGroups` — группа полей этого проекта (row-level security показывает только
+ * свои группы, так что id чужого проекта здесь не найдётся). Группы блокируются FOR KEY SHARE до
+ * конца транзакции: удаление группы (fields/groups.ts, FOR UPDATE) ждёт записи роли и потом
+ * убирает группу из её прав. Путь первого чужого id; undefined — все свои.
+ */
+async function unknownFieldGroup(
+  db: Kysely<Database>,
+  permissions: RolePermissions,
+): Promise<string | undefined> {
+  const ids = Object.keys(permissions.fieldGroups)
+  if (ids.length === 0) return undefined
+  const found = await db
+    .selectFrom('field_group')
+    .select('id')
+    .where('id', 'in', ids)
+    .orderBy('id')
+    .forKeyShare()
+    .execute()
+  const known = new Set(found.map((g) => g.id))
+  const missing = ids.find((id) => !known.has(id))
+  return missing === undefined ? undefined : `permissions.fieldGroups.${missing}`
+}
+
+/** Группы полей проекта для проверки guard.ts; администратору проверка не нужна. */
+function guardGroups(c: Ctx): Promise<FieldGroupRef[]> {
+  return c.get('access').isAdmin ? Promise.resolve([]) : loadFieldGroupRefs(c.get('db'))
 }
 
 function isTemplateKey(value: unknown): value is RoleTemplateKey {
@@ -165,9 +200,11 @@ export function rolesRoutes() {
       if (!input.ok) return fail(c, 400, 'INVALID_ROLE', input.details)
       const { name = '', permissions } = input.value
       if (!permissions) return fail(c, 400, 'INVALID_ROLE')
-      const failure = checkRoleCreate(c.get('access'), permissions)
-      if (failure) return denied(c, failure)
       const db = c.get('db')
+      const unknownGroup = await unknownFieldGroup(db, permissions)
+      if (unknownGroup) return fail(c, 422, 'FIELD_GROUP_NOT_FOUND', { path: unknownGroup })
+      const failure = checkRoleCreate(c.get('access'), permissions, await guardGroups(c))
+      if (failure) return denied(c, failure)
       try {
         const { id } = await inSavepoint(db, () =>
           db
@@ -206,12 +243,24 @@ export function rolesRoutes() {
         .forUpdate()
         .executeTakeFirst()
       if (!current) return fail(c, 404, 'ROLE_NOT_FOUND')
+      const next = input.value.permissions
+      if (next) {
+        const unknownGroup = await unknownFieldGroup(db, next)
+        if (unknownGroup) return fail(c, 422, 'FIELD_GROUP_NOT_FOUND', { path: unknownGroup })
+      }
       const failure = checkRoleEdit(
         c.get('access'),
         { id: current.id, permissions: effectivePermissions(current) },
-        input.value.permissions,
+        next,
+        await guardGroups(c),
       )
       if (failure) return denied(c, failure)
+      // Администратор всегда «изменять» на все группы (тикет crm-fields/03): урезать его доступ
+      // к группе — 422, а не общий отказ 409 «роль администратора неизменна» — ошибка в самом
+      // запросе. Остальные изменения роли администратора отклоняет база (409).
+      if (current.is_admin && next && Object.values(next.fieldGroups).some((a) => a !== 'edit')) {
+        return fail(c, 422, 'ADMIN_FIELD_GROUPS_LOCKED')
+      }
       try {
         const updated = await inSavepoint(db, () =>
           db

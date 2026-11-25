@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createProject as createProjectAsService, withProject } from '@alpi/db'
 import {
   fullPermissions,
@@ -423,9 +424,11 @@ describe('роли и права проекта', () => {
         { name: 'X', permissions: { scopes: { products: { read: 'all' } } } },
         { name: 'X', permissions: { scopes: { deals: { read: 'galaxy' } } } },
         { name: 'X', permissions: { standalone: ['launch'] } },
-        { name: 'X', permissions: { fieldGroups: { g1: 'secret' } } },
-        // Групп полей пока нет: и допустимый доступ к несуществующей группе — ошибка.
+        // Права на группы полей (тикет crm-fields/03): ключ — id группы, доступ — из каталога.
+        // Что id — группа этого проекта, проверяет сервер (422, «права на группы полей» ниже).
         { name: 'X', permissions: { fieldGroups: { g1: 'edit' } } },
+        { name: 'X', permissions: { fieldGroups: { [randomUUID()]: 'secret' } } },
+        { name: 'X', permissions: { fieldGroups: ['edit'] } },
         { name: '   ', permissions: {} },
         { name: 'X', permissions: 'all' },
       ]
@@ -642,6 +645,217 @@ describe('роли и права проекта', () => {
         body: { permissions: { ...HR, standalone: ['export'] } },
       })
       expect(widened.status).toBe(200)
+    })
+  })
+
+  describe('права на группы полей', () => {
+    // Тикет crm-fields/03. Кадровик X: «пользователи и роли», сделки — смотреть и изменять все,
+    // группа сделок G у него — «только чтение», группа H — «скрыто». Владелец системы —
+    // администратор.
+    let projectId: string
+    let roles: RoleSummary[]
+    let groupG: string
+    let groupH: string
+    let foreignGroup: string
+    let x: SignedInUser
+    let base: RolePermissions
+
+    async function createGroup(project: string, nameUk: string): Promise<string> {
+      const res = await systemOwner.api('POST', '/v1/field-groups', {
+        project,
+        body: { entity: 'deal', nameUk },
+      })
+      expect(res.status).toBe(201)
+      return ((await res.json()) as { id: string }).id
+    }
+
+    async function createRole(name: string, permissions: RolePermissions) {
+      const res = await systemOwner.api('POST', '/roles', {
+        project: projectId,
+        body: { name, permissions },
+      })
+      expect(res.status, await res.clone().text()).toBe(201)
+      return (await res.json()) as RoleSummary
+    }
+
+    const asX = (method: 'POST' | 'PUT', path: string, body: unknown) =>
+      x.api(method, path, { project: projectId, body })
+
+    async function expectBody(res: Response, status: number, body: unknown) {
+      expect({ status: res.status, body: await res.json() }).toEqual({ status, body })
+    }
+
+    const groupsOf = async (roleId: string) =>
+      ((await storedRole(roleId)).permissions as RolePermissions).fieldGroups
+
+    beforeAll(async () => {
+      projectId = (await h.createProject(systemOwner, 'Групи полів')).id
+      roles = await rolesOf(systemOwner, projectId)
+      groupG = await createGroup(projectId, 'Група G')
+      groupH = await createGroup(projectId, 'Група H')
+      const other = await h.createProject(systemOwner, 'Чужий')
+      foreignGroup = await createGroup(other.id, 'Чужа група')
+      base = {
+        ...MANAGER,
+        actions: {
+          ...Object.fromEntries(Object.keys(MANAGER.actions).map((k) => [k, []])),
+          deals: ['view', 'edit'],
+          users_roles: ['view', 'create', 'edit'],
+        },
+        scopes: { ...MANAGER.scopes, deals: { read: 'all', write: 'all' } },
+        standalone: [],
+        fieldGroups: {},
+      } as unknown as RolePermissions
+      const hr = await createRole('Кадровик груп', {
+        ...base,
+        fieldGroups: { [groupG]: 'read', [groupH]: 'hidden' },
+      })
+      x = await h.signIn()
+      await h.addMember(projectId, x.id, 'manager')
+      const assigned = await systemOwner.api('PUT', `/members/${x.id}/role`, {
+        project: projectId,
+        body: { roleId: hr.id },
+      })
+      expect(assigned.status).toBe(200)
+    })
+
+    it('каталог: { группа: доступ } сохраняется и отдаётся; группа чужого проекта — 422', async () => {
+      const role = await createRole('Читач G', { ...base, fieldGroups: { [groupG]: 'read' } })
+      expect(role.permissions.fieldGroups).toEqual({ [groupG]: 'read' })
+      expect(await groupsOf(role.id)).toEqual({ [groupG]: 'read' })
+
+      for (const id of [foreignGroup, randomUUID()]) {
+        const permissions = { ...base, fieldGroups: { [groupG]: 'edit', [id]: 'read' } }
+        const refusal = {
+          code: 'FIELD_GROUP_NOT_FOUND',
+          details: { path: `permissions.fieldGroups.${id}` },
+        }
+        await expectBody(
+          await systemOwner.api('POST', '/roles', {
+            project: projectId,
+            body: { name: `Чужа ${id}`, permissions },
+          }),
+          422,
+          refusal,
+        )
+        await expectBody(
+          await systemOwner.api('PUT', `/roles/${role.id}`, {
+            project: projectId,
+            body: { permissions },
+          }),
+          422,
+          refusal,
+        )
+      }
+      expect(await groupsOf(role.id)).toEqual({ [groupG]: 'read' })
+    })
+
+    it('администратору нельзя записать «только чтение» или «скрыто» — 422, роль прежняя', async () => {
+      const admin = roleByKey(roles, 'admin')
+      const before = await storedRole(admin.id)
+      for (const access of ['read', 'hidden']) {
+        await expectBody(
+          await systemOwner.api('PUT', `/roles/${admin.id}`, {
+            project: projectId,
+            body: { permissions: { ...fullPermissions(), fieldGroups: { [groupG]: access } } },
+          }),
+          422,
+          { code: 'ADMIN_FIELD_GROUPS_LOCKED' },
+        )
+      }
+      expect(await storedRole(admin.id)).toEqual(before)
+      // Записей о группах у администратора нет: он действует с «изменять» на все группы.
+      const shown = roleByKey(await rolesOf(systemOwner, projectId), 'admin')
+      expect(shown.permissions.fieldGroups).toEqual({})
+    })
+
+    it('не-администратор не выдаёт доступ к группе выше своего — ни записью, ни группой без записи', async () => {
+      const wider: [string, Record<string, string>][] = [
+        ['запись edit на группу read', { [groupG]: 'edit', [groupH]: 'hidden' }],
+        ['запись read на скрытую группу', { [groupG]: 'read', [groupH]: 'read' }],
+        // Без записи о G роль с правом изменять сделки получила бы на G «изменять».
+        ['группа без записи', { [groupH]: 'hidden' }],
+      ]
+      for (const [what, fieldGroups] of wider) {
+        const res = await asX('POST', '/roles', {
+          name: `Ширша: ${what}`,
+          permissions: { ...base, fieldGroups },
+        })
+        expect({ what, status: res.status }).toEqual({ what, status: 403 })
+        expect(await res.json()).toEqual({ code: 'EXCEEDS_OWN_PERMISSIONS' })
+      }
+      // Не выше своего — можно.
+      const allowed: [string, Record<string, string>][] = [
+        ['Як у мене', { [groupG]: 'read', [groupH]: 'hidden' }],
+        ['Менше', { [groupG]: 'hidden', [groupH]: 'hidden' }],
+      ]
+      for (const [name, fieldGroups] of allowed) {
+        const res = await asX('POST', '/roles', { name, permissions: { ...base, fieldGroups } })
+        expect({ name, status: res.status }).toEqual({ name, status: 201 })
+      }
+    })
+
+    it('изменение чужой роли: доступ к группе выше своего оставить можно, поднять — нет', async () => {
+      // У роли уже «изменять» на G — без записи (выдал администратор).
+      const editor = await createRole('Редактор G', {
+        ...base,
+        fieldGroups: { [groupH]: 'hidden' },
+      })
+      expect((await asX('PUT', `/roles/${editor.id}`, { name: 'Редактор G2' })).status).toBe(200)
+      const same = await asX('PUT', `/roles/${editor.id}`, {
+        permissions: { ...base, fieldGroups: { [groupH]: 'hidden' } },
+      })
+      expect(same.status).toBe(200)
+      await expectBody(
+        await asX('PUT', `/roles/${editor.id}`, {
+          permissions: { ...base, fieldGroups: { [groupH]: 'read' } },
+        }),
+        403,
+        { code: 'EXCEEDS_OWN_PERMISSIONS' },
+      )
+      const lowered = await asX('PUT', `/roles/${editor.id}`, {
+        permissions: { ...base, fieldGroups: { [groupG]: 'read', [groupH]: 'hidden' } },
+      })
+      expect(lowered.status).toBe(200)
+      expect(await groupsOf(editor.id)).toEqual({ [groupG]: 'read', [groupH]: 'hidden' })
+    })
+
+    it('назначить участнику роль с доступом к группе выше своего нельзя', async () => {
+      const editor = await createRole('Редактор усіх груп', base)
+      const narrow = await createRole('Без груп', {
+        ...base,
+        actions: { ...base.actions, deals: ['view'], users_roles: [] },
+        fieldGroups: { [groupG]: 'hidden', [groupH]: 'hidden' },
+      })
+      const y = await h.signIn()
+      await h.addMember(projectId, y.id, 'manager')
+      const assigned = await systemOwner.api('PUT', `/members/${y.id}/role`, {
+        project: projectId,
+        body: { roleId: narrow.id },
+      })
+      expect(assigned.status).toBe(200)
+      await expectBody(await asX('PUT', `/members/${y.id}/role`, { roleId: editor.id }), 403, {
+        code: 'EXCEEDS_OWN_PERMISSIONS',
+      })
+    })
+
+    it('удалённая группа уходит из прав всех ролей той же транзакцией', async () => {
+      const doomed = await createGroup(projectId, 'Тимчасова')
+      const first = await createRole('З тимчасовою 1', {
+        ...base,
+        fieldGroups: { [doomed]: 'hidden', [groupG]: 'read' },
+      })
+      const second = await createRole('З тимчасовою 2', {
+        ...base,
+        fieldGroups: { [doomed]: 'read' },
+      })
+      const deleted = await systemOwner.api('DELETE', `/v1/field-groups/${doomed}`, {
+        project: projectId,
+      })
+      expect(deleted.status).toBe(204)
+      expect(await groupsOf(first.id)).toEqual({ [groupG]: 'read' })
+      expect(await groupsOf(second.id)).toEqual({})
+      expect(JSON.stringify(await rolesOf(systemOwner, projectId))).not.toContain(doomed)
     })
   })
 

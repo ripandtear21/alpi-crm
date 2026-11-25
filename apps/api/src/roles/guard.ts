@@ -1,5 +1,7 @@
 import {
   ACTIONS,
+  fieldGroupAccess,
+  fieldGroupAccessRank,
   RESOURCES,
   type RolePermissions,
   SCOPED_RESOURCES,
@@ -7,6 +9,7 @@ import {
   type Scope,
   STANDALONE_PERMISSIONS,
 } from '@alpi/shared'
+import type { FieldGroupRef } from '../fields/access.ts'
 import type { MemberAccess } from './access.ts'
 
 // Кто какие роли может выдавать (решение без владельца, тикет crm-foundation/05 — подтвердить).
@@ -14,7 +17,8 @@ import type { MemberAccess } from './access.ts'
 //   (а) роль администратора назначает, а роль участника-администратора меняет или снимает
 //       только администратор проекта;
 //   (б) не-администратор, создавая, меняя или назначая роль, не выдаёт прав, которых нет у него
-//       самого: действий, более широкого охвата, отдельных прав;
+//       самого: действий, более широкого охвата, отдельных прав, доступа к группе полей выше
+//       своего (`edit` > `read` > `hidden`, тикет crm-fields/03);
 //   (в) не-администратор не меняет свою роль участника и не правит роль, назначенную ему;
 //   (г) роль участника, у которого прав больше, чем у действующего пользователя, меняет или
 //       снимает только администратор; то же для участия такого участника — команды, приёма
@@ -49,12 +53,23 @@ const scopeRank = (scope: Scope) => SCOPES.indexOf(scope)
  * добавляется: права, которые у роли уже были, не-администратор может оставить (например,
  * переименовать роль «керівник», у которой прав больше, чем у него) или убрать.
  * `before` null — новая роль.
+ *
+ * Доступ к группам полей сравнивается по каждой группе проекта `groups`, а не только по
+ * записям: доступ группы без записи следует из действий роли, и роль без записей с правом
+ * изменять сделки получила бы «изменять» на группу, которая у самого `actor` — «только
+ * чтение».
  */
 export function grantsBeyondOwn(
   actor: RolePermissions,
   before: RolePermissions | null,
   after: RolePermissions,
+  groups: readonly FieldGroupRef[],
 ): boolean {
+  for (const group of groups) {
+    const next = fieldGroupAccessRank(fieldGroupAccess(after, group))
+    const raised = before === null || next > fieldGroupAccessRank(fieldGroupAccess(before, group))
+    if (raised && next > fieldGroupAccessRank(fieldGroupAccess(actor, group))) return true
+  }
   for (const resource of RESOURCES) {
     for (const action of ACTIONS) {
       const added =
@@ -76,10 +91,14 @@ export function grantsBeyondOwn(
   return false
 }
 
-/** Создание роли. */
-export function checkRoleCreate(actor: MemberAccess, after: RolePermissions): GuardFailure | null {
+/** Создание роли; `groups` — группы полей проекта. */
+export function checkRoleCreate(
+  actor: MemberAccess,
+  after: RolePermissions,
+  groups: readonly FieldGroupRef[],
+): GuardFailure | null {
   if (actor.isAdmin) return null
-  return grantsBeyondOwn(actor.permissions, null, after) ? 'EXCEEDS_OWN_PERMISSIONS' : null
+  return grantsBeyondOwn(actor.permissions, null, after, groups) ? 'EXCEEDS_OWN_PERMISSIONS' : null
 }
 
 /** Изменение роли `role`; `after` — новые права, undefined — права не меняются. */
@@ -87,10 +106,11 @@ export function checkRoleEdit(
   actor: MemberAccess,
   role: { id: string; permissions: RolePermissions },
   after: RolePermissions | undefined,
+  groups: readonly FieldGroupRef[],
 ): GuardFailure | null {
   if (actor.isAdmin) return null
   if (role.id === actor.roleId) return 'OWN_ROLE'
-  if (after && grantsBeyondOwn(actor.permissions, role.permissions, after)) {
+  if (after && grantsBeyondOwn(actor.permissions, role.permissions, after, groups)) {
     return 'EXCEEDS_OWN_PERMISSIONS'
   }
   return null
@@ -111,15 +131,16 @@ export function checkAssignment(
   actor: MemberAccess & { userId: string },
   target: GuardTarget,
   next: { isAdmin: boolean; permissions: RolePermissions },
+  groups: readonly FieldGroupRef[],
 ): GuardFailure | null {
   if (actor.isAdmin) return null
   if (next.isAdmin || target.roleIsAdmin) return 'ADMIN_ONLY'
   if (target.userId === actor.userId) return 'OWN_ROLE'
-  if (grantsBeyondOwn(actor.permissions, null, target.permissions)) {
+  if (grantsBeyondOwn(actor.permissions, null, target.permissions, groups)) {
     return 'TARGET_EXCEEDS_OWN_PERMISSIONS'
   }
   // Назначить роль шире своей — то же, что выдать эти права (б).
-  return grantsBeyondOwn(actor.permissions, null, next.permissions)
+  return grantsBeyondOwn(actor.permissions, null, next.permissions, groups)
     ? 'EXCEEDS_OWN_PERMISSIONS'
     : null
 }
@@ -133,11 +154,12 @@ export function checkAssignment(
 export function checkMemberChange(
   actor: MemberAccess & { userId: string },
   target: GuardTarget,
+  groups: readonly FieldGroupRef[],
 ): GuardFailure | null {
   if (actor.isAdmin) return null
   if (target.roleIsAdmin) return 'ADMIN_ONLY'
   if (target.userId === actor.userId) return 'OWN_MEMBERSHIP'
-  if (grantsBeyondOwn(actor.permissions, null, target.permissions)) {
+  if (grantsBeyondOwn(actor.permissions, null, target.permissions, groups)) {
     return 'TARGET_EXCEEDS_OWN_PERMISSIONS'
   }
   return null

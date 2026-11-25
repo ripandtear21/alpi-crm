@@ -4,6 +4,7 @@ import { type Kysely, sql } from 'kysely'
 import type { ChangeAuthor } from '../change-log/record.ts'
 import type { ContactsErrorCode } from '../contacts/contacts.ts'
 import { type Ctx, type Outcome, ok, refuse } from '../contacts/http.ts'
+import type { FieldViewer } from '../fields/access.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
@@ -250,8 +251,9 @@ const iso = (value: Date | string) => new Date(value).toISOString()
 const isoOrNull = (value: Date | string | null) => (value === null ? null : iso(value))
 
 /** Ответ API для строк сделок: участники и строки товаров — одним запросом на всех. */
-export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<DealView[]> {
+export async function dealViews(viewer: FieldViewer, rows: DealRow[]): Promise<DealView[]> {
   if (rows.length === 0) return []
+  const { db } = viewer
   const ids = rows.map((row) => row.id)
   const participants = await db
     .selectFrom('deal_participant')
@@ -295,7 +297,7 @@ export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<
     totals.set(line.deal_id, Number(line.sum))
   }
   const custom = await visibleCustom(
-    db,
+    viewer,
     'deal',
     rows.map((row) => row.custom),
   )
@@ -327,8 +329,8 @@ export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<
   }))
 }
 
-export async function dealView(db: Kysely<Database>, row: DealRow): Promise<DealView> {
-  const [view] = await dealViews(db, [row])
+export async function dealView(viewer: FieldViewer, row: DealRow): Promise<DealView> {
+  const [view] = await dealViews(viewer, [row])
   if (!view) throw new Error('сделка пропала в той же транзакции')
   return view
 }
