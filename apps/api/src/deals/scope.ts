@@ -1,6 +1,6 @@
 import type { Scope } from '@alpi/shared'
 import { type RawBuilder, type SqlBool, sql } from 'kysely'
-import type { Viewer } from '../roles/scope.ts'
+import { teamScopeIds, type Viewer } from '../roles/scope.ts'
 
 // Охват сделок (spec.md, раздел 4; ответ владельца, пункт 33). Сделка видна (или доступна для
 // изменения), если её ответственный — в охвате пользователя (roles/scope.ts: свои / команда /
@@ -13,11 +13,14 @@ export function ownerInScope(owner: RawBuilder<unknown>, scope: Scope, viewer: V
   switch (scope) {
     case 'all':
       return sql<SqlBool>`true`
+    // У ключа API (viewer.userId null) своих сделок и команды нет: только общая очередь.
     case 'own':
-      return sql<SqlBool>`${owner} = ${viewer.userId}`
+      return viewer.userId === null
+        ? sql<SqlBool>`false`
+        : sql<SqlBool>`${owner} = ${viewer.userId}`
     case 'team': {
-      const ids = [...new Set([viewer.userId, ...viewer.teamUserIds])]
-      return sql<SqlBool>`${owner} in (${sql.join(ids)})`
+      const ids = teamScopeIds(viewer)
+      return ids.length === 0 ? sql<SqlBool>`false` : sql<SqlBool>`${owner} in (${sql.join(ids)})`
     }
   }
 }

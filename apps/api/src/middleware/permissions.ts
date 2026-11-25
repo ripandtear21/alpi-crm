@@ -5,14 +5,16 @@ import {
   type Resource,
   type StandalonePermission,
 } from '@alpi/shared'
+import type { Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
-import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
+import { loadApiKeyAccess, loadMemberAccess, type MemberAccess } from '../roles/access.ts'
 import type { ProjectEnv } from './project-context.ts'
 
 // Проверка прав роли (spec.md, раздел 4). Ставится на маршрут после projectContext:
 //   .get('/', requirePermission('deals', 'view'), handler)
 // Права пользователя — по его роли в текущем проекте; владелец системы (роль admin плагина
-// Better Auth) прав в проекте сверх своей роли участника не получает.
+// Better Auth) прав в проекте сверх своей роли участника не получает. Права запроса по ключу
+// API — по роли ключа (тикет crm-api/01), тем же путём.
 
 /** Переменные контекста Hono после проверки прав. */
 export type PermissionsEnv = {
@@ -23,21 +25,31 @@ export type PermissionsEnv = {
 }
 
 /**
- * Пропускает запрос, если роль пользователя в текущем проекте разрешает `action` с
- * `resource`; иначе — 403 PERMISSION_DENIED. Роль читается в транзакции проекта и
- * кладётся в `c.var.access` для обработчика.
+ * Роль автора запроса — участника или ключа API — в текущем проекте; читается в транзакции
+ * проекта один раз на запрос (на каждом запросе заново: смена прав роли действует сразу) и
+ * кладётся в `c.var.access`. null — участие или ключ пропали в этой же транзакции.
+ */
+async function requestAccess(c: Context<PermissionsEnv>): Promise<MemberAccess | null> {
+  const cached = c.get('access') as MemberAccess | undefined
+  if (cached) return cached
+  const actor = c.get('actor')
+  const loaded =
+    actor.type === 'user'
+      ? await loadMemberAccess(c.get('db'), actor.userId)
+      : await loadApiKeyAccess(c.get('db'), actor.apiKeyId)
+  if (loaded) c.set('access', loaded)
+  return loaded
+}
+
+/**
+ * Пропускает запрос, если роль пользователя (или ключа API) в текущем проекте разрешает
+ * `action` с `resource`; иначе — 403 PERMISSION_DENIED. Роль кладётся в `c.var.access` для
+ * обработчика.
  */
 export function requirePermission(resource: Resource, action: Action) {
   return createMiddleware<PermissionsEnv>(async (c, next) => {
-    let access = c.get('access') as MemberAccess | undefined
-    if (!access) {
-      const loaded = await loadMemberAccess(c.get('db'), c.get('session').user.id)
-      // projectContext уже проверил участие; пропасть оно могло только в этой же транзакции.
-      if (!loaded) return c.json({ code: 'PERMISSION_DENIED' }, 403)
-      access = loaded
-      c.set('access', access)
-    }
-    if (!can(access.permissions, resource, action)) {
+    const access = await requestAccess(c)
+    if (!access || !can(access.permissions, resource, action)) {
       return c.json({ code: 'PERMISSION_DENIED' }, 403)
     }
     await next()
@@ -51,14 +63,8 @@ export function requirePermission(resource: Resource, action: Action) {
  */
 export function requireStandalone(permission: StandalonePermission) {
   return createMiddleware<PermissionsEnv>(async (c, next) => {
-    let access = c.get('access') as MemberAccess | undefined
-    if (!access) {
-      const loaded = await loadMemberAccess(c.get('db'), c.get('session').user.id)
-      if (!loaded) return c.json({ code: 'PERMISSION_DENIED' }, 403)
-      access = loaded
-      c.set('access', access)
-    }
-    if (!hasStandalone(access.permissions, permission)) {
+    const access = await requestAccess(c)
+    if (!access || !hasStandalone(access.permissions, permission)) {
       return c.json({ code: 'PERMISSION_DENIED' }, 403)
     }
     await next()

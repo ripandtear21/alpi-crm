@@ -51,10 +51,18 @@ export const PROJECT_TEAMS: TeamResolver = {
 
 /** Тот, для кого строится охват. */
 export interface Viewer {
-  userId: string
+  /**
+   * null — ключ API (тикет crm-api/01): у ключа нет своих записей и команды, поэтому охват
+   * «свои» и «команда» не даёт ему ни одной записи с ответственным — только общую очередь
+   * сделок (deals/scope.ts) (решено без владельца — подтвердить).
+   */
+  userId: string | null
   /** Пользователи его команды; сам пользователь в охват «команда» входит всегда. */
   teamUserIds: readonly string[]
 }
+
+/** Охват ключа API: ни своих записей, ни команды. */
+export const API_KEY_VIEWER: Viewer = { userId: null, teamUserIds: [] }
 
 export async function resolveViewer(
   db: Kysely<Database>,
@@ -62,6 +70,11 @@ export async function resolveViewer(
   teams: TeamResolver,
 ): Promise<Viewer> {
   return { userId, teamUserIds: await teams.teamUserIds(db, userId) }
+}
+
+/** Пользователи охвата «команда»: сам пользователь и его команда; у ключа API — никого. */
+export function teamScopeIds(viewer: Viewer): string[] {
+  return viewer.userId === null ? [] : [...new Set([viewer.userId, ...viewer.teamUserIds])]
 }
 
 /**
@@ -79,10 +92,12 @@ export function scopePredicate<DB, TB extends keyof DB>(
     case 'all':
       return sql<SqlBool>`true`
     case 'own':
-      return sql<SqlBool>`${owner} = ${viewer.userId}`
+      return viewer.userId === null
+        ? sql<SqlBool>`false`
+        : sql<SqlBool>`${owner} = ${viewer.userId}`
     case 'team': {
-      const ids = [...new Set([viewer.userId, ...viewer.teamUserIds])]
-      return sql<SqlBool>`${owner} in (${sql.join(ids)})`
+      const ids = teamScopeIds(viewer)
+      return ids.length === 0 ? sql<SqlBool>`false` : sql<SqlBool>`${owner} in (${sql.join(ids)})`
     }
   }
 }

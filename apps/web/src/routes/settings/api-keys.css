@@ -1,0 +1,30 @@
+/* Экран «Ключі API»: сведения о ключе — подпись и значение в две колонки, на телефоне (375 px)
+   длинные значения переносятся, страница не прокручивается вбок. */
+.api-keys__facts {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--s-1) var(--s-3);
+  margin: 0;
+}
+
+.api-keys__facts dt {
+  color: var(--ink-2);
+}
+
+.api-keys__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.api-keys__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+/* Секрет целиком виден и выделяется одним нажатием; моноширинный, чтобы не путать l и I. */
+.api-keys__secret {
+  width: 100%;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}

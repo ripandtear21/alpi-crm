@@ -31,6 +31,7 @@ const migrationNames = [
   '0016_fields',
   '0017_field_values',
   '0018_field_filters',
+  '0019_api_keys',
 ]
 
 const tablesOfMigration = [
@@ -85,6 +86,8 @@ const tablesOfMigration = [
   // 0018_field_filters
   'custom_value',
   'pipeline_card_field',
+  // 0019_api_keys
+  'api_key',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -326,6 +329,7 @@ describe('схема и изоляция проектов', () => {
         order by c.relname
       `.execute(owner)
       expect(rows).toEqual([
+        { table: 'api_key', rls: true, policies: 1 },
         { table: 'audit_log', rls: true, policies: 1 },
         { table: 'bulk_job', rls: true, policies: 1 },
         { table: 'bulk_job_error', rls: true, policies: 1 },

@@ -1,8 +1,12 @@
 import { type Database, withProject } from '@alpi/db'
 import { PROJECT_HEADER } from '@alpi/shared'
+import type { Context, Next } from 'hono'
 import { createMiddleware } from 'hono/factory'
-import type { Kysely, Transaction } from 'kysely'
+import { type Kysely, sql, type Transaction } from 'kysely'
+import type { RequestActor } from '../api-keys/actor.ts'
+import { audit } from '../audit/record.ts'
 import type { AccessEnv } from '../auth/access-guard.ts'
+import type { ApiKeyEnv } from './api-key.ts'
 
 // Контекст проекта для запроса (docs/adr/0001-izolyatsiya-proektov.md): клиент присылает
 // выбранный проект в заголовке X-Project-Id, промежуточный слой проверяет участие пользователя
@@ -15,12 +19,18 @@ import type { AccessEnv } from '../auth/access-guard.ts'
 
 /** Переменные контекста Hono внутри проекта. */
 export type ProjectEnv = {
-  Variables: AccessEnv['Variables'] & {
-    /** id текущего проекта: пользователь в нём состоит. */
-    projectId: string
-    /** Транзакция с выставленным проектом: все запросы обработчика — через неё. */
-    db: Transaction<Database>
-  }
+  Variables: AccessEnv['Variables'] &
+    ApiKeyEnv['Variables'] & {
+      /**
+       * id текущего проекта: пользователь в нём состоит или это проект ключа API. У запроса по
+       * ключу нет `session`: автор запроса — `actor`.
+       */
+      projectId: string
+      /** Кто выполняет запрос: пользователь или ключ API (тикет crm-api/01). */
+      actor: RequestActor
+      /** Транзакция с выставленным проектом: все запросы обработчика — через неё. */
+      db: Transaction<Database>
+    }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -36,6 +46,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  */
 export function projectContext(db: Kysely<Database>) {
   return createMiddleware<ProjectEnv>(async (c, next) => {
+    const apiKey = c.get('apiKey')
+    if (apiKey) return apiKeyProjectContext(db, apiKey, c, next)
     const session = c.get('session')
     if (!session?.user.twoFactorEnabled || session.session.twoFactorVerified !== true) {
       return c.json({ code: 'UNAUTHORIZED' }, 401)
@@ -64,6 +76,7 @@ export function projectContext(db: Kysely<Database>) {
         if (!row) return
         member = true
         c.set('projectId', projectId)
+        c.set('actor', { type: 'user', userId: session.user.id })
         c.set('db', trx)
         await next()
         // Hono перехватывает ошибку обработчика сам (ответ 500 уже готов) и не пробрасывает её
@@ -78,4 +91,62 @@ export function projectContext(db: Kysely<Database>) {
       return c.json({ code: 'PROJECT_FORBIDDEN' }, 403)
     }
   })
+}
+
+/** Как часто обновляется отметка последнего запроса ключа: не пишем в базу на каждый запрос. */
+const LAST_USED_PRECISION = '1 minute'
+
+/** Методы, которые не меняют данных: такой запрос ключа в журнал проекта не пишется. */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+/**
+ * Контекст проекта для запроса по ключу API (тикет crm-api/01): проект — проект ключа, а не
+ * заголовок. `X-Project-Id` не нужен; передан и не совпадает — 403 PROJECT_FORBIDDEN, до
+ * какого-либо чтения из базы. Изменяющий запрос, который удался, пишется в журнал проекта
+ * (api_key.request) той же транзакцией, автор — ключ.
+ */
+async function apiKeyProjectContext(
+  db: Kysely<Database>,
+  apiKey: { id: string; projectId: string },
+  c: Context<ProjectEnv>,
+  next: Next,
+) {
+  const header = c.req.header(PROJECT_HEADER)
+  if (header !== undefined && header.toLowerCase() !== apiKey.projectId) {
+    return c.json({ code: 'PROJECT_FORBIDDEN' }, 403)
+  }
+  try {
+    await withProject(db, apiKey.projectId, async (trx) => {
+      c.set('projectId', apiKey.projectId)
+      c.set('actor', { type: 'api_key', apiKeyId: apiKey.id })
+      c.set('db', trx)
+      await trx
+        .updateTable('api_key')
+        .set({ last_used_at: sql`now()` })
+        .where('id', '=', apiKey.id)
+        .where('revoked_at', 'is', null)
+        .where((eb) =>
+          eb.or([
+            eb('last_used_at', 'is', null),
+            eb('last_used_at', '<', sql<Date>`now() - ${LAST_USED_PRECISION}::interval`),
+          ]),
+        )
+        .execute()
+      await next()
+      if (c.error) throw c.error
+      if (!SAFE_METHODS.has(c.req.method) && c.res.status < 400) {
+        await audit.record(trx, apiKey.projectId, {
+          action: 'api_key.request',
+          actorId: null,
+          actorApiKeyId: apiKey.id,
+          ip: c.get('clientIp'),
+          entity: { type: 'api_key', id: apiKey.id },
+          details: { method: c.req.method, path: c.req.path, status: c.res.status },
+        })
+      }
+    })
+  } catch (error) {
+    if (c.error !== undefined && error === c.error) return
+    throw error
+  }
 }
