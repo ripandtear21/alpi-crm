@@ -1,7 +1,8 @@
 # Значения полей: хранение, проверка по типу, API значений, история
 
 Type: task
-Status: claimed 2026-11-25T11:02Z
+Status: done 2026-11-25T11:44Z
+PR: #20
 Blocked by: 01
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 2; «изменения полей пишутся в историю сделки „было → стало“»); .scratch/crm-mvp/issues/06-custom-fields.md (Answer: типы, варианты, смена типа, фильтры и скорость); .scratch/crm-mvp/spec.md, разделы 3.3, 10 (JSONB + GIN `jsonb_path_ops`)
 
@@ -43,22 +44,22 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/fields
 ## Done when
 
 - [x] Миграции применяются на чистую базу и откатываются; `custom` не принимает не-объект.
-  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 - [x] Тесты проверки: для каждого из 15 типов — верное значение сохраняется в приведённом виде, неверное даёт 422 с кодом поля (телефон `067 123 45 67` сохраняется как `+380671234567`; ссылка `javascript:` — 422; архивный вариант и отключённый пользователь для нового значения — 422).
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 - [x] Тест: PATCH с одним кодом не трогает другие ключи `custom`; `null` убирает ключ; неизвестный и архивный код — 422.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 - [x] Тест истории: изменение значения пишет в `change_log` «было → стало» с автором; повторная запись того же значения строки не пишет.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 - [x] Тест: первое значение ставит `first_value_at`, после этого смена кода — 409.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 - [x] Тест смены типа: число → текст и один вариант → несколько вариантов переписывают все записи фоновой задачей; во время задачи запись в поле — 409; дата → число — 409.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 - [x] Тест изоляции: значение поля проекта A нельзя записать в сделку проекта B; код поля проекта A в B — неизвестный код (422).
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 - [x] `pnpm verify` зелёный.
-  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
-  - evidence: gate pass · `gate fast` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 4a415e92978bd587a8b903efbb85287d3b7cc36e
 
 ## Результат
 
@@ -81,4 +82,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/fields
 - Переписывание значений при смене типа истории записей не пишет (значение то же, меняется вид), только журнал поля.
 - Смена типа с переписыванием отвечает 202, а не 200.
 
-Найдено для тикета 07 (фильтры и скорость): оператор `@>` (`jsonb_contains`) в PostgreSQL не LEAKPROOF, поэтому под row-level security роль приложения не может искать GIN-индексом `custom` — условие проверяется фильтром после политики (проверено планом запроса на PostgreSQL 18.6). Индекс построен, изоляция проверена тестом, но для фильтра по значению роли приложения он не работает; путь — в тикете 07.
+Найдено для тикета 07 (фильтры и скорость): оператор `@>` (`jsonb_contains`) в PostgreSQL не LEAKPROOF, поэтому под row-level security роль приложения не может искать GIN-индексом `custom` — условие проверяется фильтром после политики (проверено планом запроса на PostgreSQL 18.6). Индекс построен, изоляция проверена тестом, но для фильтра по значению роли приложения он не работает; путь — в тикете 07: там записано это ограничение (в том числе для `->>` и частичных индексов по выражению) и требование проверять `EXPLAIN` под ролью `alpi_app` внутри `withProject`.
+
+- Проверка: VERIFIED (PR #20; проверяющий сам повторил `pnpm verify`, планы `EXPLAIN` под `alpi_app` и владельцем, две мутации — обе пойманы; гонка записи значения и смены типа разобрана по блокировкам). Ветка перебазирована оркестратором на `main` fbb1933 (менялись только документы), голова 4a415e9; строки evidence переведены на неё. `GATE_SCOPE=all` gate full зелёный, слит squash-коммитом b560385; CI на `main`: https://github.com/ripandtear21/alpi-crm/actions/runs/45606397755 — success.
+- Consider (agreed by the verifier): перенос проблемы GIN-индекса в тикет 07 не был записан в тикете 07 — дописан этим коммитом документов (абзац об ограничении PostgreSQL и проверка `EXPLAIN` под `alpi_app`).
