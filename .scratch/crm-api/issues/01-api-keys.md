@@ -1,7 +1,8 @@
 # Ключи API проекта: создание, проверка запроса, отзыв, журнал
 
 Type: task
-Status: open
+Status: done 2026-11-25T20:12Z
+PR: #28
 Risk: high
 Blocked by: —
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Ключи API», волна 1); docs/adr/0003-crm-ne-menyaet-sdelki-sama.md («Ключи API проекта»); GLOSSARY.md («Ключ API»); .scratch/crm-mvp/spec.md, разделы 4, 9.2 («отзыв ключей» в журнале опасных действий), 13.0.4; .scratch/crm-api/spec.md
@@ -53,22 +54,55 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 
 - [ ] Миграция применяется на чистую базу и откатывается.
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (в составе pnpm verify) · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест изоляции: ключи проекта A не видны в контексте B без фильтра в коде; ключ проекта A с `X-Project-Id` проекта B — 403, и ни одна строка B не прочитана.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — изоляция проектов · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест прав на управление: без `integrations` или без `users_roles: edit` создание, перевыпуск и отзыв — 403; список без `integrations: view` — 403.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — права на управление ключами · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест секрета: ответ на создание содержит секрет, повторное чтение списка — нет; в базе, журнале и логах сервера секрета нет (поиск по строке секрета).
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — секрет · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест запроса по ключу: роль без права «сделки: смотреть» — 403 на `GET /api/v1/deals`; с правом — 200, и видны только сделки своего проекта; роль с охватом «свои» видит только сделки общей очереди; смена прав роли действует на следующий запрос.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — запрос по ключу · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест 401: неизвестный, отозванный, истёкший ключ и старый секрет после перевыпуска получают одинаковый ответ 401.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — 401 одинаковый · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест: ключ с ролью администратора получает 403 `API_KEY_NOT_ALLOWED` на маршрутах ключей, ролей, участников и журнала.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — маршруты без отметки · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест журнала: изменение по ключу пишет автора-ключ в `change_log` и `audit_log`; создание, перевыпуск и отзыв ключа — в журнале опасных действий; ограничение «не пользователь и ключ сразу» отклоняет такую строку.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — журнал · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Тест: роль с действующим ключом удалить нельзя (409).
   - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — роль с ключом · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] Экран: создание ключа показывает секрет один раз; отзыв и перевыпуск с подтверждением; тексты uk и ru; работает на 375 px.
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
+  - evidence: review pass · PR #28 · - - · 0db1456a8fbe210c6ff01b540e72695764d945f9
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45688273936 · ci - · 0db1456a8fbe210c6ff01b540e72695764d945f9
+
+## Результат
+
+PR #28, squash 8734c77 (2026-11-25).
+
+- Проверка (verify-01, глубина low): VERIFIED с первого круга. Проверяющий повторил мутацию закрытых маршрутов (2 теста красные), снял экран ключей в светлой и тёмной теме на 1280 и 375 px — вёрстка не ломается, расхождений с `docs/design/actum-design-system.md` нет; пункт 10 подтверждён скриншотами проверяющего, без строки теста.
+- max-review (Risk: high; корректность и упрощение, каждая на двух моделях): MAX-REVIEW: VERIFIED — находок high и med нет. Агенты корректности дополнительно проверили открытость маршрутов запросами по ключу с ролью администратора: 403 `API_KEY_NOT_ALLOWED` везде, кроме `GET`/`HEAD /v1/deals` и `/health`.
+- Перед мержем: CI ci-ok зелёный (https://github.com/ripandtear21/alpi-crm/actions/runs/45688273936), `GATE_SCOPE=all` gate full на 0db1456 — exit 0, `[gate] green (full)`.
+- Вне раздела «Where in code» (нужно для пунктов 5 и 8): `GET /v1/deals` открыт ключу; правки `deals/store.ts`, `deals/scope.ts`, `deals/board.ts` (`owner=me` для ключа — 400), `filters/*`, `change-log/record.ts`. Для сессий пользователей поведение не изменилось (проверено обоими проверками).
+
+Consider (долги, не блокируют):
+- [low] ответы создания и перевыпуска с секретом без `Cache-Control: no-store` (`apps/api/src/api-keys/routes.ts`; для временного пароля участника заголовок есть — `members/members.ts:112`).
+- [low] перевыпуск ключа с истёкшим сроком выдаёт секрет, который всегда получает 401 (кнопка «Перевипустити» у истёкшего ключа, `lockActiveKey` проверяет только отзыв) — скрыть кнопку и отвечать 409.
+- [low] имя истёкшего, но не отозванного ключа занимает уникальный индекс (`where revoked_at is null`) — 409 `API_KEY_NAME_TAKEN` до ручного отзыва; тикет говорил «среди действующих».
+- [low] гонка перевыпуска: запрос, прошедший проверку старым секретом до фиксации перевыпуска, выполняется после неё (окно в миллисекунды; `loadApiKeyAccess` не перепроверяет отпечаток).
+- [low] удаление роли между проверкой и вставкой ключа даёт 500 вместо 422 (код 23503 в `createKey`).
+- [low] `me` в фильтре для ключа, `entityReader` по сессии, блокировка `last_used_at` — перенесены в тикет 03.
+
+Noted (упрощение, обе модели): дубли `ownerInScope`/`scopePredicate` и хвоста транзакции в `apiKeyProjectContext`/`projectContext`; `API_KEY_SECRET_PATTERN` не собран из констант; лишние экспорты `bearerSecret`/`apiKeyError`; шестая копия `respond` и пятая `send`; `api.roles()` дублирует клиент ролей; `lockActiveKey` возвращает неиспользуемую роль; `role_id` в `api_key_by_secret_hash` не читается; `clientIp` вычисляется в двух местах.
+
+- not verified: работа функции `api_key_by_secret_hash` мимо RLS на сервере зависит от роли, под которой идут миграции в продакшене; в тестах (встроенная PostgreSQL) работает.
