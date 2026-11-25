@@ -15,6 +15,7 @@ import type { DealView } from '../deals/store.ts'
 import { type Jobs, startJobs } from '../jobs/jobs.ts'
 import type { OrganizationView } from '../organizations/organizations.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemFields } from '../testing/problem.ts'
 import { NO_TRASH_PURGERS } from '../trash/purge.ts'
 import type { FieldRetypeMessage } from './retype.ts'
 
@@ -84,7 +85,10 @@ describe('значения пользовательских полей', () => {
   }
 
   async function refusal(res: Response, status: number) {
-    return json<{ code: string; details?: Record<string, unknown> }>(res, status)
+    return problemFields(await json(res, status), status) as {
+      code: string
+      details?: Record<string, unknown>
+    }
   }
 
   async function createPipeline(project: string): Promise<string> {
@@ -242,8 +246,8 @@ describe('значения пользовательских полей', () => {
         const code = existing ?? (await createField(type)).code
         codes.set(type, code)
         const bad = await refusal(await putDeal(deal.id, { [code]: wrong }), 422)
-        expect({ fieldType: type, ...bad }).toMatchObject({
-          fieldType: type,
+        expect({ type, ...bad }).toMatchObject({
+          type,
           code: 'CUSTOM_FIELD_INVALID',
           details: { field: code },
         })
@@ -324,10 +328,10 @@ describe('значения пользовательских полей', () => {
       expect(await storedCustom('deal', deal.id)).toEqual({ [b.code]: 2 })
 
       const unknown = await refusal(await putDeal(deal.id, { nemaye: 'x' }), 422)
-      expect(unknown).toMatchObject({ code: 'CUSTOM_FIELD_UNKNOWN', details: { field: 'nemaye' } })
+      expect(unknown).toEqual({ code: 'CUSTOM_FIELD_UNKNOWN', details: { field: 'nemaye' } })
       await json(await callA('POST', `/fields/${a.id}/archive`))
       const archived = await refusal(await putDeal(deal.id, { [a.code]: 'x' }), 422)
-      expect(archived).toMatchObject({ code: 'CUSTOM_FIELD_UNKNOWN', details: { field: a.code } })
+      expect(archived).toEqual({ code: 'CUSTOM_FIELD_UNKNOWN', details: { field: a.code } })
       // Отказ ничего не меняет: ни значения, ни остальные поля запроса.
       const refused = await refusal(
         await callA('PUT', `/deals/${deal.id}`, { title: 'Нова', custom: { [b.code]: 'x' } }),
@@ -546,7 +550,7 @@ describe('значения пользовательских полей', () => {
 
       // Задача ещё не прошла: поле только для чтения, второй смены типа нет.
       const busy = await refusal(await putDeal(deals[3]?.id ?? '', { [field.code]: 4 }), 409)
-      expect(busy).toMatchObject({
+      expect(busy).toEqual({
         code: 'CUSTOM_FIELD_CONVERTING',
         details: { field: field.code },
       })
@@ -690,7 +694,7 @@ describe('значения пользовательских полей', () => {
       const fieldA = await createField('text', { code: 'tilky_a' })
       const dealB = await createDeal(undefined, projectB)
       const unknown = await refusal(await putDeal(dealB.id, { [fieldA.code]: 'x' }, projectB), 422)
-      expect(unknown).toMatchObject({
+      expect(unknown).toEqual({
         code: 'CUSTOM_FIELD_UNKNOWN',
         details: { field: fieldA.code },
       })

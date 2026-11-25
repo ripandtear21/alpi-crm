@@ -7,6 +7,7 @@ import { createApp } from '../app.ts'
 import { type Jobs, startJobs } from '../jobs/jobs.ts'
 import { scopePredicate } from '../roles/scope.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import { NO_TRASH_PURGERS } from '../trash/purge.ts'
 import { type BulkAction, BulkRecordError } from './registry.ts'
 import type { BulkJobDetails, BulkJobSummary } from './routes.ts'
@@ -309,7 +310,7 @@ describe('массовые операции', () => {
       const ids = await insertProbe(projectA, 1, user.id)
       const res = await start(user, projectA, { action: 'probe.increment', selection: { ids } })
       expect(res.status).toBe(403)
-      expect(await res.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
       expect(await values(ids)).toEqual(new Map([[ids[0], 0]]))
     })
 
@@ -349,13 +350,13 @@ describe('массовые операции', () => {
         selection: { ids: ['x'] },
       })
       expect(unknown.status).toBe(400)
-      expect(await unknown.json()).toMatchObject({ code: 'UNKNOWN_ACTION' })
+      expect(await problemOf(unknown)).toEqual({ code: 'UNKNOWN_ACTION' })
       const empty = await start(admin, projectA, {
         action: 'probe.increment',
         selection: { ids: [] },
       })
       expect(empty.status).toBe(400)
-      expect(await empty.json()).toMatchObject({ code: 'INVALID_SELECTION' })
+      expect(await problemOf(empty)).toEqual({ code: 'INVALID_SELECTION' })
     })
 
     it('запись вне охвата инициатора не меняется и попадает в журнал ошибок', async () => {

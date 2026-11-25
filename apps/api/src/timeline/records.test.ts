@@ -15,6 +15,7 @@ import {
   startApiHarness,
   type Target,
 } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import type { TimelineItem, TimelinePage } from './timeline.ts'
 
 // Заметки, файлы и лента сделки, контакта и организации (тикет crm-deals/07): изоляция проектов,
@@ -157,12 +158,12 @@ describe('заметки, файлы и лента', () => {
       ]) {
         const res = await call(admin, 'GET', url, projectB)
         expect(res.status, url).toBe(404)
-        expect(await res.json()).toMatchObject({ code: 'DEAL_NOT_FOUND' })
+        expect(await problemOf(res)).toEqual({ code: 'DEAL_NOT_FOUND' })
       }
       // Своя запись B и id файла A: файла нет.
       const foreign = await call(admin, 'GET', `/v1/deals/${b.deal}/files/${file.id}`, projectB)
       expect(foreign.status).toBe(404)
-      expect(await foreign.json()).toMatchObject({ code: 'FILE_NOT_FOUND' })
+      expect(await problemOf(foreign)).toEqual({ code: 'FILE_NOT_FOUND' })
       expect(
         (await call(admin, 'DELETE', `/v1/deals/${b.deal}/files/${file.id}`, projectB)).status,
       ).toBe(404)
@@ -221,7 +222,7 @@ describe('заметки, файлы и лента', () => {
       const url = `/v1/deals/${deal}/notes/${note.id}`
       const edit = await call(manager1, 'PUT', url, projectA, { text: 'Підміна' })
       expect(edit.status).toBe(403)
-      expect(await edit.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(edit)).toEqual({ code: 'PERMISSION_DENIED' })
       expect((await call(manager1, 'DELETE', url, projectA)).status).toBe(403)
       // Руководитель с правом «удалять» тоже не меняет чужую заметку.
       expect((await call(head, 'PUT', url, projectA, { text: 'Підміна' })).status).toBe(403)
@@ -314,7 +315,7 @@ describe('заметки, файлы и лента', () => {
       // Без Content-Length: отказ по счёту байт потока.
       const streamed = await upload(manager1, url, projectA, over)
       expect(streamed.status).toBe(413)
-      expect(await streamed.json()).toMatchObject({
+      expect(await problemOf(streamed)).toEqual({
         code: 'FILE_TOO_LARGE',
         details: { maxBytes: MAX_FILE_BYTES },
       })
@@ -337,7 +338,7 @@ describe('заметки, файлы и лента', () => {
         text('<!DOCTYPE html><html><body><script>alert(1)</script></body></html>'),
       )
       expect(html.status).toBe(415)
-      expect(await html.json()).toMatchObject({ code: 'UNSUPPORTED_FILE_TYPE' })
+      expect(await problemOf(html)).toEqual({ code: 'UNSUPPORTED_FILE_TYPE' })
       const svg = await upload(
         manager1,
         `/v1/deals/${deal}/files?name=logo.png`,

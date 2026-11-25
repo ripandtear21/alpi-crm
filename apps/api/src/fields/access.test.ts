@@ -12,6 +12,7 @@ import type { ContactView } from '../contacts/contacts.ts'
 import type { DealView } from '../deals/store.ts'
 import type { OrganizationView } from '../organizations/organizations.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { pathError, problemFields, problemOf } from '../testing/problem.ts'
 
 // Права ролей на группы полей в API (тикет crm-fields/03) — на настоящем PostgreSQL, API ходит
 // ролью приложения. Роль «Обмежена»: сделки, контакты, организации — смотреть, создавать,
@@ -308,7 +309,7 @@ describe('права ролей на группы полей', () => {
       const res = await as(limited, projectA)('PUT', `/deals/${deal.id}`, {
         custom: { [readField.code]: 'інакше' },
       })
-      expect({ status: res.status, body: await res.json() }).toMatchObject({
+      expect({ status: res.status, body: await problemOf(res) }).toEqual({
         status: 403,
         body: { code: 'CUSTOM_FIELD_READ_ONLY', details: { field: readField.code } },
       })
@@ -321,7 +322,7 @@ describe('права ролей на группы полей', () => {
       const res = await as(limited, projectA)('PUT', `/deals/${deal.id}`, {
         custom: { [readField.code]: stored },
       })
-      expect({ status: res.status, body: await res.json() }).toMatchObject({
+      expect({ status: res.status, body: await problemOf(res) }).toEqual({
         status: 403,
         body: { code: 'CUSTOM_FIELD_READ_ONLY', details: { field: readField.code } },
       })
@@ -339,11 +340,11 @@ describe('права ролей на группы полей', () => {
       const unknown = await call('PUT', `/deals/${deal.id}`, {
         custom: { [readField.code]: 'інакше', [unknownCode]: 'злам' },
       })
-      expect({ status: hidden.status, body: await hidden.json() }).toMatchObject({
+      expect({ status: hidden.status, body: await problemOf(hidden) }).toEqual({
         status: 422,
         body: { code: 'CUSTOM_FIELD_UNKNOWN', details: { field: code } },
       })
-      expect({ status: unknown.status, body: await unknown.json() }).toMatchObject({
+      expect({ status: unknown.status, body: await problemOf(unknown) }).toEqual({
         status: 422,
         body: { code: 'CUSTOM_FIELD_UNKNOWN', details: { field: unknownCode } },
       })
@@ -388,7 +389,7 @@ describe('права ролей на группы полей', () => {
         ...base,
         custom: { [hiddenField.deal.code]: 'x' },
       })
-      expect({ status: hidden.status, body: await hidden.json() }).toMatchObject({
+      expect({ status: hidden.status, body: await problemOf(hidden) }).toEqual({
         status: 422,
         body: { code: 'CUSTOM_FIELD_UNKNOWN', details: { field: hiddenField.deal.code } },
       })
@@ -441,18 +442,15 @@ describe('права ролей на группы полей', () => {
     /** Ответ целиком: статус и тело. */
     async function answer(res: Response) {
       const text = await res.text()
-      return { status: res.status, body: text === '' ? null : JSON.parse(text) }
+      return {
+        status: res.status,
+        body: text === '' ? null : problemFields(JSON.parse(text), res.status),
+      }
     }
 
     const NOT_FOUND = { status: 404, body: { code: 'NOT_FOUND' } }
-    const EXCEEDS = {
-      status: 403,
-      body: { code: 'EXCEEDS_OWN_PERMISSIONS', details: { path: 'groupId' } },
-    }
-    const GROUP_NOT_FOUND = {
-      status: 422,
-      body: { code: 'FIELD_GROUP_NOT_FOUND', details: { path: 'groupId' } },
-    }
+    const EXCEEDS = { status: 403, body: pathError('EXCEEDS_OWN_PERMISSIONS', 'groupId') }
+    const GROUP_NOT_FOUND = { status: 422, body: pathError('FIELD_GROUP_NOT_FOUND', 'groupId') }
 
     async function optionField(group: FieldGroupSummary, code: string) {
       return json<FieldDefinitionSummary>(
@@ -520,8 +518,8 @@ describe('права ролей на группы полей', () => {
         const request = `${method} /fields/:id${suffix}`
         const hidden = await answer(await asBuilder(method, `/fields/${fHidden.id}${suffix}`, body))
         const absent = await answer(await asBuilder(method, `/fields/${missing}${suffix}`, body))
-        expect({ request, ...hidden }).toMatchObject({ request, ...NOT_FOUND })
-        expect({ request, ...absent }).toMatchObject({ request, ...NOT_FOUND })
+        expect({ request, ...hidden }).toEqual({ request, ...NOT_FOUND })
+        expect({ request, ...absent }).toEqual({ request, ...NOT_FOUND })
       }
       expect(await adminField(fHidden.id)).toEqual(before)
       // Администратор меняет поле, как прежде.
@@ -537,8 +535,8 @@ describe('права ролей на группы полей', () => {
       for (const [method, body] of requests) {
         const hidden = await answer(await asBuilder(method, `/field-groups/${cHidden.id}`, body))
         const absent = await answer(await asBuilder(method, `/field-groups/${missing}`, body))
-        expect({ method, ...hidden }).toMatchObject({ method, ...NOT_FOUND })
-        expect({ method, ...absent }).toMatchObject({ method, ...NOT_FOUND })
+        expect({ method, ...hidden }).toEqual({ method, ...NOT_FOUND })
+        expect({ method, ...absent }).toEqual({ method, ...NOT_FOUND })
       }
       expect((await adminGroups()).find((g) => g.id === cHidden.id)).toEqual(cHidden)
       const renamed = await json<FieldGroupSummary>(
@@ -554,10 +552,7 @@ describe('права ролей на группы полей', () => {
       const absent = await answer(
         await asBuilder('PUT', '/fields/order', { groupId: randomUUID(), ids: [fHidden.id] }),
       )
-      expect(hidden).toMatchObject({
-        status: 400,
-        body: { code: 'INVALID_INPUT', details: { path: 'groupId' } },
-      })
+      expect(hidden).toEqual({ status: 400, body: pathError('INVALID_INPUT', 'groupId') })
       expect(absent).toEqual(hidden)
     })
 
@@ -571,7 +566,7 @@ describe('права ролей на группы полей', () => {
         asBuilder('PUT', '/field-groups/order', { entity: 'deal', ids })
       const withHidden = await answer(await order([cRead.id, cHidden.id, cOpen.id, cOpen2.id]))
       const withUnknown = await answer(await order([cRead.id, randomUUID(), cOpen.id, cOpen2.id]))
-      expect(withHidden).toMatchObject({ status: 400, body: { code: 'INVALID_ORDER' } })
+      expect(withHidden).toEqual({ status: 400, body: { code: 'INVALID_ORDER' } })
       expect(withUnknown).toEqual(withHidden)
 
       const reordered = await json<FieldGroupSummary[]>(
@@ -596,10 +591,10 @@ describe('права ролей на группы полей', () => {
     it('перенос поля: нужно «изменять» на обе группы; скрытая цель — как несуществующая', async () => {
       const move = (field: FieldDefinitionSummary, groupId: string) =>
         asBuilder('PUT', `/fields/${field.id}`, { groupId })
-      expect(await answer(await move(fOpen, cRead.id))).toMatchObject(EXCEEDS)
-      expect(await answer(await move(fRead, cOpen.id))).toMatchObject(EXCEEDS)
-      expect(await answer(await move(fOpen, cHidden.id))).toMatchObject(GROUP_NOT_FOUND)
-      expect(await answer(await move(fOpen, randomUUID()))).toMatchObject(GROUP_NOT_FOUND)
+      expect(await answer(await move(fOpen, cRead.id))).toEqual(EXCEEDS)
+      expect(await answer(await move(fRead, cOpen.id))).toEqual(EXCEEDS)
+      expect(await answer(await move(fOpen, cHidden.id))).toEqual(GROUP_NOT_FOUND)
+      expect(await answer(await move(fOpen, randomUUID()))).toEqual(GROUP_NOT_FOUND)
       expect((await adminField(fOpen.id)).groupId).toBe(cOpen.id)
       expect((await adminField(fRead.id)).groupId).toBe(cRead.id)
 
@@ -618,15 +613,13 @@ describe('права ролей на группы полей', () => {
 
     it('создание поля: в скрытой группе — как в несуществующей, в «только чтение» — 403', async () => {
       const field = (groupId: string, nameUk = 'Нове поле') => ({ groupId, nameUk, type: 'text' })
-      expect(await answer(await asBuilder('POST', '/fields', field(cHidden.id)))).toMatchObject(
+      expect(await answer(await asBuilder('POST', '/fields', field(cHidden.id)))).toEqual(
         GROUP_NOT_FOUND,
       )
-      expect(await answer(await asBuilder('POST', '/fields', field(randomUUID())))).toMatchObject(
+      expect(await answer(await asBuilder('POST', '/fields', field(randomUUID())))).toEqual(
         GROUP_NOT_FOUND,
       )
-      expect(await answer(await asBuilder('POST', '/fields', field(cRead.id)))).toMatchObject(
-        EXCEEDS,
-      )
+      expect(await answer(await asBuilder('POST', '/fields', field(cRead.id)))).toEqual(EXCEEDS)
       const created = await json<FieldDefinitionSummary>(
         await asBuilder('POST', '/fields', field(cOpen.id)),
         201,
@@ -641,10 +634,7 @@ describe('права ролей на группы полей', () => {
         await answer(
           await asBuilder('POST', '/fields', { ...field(cOpen.id), code: fHidden.code }),
         ),
-      ).toMatchObject({
-        status: 422,
-        body: { code: 'FIELD_CODE_TAKEN', details: { path: 'code' } },
-      })
+      ).toEqual({ status: 422, body: pathError('FIELD_CODE_TAKEN', 'code') })
 
       // Администратор создаёт поле и в скрытой от роли группе.
       const own = await json<FieldDefinitionSummary>(

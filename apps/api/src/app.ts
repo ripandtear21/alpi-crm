@@ -32,7 +32,7 @@ import { memberTransferRoutes } from './members/transfer.ts'
 import { apiKeyAuth } from './middleware/api-key.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
-import { DOCS_HTML, v1Document, validationHook } from './openapi/openapi.ts'
+import { DOCS_CSP, DOCS_HTML, v1Document, validationHook } from './openapi/openapi.ts'
 import { organizationListRoutes } from './organizations/list.ts'
 import { organizationsRoutes } from './organizations/organizations.ts'
 import { pipelinesRoutes } from './pipelines/pipelines.ts'
@@ -187,7 +187,9 @@ export function createApp({
       .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
       // Описание API (тикет crm-api/02): открыто без входа и без ключа, данных не содержит.
       .get('/v1/openapi.json', (c) => c.json(openApiDocument))
-      .get('/v1/docs', (c) => c.html(DOCS_HTML))
+      // Страница описания открыта на адресе приложения (там же сессионная cookie): скрипт с CDN
+      // закреплён хешем, CSP не пускает другие скрипты и запросы на чужие адреса.
+      .get('/v1/docs', (c) => c.html(DOCS_HTML, 200, { 'Content-Security-Policy': DOCS_CSP }))
       // До входа и до контекста проекта: большое тело отклоняется, не дойдя ни до Better Auth,
       // ни до базы.
       .use('*', (c, next) =>

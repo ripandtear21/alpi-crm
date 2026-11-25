@@ -15,6 +15,7 @@ import { type AccessEnv, accessGuard } from '../auth/access-guard.ts'
 import { type Auth, createAuth } from '../auth/auth.ts'
 import { createOwner } from '../auth/owner.ts'
 import { projectContext } from '../middleware/project-context.ts'
+import { problemOf } from '../testing/problem.ts'
 import { totp } from '../testing/totp.ts'
 
 // Проекты и контекст проекта на настоящем PostgreSQL: миграции packages/db, API ходит в базу
@@ -235,7 +236,7 @@ describe('проекты и контекст проекта', () => {
         body: { code: 'alpi-school', name: 'Ещё один' },
       })
       expect(again.status).toBe(409)
-      expect(await again.json()).toMatchObject({ code: 'PROJECT_CODE_TAKEN' })
+      expect(await again.json()).toEqual({ code: 'PROJECT_CODE_TAKEN' })
     })
 
     it('пользователь, не владелец системы, проект не создаёт', async () => {
@@ -363,7 +364,7 @@ describe('проекты и контекст проекта', () => {
       // Не участник B — тот же 403, что у любого запроса в контексте чужого проекта.
       const outsider = await onlyA.api('GET', '/project/access', { project: projectB.id })
       expect(outsider.status).toBe(403)
-      expect(await outsider.json()).toMatchObject({ code: 'PROJECT_FORBIDDEN' })
+      expect(await problemOf(outsider)).toEqual({ code: 'PROJECT_FORBIDDEN' })
 
       const anonymous = await app.request(`${ORIGIN}/project/access`, {
         headers: { origin: ORIGIN, [PROJECT_HEADER]: projectA.id },
@@ -385,7 +386,7 @@ describe('проекты и контекст проекта', () => {
           ...(method === 'GET' ? {} : { body: {} }),
         })
         expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 })
-        expect(await res.json()).toMatchObject({ code: 'PROJECT_FORBIDDEN' })
+        expect(await problemOf(res)).toEqual({ code: 'PROJECT_FORBIDDEN' })
       }
       // Обработчик в контексте проекта не вызывается вовсе.
       const probed = await onlyA.probe('GET', '/links', { project: projectB.id })
@@ -396,14 +397,14 @@ describe('проекты и контекст проекта', () => {
       for (const project of [randomUUID(), 'not-a-uuid']) {
         const res = await onlyA.api('GET', '/project', { project })
         expect(res.status).toBe(403)
-        expect(await res.json()).toMatchObject({ code: 'PROJECT_FORBIDDEN' })
+        expect(await problemOf(res)).toEqual({ code: 'PROJECT_FORBIDDEN' })
       }
     })
 
     it('без заголовка проекта — 400, без входа — 401', async () => {
       const res = await onlyA.api('GET', '/project')
       expect(res.status).toBe(400)
-      expect(await res.json()).toMatchObject({ code: 'PROJECT_REQUIRED' })
+      expect(await problemOf(res)).toEqual({ code: 'PROJECT_REQUIRED' })
 
       const anonymous = await app.request(`${ORIGIN}/project`, {
         headers: { origin: ORIGIN, [PROJECT_HEADER]: projectA.id },

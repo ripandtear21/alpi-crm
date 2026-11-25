@@ -22,6 +22,7 @@ import { buildFieldIndex } from '../jobs/field-index.ts'
 import { loadMemberAccess } from '../roles/access.ts'
 import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemFields } from '../testing/problem.ts'
 import { compileFilter } from './compile.ts'
 import { loadFilterCatalog } from './custom.ts'
 
@@ -535,7 +536,7 @@ describe('пользовательские поля в списках и фил�
         '/deals?sort=custom.secret:asc',
         '/deals/export.csv?columns=title,custom.secret',
       ]) {
-        expect(await json(await call('GET', path), 422), path).toMatchObject({
+        expect(problemFields(await json(await call('GET', path), 422), 422), path).toEqual({
           code: 'CUSTOM_FIELD_UNKNOWN',
           details: { field: expect.stringMatching(/^custom\./) },
         })
@@ -1061,7 +1062,7 @@ describe('пользовательские поля в списках и фил�
       for (const [filter, problem] of cases) {
         for (const [action, params] of launches) {
           const res = await start(initiator, { action, params, selection: { filter } })
-          expect({ action, body: await json(res, 400) }).toMatchObject({
+          expect({ action, body: problemFields(await json(res, 400), 400) }).toEqual({
             action,
             body: { code: 'INVALID_PARAMS', detail: problem },
           })

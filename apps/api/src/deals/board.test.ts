@@ -2,6 +2,7 @@ import { sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../app.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemFields, requiredErrors } from '../testing/problem.ts'
 import type { BoardDeal, DealOwner, DealsPage, PipelineAggregates } from './board.ts'
 import type { StageRequirements, StageTarget } from './stage-requirements.ts'
 
@@ -377,7 +378,7 @@ describe('канбан: выдача, агрегаты, требования э�
         project: projectA,
         body: { stageId: s2 },
       })
-      expect(await json(refused, 422)).toMatchObject({
+      expect(problemFields(await json(refused, 422), 422)).toEqual({
         code: 'STAGE_REQUIREMENTS_MISSING',
         details: {
           fields: ['budget', 'contract'],
@@ -387,6 +388,7 @@ describe('канбан: выдача, агрегаты, требования э�
           ],
           hiddenCount: 1,
         },
+        errors: requiredErrors('budget', 'contract'),
       })
       const row = await h.owner
         .selectFrom('deal')

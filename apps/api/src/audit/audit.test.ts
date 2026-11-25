@@ -10,6 +10,7 @@ import {
   type SignedInUser,
   startApiHarness,
 } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import { totp } from '../testing/totp.ts'
 
 // Журнал входов и опасных действий (тикет crm-foundation/07) на настоящем PostgreSQL: API
@@ -336,7 +337,7 @@ describe('журнал действий', () => {
       await h.addMember(project.id, head.id, 'head')
       const res = await head.api('GET', '/audit', { project: project.id })
       expect(res.status).toBe(403)
-      expect(await res.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
       expect((await head.api('GET', '/audit/actors', { project: project.id })).status).toBe(403)
     })
 

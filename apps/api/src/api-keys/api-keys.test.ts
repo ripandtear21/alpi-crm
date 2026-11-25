@@ -26,6 +26,7 @@ import {
   type SignedInUser,
   startApiHarness,
 } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import { requestAuthor } from './actor.ts'
 
 // Ключи API (тикет crm-api/01) на настоящем PostgreSQL, API ходит ролью приложения: изоляция
@@ -199,7 +200,7 @@ describe('ключи API', () => {
       const { secret } = await createKey(await templateRole(projectA, 'head'))
       const res = await keyRequest(secret, 'GET', '/v1/deals', { project: projectB })
       expect(res.status).toBe(403)
-      expect(await res.json()).toMatchObject({ code: 'PROJECT_FORBIDDEN' })
+      expect(await problemOf(res)).toEqual({ code: 'PROJECT_FORBIDDEN' })
 
       // Тот же ключ без заголовка и с заголовком своего проекта — сделки только A.
       const own = await dealIds(await keyRequest(secret, 'GET', '/v1/deals'))
@@ -216,7 +217,7 @@ describe('ключи API', () => {
         body: { name: 'Чужа роль', roleId: await templateRole(projectB, 'head') },
       })
       expect(res.status).toBe(422)
-      expect(await res.json()).toMatchObject({ code: 'ROLE_NOT_FOUND' })
+      expect(await problemOf(res)).toEqual({ code: 'ROLE_NOT_FOUND' })
     })
   })
 
@@ -253,7 +254,7 @@ describe('ключи API', () => {
             project: projectA,
           })
           expect(res.status).toBe(403)
-          expect(await res.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+          expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
         }
       }
       const list = await noIntegrations.api('GET', '/v1/api-keys', { project: projectA })
@@ -280,10 +281,10 @@ describe('ключи API', () => {
 
       const asAdmin = await tryCreate(await templateRole(projectA, 'admin'))
       expect(asAdmin.status).toBe(403)
-      expect(await asAdmin.json()).toMatchObject({ code: 'ADMIN_ONLY' })
+      expect(await problemOf(asAdmin)).toEqual({ code: 'ADMIN_ONLY' })
       const wider = await tryCreate(await templateRole(projectA, 'head'))
       expect(wider.status).toBe(403)
-      expect(await wider.json()).toMatchObject({ code: 'EXCEEDS_OWN_PERMISSIONS' })
+      expect(await problemOf(wider)).toEqual({ code: 'EXCEEDS_OWN_PERMISSIONS' })
       expect((await tryCreate(await createRole(projectA, keeperPerms))).status).toBe(201)
 
       // Перевыпустить и отозвать ключ с ролью шире своей тоже нельзя.
@@ -373,7 +374,7 @@ describe('ключи API', () => {
       const { secret: blindSecret } = await createKey(blind)
       const denied = await keyRequest(blindSecret, 'GET', '/v1/deals')
       expect(denied.status).toBe(403)
-      expect(await denied.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(denied)).toEqual({ code: 'PERMISSION_DENIED' })
 
       const { secret } = await createKey(await templateRole(projectA, 'head'))
       expect(await dealIds(await keyRequest(secret, 'GET', '/v1/deals'))).toEqual(
@@ -432,7 +433,7 @@ describe('ключи API', () => {
         '/v1/deals',
       )
       expect(res.status).toBe(403)
-      expect(await res.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
     })
 
     it('last_used_at обновляется, но не чаще раза в минуту', async () => {
@@ -529,7 +530,7 @@ describe('ключи API', () => {
           project: projectA,
         })
         expect(res.status).toBe(409)
-        expect(await res.json()).toMatchObject({ code: 'API_KEY_REVOKED' })
+        expect(await problemOf(res)).toEqual({ code: 'API_KEY_REVOKED' })
       }
       await expect(
         withProject(h.appDb, projectA, (trx) =>
@@ -563,10 +564,10 @@ describe('ключи API', () => {
       ]
       for (const [method, path, body] of routes) {
         const res = await keyRequest(secret, method, path, { body })
-        expect([path, res.status, await res.json()]).toEqual([
+        expect([path, res.status, await problemOf(res)]).toEqual([
           path,
           403,
-          expect.objectContaining({ code: 'API_KEY_NOT_ALLOWED' }),
+          { code: 'API_KEY_NOT_ALLOWED' },
         ])
       }
       const keys = await h.owner
@@ -704,7 +705,7 @@ describe('ключи API', () => {
       const { key } = await createKey(role)
       const blocked = await admin.api('DELETE', `/roles/${role}`, { project: projectA })
       expect(blocked.status).toBe(409)
-      expect(await blocked.json()).toMatchObject({ code: 'ROLE_IN_USE' })
+      expect(await blocked.json()).toEqual({ code: 'ROLE_IN_USE' })
 
       await admin.api('POST', `/v1/api-keys/${key.id}/revoke`, { project: projectA })
       const deleted = await admin.api('DELETE', `/roles/${role}`, { project: projectA })
@@ -733,7 +734,7 @@ describe('ключи API', () => {
       expect(first.status).toBe(201)
       const again = await post({ name: name.toUpperCase(), roleId: head })
       expect(again.status).toBe(409)
-      expect(await again.json()).toMatchObject({ code: 'API_KEY_NAME_TAKEN' })
+      expect(await problemOf(again)).toEqual({ code: 'API_KEY_NAME_TAKEN' })
       // Тот же проект B — своё пространство имён.
       expect(
         (

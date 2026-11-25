@@ -18,6 +18,7 @@ import {
   startApiHarness,
   type Target,
 } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import { totp } from '../testing/totp.ts'
 import { membersRoutes } from './members.ts'
 import type { OpenDealsChecker } from './open-deals.ts'
@@ -89,6 +90,11 @@ describe('участники проекта', () => {
 
   async function body(res: Response) {
     return { status: res.status, body: await res.json() }
+  }
+
+  /** Отказ в формате RFC 9457: статус и тело без общей части (type, title, status). */
+  async function refusal(res: Response) {
+    return { status: res.status, body: await problemOf(res) }
   }
 
   describe('список и добавление', () => {
@@ -198,7 +204,7 @@ describe('участники проекта', () => {
         ['GET', '/project', { project: projectId }],
         ['POST', '/auth/two-factor/enable', { body: { password } }],
       ] as const) {
-        expect({ path, ...(await body(await browser.api(method, path, options))) }).toMatchObject({
+        expect({ path, ...(await refusal(await browser.api(method, path, options))) }).toEqual({
           path,
           status: 403,
           body: { code: 'PASSWORD_CHANGE_REQUIRED' },
@@ -238,7 +244,7 @@ describe('участники проекта', () => {
         ).must_change_password,
       ).toBe(false)
       // Теперь — настройка 2FA, и только она.
-      expect(await body(await browser.api('GET', '/me'))).toMatchObject({
+      expect(await refusal(await browser.api('GET', '/me'))).toEqual({
         status: 403,
         body: { code: 'TWO_FACTOR_SETUP_REQUIRED' },
       })
@@ -425,7 +431,7 @@ describe('участники проекта', () => {
       const user = await newMember()
       calls = []
       openDeals = 2
-      expect(await body(await disable(user.id))).toMatchObject({
+      expect(await body(await disable(user.id))).toEqual({
         status: 409,
         body: { code: 'HAS_OPEN_DEALS', details: { count: 2 } },
       })
@@ -447,7 +453,7 @@ describe('участники проекта', () => {
       const row = await member(user.id)
       expect(row?.disabled_at).not.toBeNull()
       expect(row?.disabled_by).toBe(systemOwner.id)
-      expect(await body(await user.api('GET', '/project', { project: projectId }))).toMatchObject({
+      expect(await refusal(await user.api('GET', '/project', { project: projectId }))).toEqual({
         status: 403,
         body: { code: 'PROJECT_FORBIDDEN' },
       })
@@ -465,12 +471,10 @@ describe('участники проекта', () => {
     })
 
     it('последнего администратора не отключить — 409 LAST_ADMIN; второго — можно', async () => {
-      expect(await body(await asAdmin('POST', `/members/${systemOwner.id}/disable`))).toMatchObject(
-        {
-          status: 409,
-          body: { code: 'LAST_ADMIN' },
-        },
-      )
+      expect(await body(await asAdmin('POST', `/members/${systemOwner.id}/disable`))).toEqual({
+        status: 409,
+        body: { code: 'LAST_ADMIN' },
+      })
       expect((await member(systemOwner.id))?.disabled_at).toBeNull()
       const second = await newMember('admin')
       expect((await asAdmin('POST', `/members/${second.id}/disable`)).status).toBe(200)
@@ -752,7 +756,7 @@ describe('участники проекта', () => {
         project: projectId,
         ...(payload === undefined ? {} : { body: payload }),
       })
-      expect({ method, path, ...(await body(res)) }).toMatchObject({
+      expect({ method, path, ...(await refusal(res)) }).toEqual({
         method,
         path,
         status: 403,

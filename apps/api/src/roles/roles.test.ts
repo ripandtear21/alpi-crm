@@ -14,6 +14,7 @@ import { type AccessEnv, accessGuard } from '../auth/access-guard.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { projectContext } from '../middleware/project-context.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import { PROJECT_TEAMS, resolveViewer, scopePredicate, type Viewer } from './scope.ts'
 
 // Роли проекта, защиты администратора, проверка прав и охват — на настоящем PostgreSQL,
@@ -119,7 +120,7 @@ describe('роли и права проекта', () => {
           ...(body === undefined ? {} : { body }),
         })
         expect({ method, body, status: res.status }).toEqual({ method, body, status: 409 })
-        expect(await res.json()).toMatchObject({ code: 'ADMIN_ROLE_LOCKED' })
+        expect(await res.json()).toEqual({ code: 'ADMIN_ROLE_LOCKED' })
       }
       expect(await storedRole(adminRole.id)).toEqual(before)
     })
@@ -178,7 +179,7 @@ describe('роли и права проекта', () => {
     it('с единственного администратора роль не снимается — 409 LAST_ADMIN', async () => {
       const res = await assign(systemOwner.id, 'manager')
       expect(res.status).toBe(409)
-      expect(await res.json()).toMatchObject({ code: 'LAST_ADMIN' })
+      expect(await res.json()).toEqual({ code: 'LAST_ADMIN' })
       const admins = await rolesOf(systemOwner, projectId)
       expect(roleByKey(admins, 'admin').memberCount).toBe(1)
     })
@@ -191,14 +192,14 @@ describe('роли и права проекта', () => {
       // статус владельца системы его не добавляет.
       const denied = await assign(second.id, 'manager')
       expect(denied.status).toBe(403)
-      expect(await denied.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(denied)).toEqual({ code: 'PERMISSION_DENIED' })
 
       const self = await second.api('PUT', `/members/${second.id}/role`, {
         project: projectId,
         body: { roleId: roleByKey(roles, 'manager').id },
       })
       expect(self.status).toBe(409)
-      expect(await self.json()).toMatchObject({ code: 'LAST_ADMIN' })
+      expect(await self.json()).toEqual({ code: 'LAST_ADMIN' })
 
       // Удалить участие последнего администратора база тоже не даёт.
       await expect(
@@ -284,7 +285,7 @@ describe('роли и права проекта', () => {
           ...(body === undefined ? {} : { body }),
         })
         expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 })
-        expect(await res.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+        expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
       }
       // Ничего не изменилось: роль менеджера осталась, «керівник» на месте.
       const member = await h.owner
@@ -345,7 +346,7 @@ describe('роли и права проекта', () => {
       expect((await call('GET', '/deals')).status).toBe(200)
       const del = await call('DELETE', '/deals')
       expect(del.status).toBe(403)
-      expect(await del.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(del)).toEqual({ code: 'PERMISSION_DENIED' })
       const access = (await (await call('GET', '/access')).json()) as { isAdmin: boolean }
       expect(access.isAdmin).toBe(false)
     })
@@ -376,7 +377,7 @@ describe('роли и права проекта', () => {
         body: { name: 'Стажер', permissions: {} },
       })
       expect(taken.status).toBe(409)
-      expect(await taken.json()).toMatchObject({ code: 'ROLE_NAME_TAKEN' })
+      expect(await taken.json()).toEqual({ code: 'ROLE_NAME_TAKEN' })
 
       const edited = await systemOwner.api('PUT', `/roles/${role.id}`, {
         project: projectId,
@@ -405,7 +406,7 @@ describe('роли и права проекта', () => {
 
       const inUse = await systemOwner.api('DELETE', `/roles/${role.id}`, { project: projectId })
       expect(inUse.status).toBe(409)
-      expect(await inUse.json()).toMatchObject({ code: 'ROLE_IN_USE' })
+      expect(await inUse.json()).toEqual({ code: 'ROLE_IN_USE' })
 
       await systemOwner.api('PUT', `/members/${member.id}/role`, {
         project: projectId,
@@ -453,7 +454,7 @@ describe('роли и права проекта', () => {
         body: { roleId: foreignRole.id },
       })
       expect(assign.status).toBe(404)
-      expect(await assign.json()).toMatchObject({ code: 'ROLE_NOT_FOUND' })
+      expect(await assign.json()).toEqual({ code: 'ROLE_NOT_FOUND' })
       expect((await storedRole(foreignRole.id)).name).toBe('Керівник')
     })
   })
@@ -553,7 +554,7 @@ describe('роли и права проекта', () => {
       for (const [what, permissions] of wider) {
         const res = await asX('POST', '/roles', { name: `Ширша: ${what}`, permissions })
         expect({ what, status: res.status }).toEqual({ what, status: 403 })
-        expect(await res.json()).toMatchObject({ code: 'EXCEEDS_OWN_PERMISSIONS' })
+        expect(await res.json()).toEqual({ code: 'EXCEEDS_OWN_PERMISSIONS' })
       }
       // Свои права и меньше — можно.
       const same = await asX('POST', '/roles', { name: 'Як у мене', permissions: HR })
@@ -782,7 +783,7 @@ describe('роли и права проекта', () => {
           permissions: { ...base, fieldGroups },
         })
         expect({ what, status: res.status }).toEqual({ what, status: 403 })
-        expect(await res.json()).toMatchObject({ code: 'EXCEEDS_OWN_PERMISSIONS' })
+        expect(await res.json()).toEqual({ code: 'EXCEEDS_OWN_PERMISSIONS' })
       }
       // Не выше своего — можно.
       const allowed: [string, Record<string, string>][] = [
@@ -865,7 +866,7 @@ describe('роли и права проекта', () => {
       const big = { name: 'X', permissions: {}, padding: 'x'.repeat(MAX_BODY_BYTES + 1) }
       const res = await systemOwner.api('POST', '/roles', { project: project.id, body: big })
       expect(res.status).toBe(413)
-      expect(await res.json()).toMatchObject({ code: 'PAYLOAD_TOO_LARGE' })
+      expect(await problemOf(res)).toEqual({ code: 'PAYLOAD_TOO_LARGE' })
       const anonymous = await h.request('POST', '/auth/sign-in/email', big)
       expect(anonymous.status).toBe(413)
       // Тело в пределах нормы проходит дальше, до проверки формы.

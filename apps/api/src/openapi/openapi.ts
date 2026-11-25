@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   API_KEY_RATE_LIMIT,
   IDEMPOTENCY_KEY_HEADER,
@@ -215,8 +216,43 @@ export function v1Document(app: OpenAPIHono<any, any, any>) {
 }
 
 /**
- * Страница `/api/v1/docs`: описание для браузера (Scalar API Reference с CDN, версия
- * закреплена); данных в ней нет, только ссылка на `/api/v1/openapi.json`.
+ * Скрипт Scalar API Reference для `/api/v1/docs`: точный файл точной версии с CDN и его хеш
+ * SHA-384 для Subresource Integrity. Страница открыта на адресе приложения, где действует
+ * сессионная cookie, поэтому подменённый на CDN файл браузер не выполнит. Хеш снят с файла
+ * dist/browser/standalone.js пакета @scalar/api-reference@1.84.0 из реестра npm и совпал с
+ * файлом на cdn.jsdelivr.net; новая версия — новый URL и новый хеш.
+ */
+export const DOCS_SCRIPT_URL =
+  'https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.84.0/dist/browser/standalone.js'
+export const DOCS_SCRIPT_INTEGRITY =
+  'sha384-oruqEryU2Y5luzd58OzTqLrk0iEMpecWInwhLhWldN4wDVPCcMasIYv15/2GiN16'
+
+/** Содержимое встроенного элемента настроек Scalar: пустое, настройки — в атрибутах. */
+const DOCS_CONFIG_SCRIPT = ''
+const DOCS_CONFIG_HASH = `sha256-${createHash('sha256').update(DOCS_CONFIG_SCRIPT).digest('base64')}`
+
+/**
+ * Content-Security-Policy страницы `/api/v1/docs`: скрипты — только файл Scalar с CDN и пустой
+ * встроенный элемент настроек (по хешу), запросы — только к своему адресу (`openapi.json` и
+ * «попробовать запрос»), ни форм, ни фреймов, ни `<base>`. Стили встроенные: Scalar вставляет
+ * их из своего скрипта. Шрифты Scalar с его сервера выключены настройкой `withDefaultFonts`.
+ */
+export const DOCS_CSP = [
+  "default-src 'none'",
+  `script-src '${DOCS_CONFIG_HASH}' ${DOCS_SCRIPT_URL}`,
+  "style-src 'unsafe-inline'",
+  "connect-src 'self'",
+  "img-src 'self' data:",
+  'font-src data:',
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ')
+
+/**
+ * Страница `/api/v1/docs`: описание для браузера (Scalar API Reference с CDN, версия и файл
+ * закреплены хешем); данных в ней нет, только ссылка на `/api/v1/openapi.json`. Отдаётся с
+ * заголовком DOCS_CSP.
  */
 export const DOCS_HTML = `<!doctype html>
 <html lang="uk">
@@ -226,8 +262,8 @@ export const DOCS_HTML = `<!doctype html>
     <title>Alpi CRM API</title>
   </head>
   <body>
-    <script id="api-reference" data-url="/api/v1/openapi.json"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.84.0"></script>
+    <script id="api-reference" data-url="/api/v1/openapi.json" data-configuration='{"withDefaultFonts":false}'>${DOCS_CONFIG_SCRIPT}</script>
+    <script src="${DOCS_SCRIPT_URL}" integrity="${DOCS_SCRIPT_INTEGRITY}" crossorigin="anonymous"></script>
   </body>
 </html>
 `

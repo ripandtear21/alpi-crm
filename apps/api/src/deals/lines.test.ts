@@ -10,6 +10,7 @@ import {
   type SignedInUser,
   startApiHarness,
 } from '../testing/api-harness.ts'
+import { pathError, problemOf } from '../testing/problem.ts'
 import type { DealView } from './store.ts'
 
 // Строки товаров в сделке и «підставити» (тикет crm-deals/06): строки сумму сделки не меняют
@@ -262,7 +263,7 @@ describe('строки товаров в сделке', () => {
       const deal = await createDeal(manager, { amount: 99 })
       const res = await call(manager, 'POST', `/v1/deals/${deal.id}/apply-products-total`, {})
       await expectStatus(res, 422)
-      expect(await res.json()).toMatchObject({ code: 'DEAL_HAS_NO_PRODUCTS' })
+      expect(await problemOf(res)).toEqual({ code: 'DEAL_HAS_NO_PRODUCTS' })
       const read = await json<DealView>(await call(manager, 'GET', `/v1/deals/${deal.id}`))
       expect(read.amount).toBe(99)
     })
@@ -281,7 +282,7 @@ describe('строки товаров в сделке', () => {
     it('нет цены в валюте сделки и цена не введена — 422; введённая цена принимается', async () => {
       const deal = await createDeal(manager, { currency: 'USD' })
       const refused = await addLine(manager, deal.id, { productId: euroOnly.id, quantity: 1 }, 422)
-      expect(await refused.json()).toMatchObject({ code: 'PRICE_REQUIRED' })
+      expect(await problemOf(refused)).toEqual({ code: 'PRICE_REQUIRED' })
 
       const view = await json<DealView>(
         await addLine(manager, deal.id, { productId: euroOnly.id, quantity: 2, unitPrice: 8.25 }),
@@ -320,7 +321,7 @@ describe('строки товаров в сделке', () => {
         200,
       )
       const refused = await addLine(manager, deal.id, { productId: product.id, quantity: 1 }, 422)
-      expect(await refused.json()).toMatchObject({ code: 'PRODUCT_ARCHIVED' })
+      expect(await problemOf(refused)).toEqual({ code: 'PRODUCT_ARCHIVED' })
 
       const lineId = before.products[0]?.id
       const changed = await call(manager, 'PUT', `/v1/deals/${deal.id}/products/${lineId}`, {
@@ -351,7 +352,7 @@ describe('строки товаров в сделке', () => {
       const deal = await createDeal(manager)
       const bad = async (body: Record<string, unknown>, path: string) => {
         const res = await addLine(manager, deal.id, body, 400)
-        expect(await res.json()).toMatchObject({ code: 'INVALID_DEAL', details: { path } })
+        expect(await problemOf(res)).toEqual(pathError('INVALID_DEAL', path))
       }
       await bad({ productId: course.id, quantity: 0 }, 'quantity')
       await bad({ productId: course.id, quantity: 1.5 }, 'quantity')
@@ -362,12 +363,12 @@ describe('строки товаров в сделке', () => {
 
       const missing = '00000000-0000-4000-8000-000000000000'
       const noProduct = await addLine(manager, deal.id, { productId: missing, quantity: 1 }, 404)
-      expect(await noProduct.json()).toMatchObject({ code: 'PRODUCT_NOT_FOUND' })
+      expect(await problemOf(noProduct)).toEqual({ code: 'PRODUCT_NOT_FOUND' })
       const noLine = await call(manager, 'PUT', `/v1/deals/${deal.id}/products/${missing}`, {
         quantity: 2,
       })
       await expectStatus(noLine, 404)
-      expect(await noLine.json()).toMatchObject({ code: 'LINE_NOT_FOUND' })
+      expect(await problemOf(noLine)).toEqual({ code: 'LINE_NOT_FOUND' })
       await expectStatus(await call(manager, 'DELETE', `/v1/deals/${deal.id}/products/abc`), 404)
     })
   })
@@ -403,7 +404,7 @@ describe('строки товаров в сделке', () => {
     it('товар проекта B нельзя добавить в сделку проекта A', async () => {
       const deal = await createDeal(manager)
       const res = await addLine(manager, deal.id, { productId: productB.id, quantity: 1 }, 404)
-      expect(await res.json()).toMatchObject({ code: 'PRODUCT_NOT_FOUND' })
+      expect(await problemOf(res)).toEqual({ code: 'PRODUCT_NOT_FOUND' })
     })
 
     it('строки проекта A не видны в B', async () => {
@@ -443,7 +444,7 @@ describe('строки товаров в сделке', () => {
       await addLine(manager, deal.id, { productId: course.id, quantity: 1 }, 404)
       // Видит, но менять не может.
       const denied = await addLine(readAll, deal.id, { productId: course.id, quantity: 1 }, 403)
-      expect(await denied.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(denied)).toEqual({ code: 'PERMISSION_DENIED' })
       await expectStatus(
         await call(readAll, 'POST', `/v1/deals/${deal.id}/apply-products-total`, {}),
         403,

@@ -10,6 +10,7 @@ import {
   type SignedInUser,
   startApiHarness,
 } from '../testing/api-harness.ts'
+import { pathError, problemFields, problemOf } from '../testing/problem.ts'
 import type { ContactView } from './contacts.ts'
 import type { ContactDependents } from './dependents.ts'
 import { findContactMatch } from './match.ts'
@@ -168,10 +169,7 @@ describe('контакты и организации', () => {
         phones: [fakePhone().e164, 'не телефон'],
       })
       expect(res.status).toBe(422)
-      expect(await res.json()).toMatchObject({
-        code: 'INVALID_PHONE',
-        details: { path: 'phones.1' },
-      })
+      expect(await problemOf(res)).toEqual(pathError('INVALID_PHONE', 'phones.1'))
     })
 
     it('без имени и с неизвестным полем — 400', async () => {
@@ -304,7 +302,7 @@ describe('контакты и организации', () => {
       ]) {
         expect(res.status).toBe(409)
         const text = await res.text()
-        expect(JSON.parse(text)).toMatchObject({ code: 'CONTACT_OUT_OF_SCOPE' })
+        expect(problemFields(JSON.parse(text), 409)).toEqual({ code: 'CONTACT_OUT_OF_SCOPE' })
         for (const secret of [
           theirs.id,
           'Секретна',
@@ -326,7 +324,7 @@ describe('контакты и организации', () => {
         phones: [phone.spaced],
       })
       expect(res.status).toBe(409)
-      expect(await res.json()).toMatchObject({
+      expect(await problemOf(res)).toEqual({
         code: 'CONTACT_EXISTS',
         details: { contactId: existing.id },
       })
@@ -367,7 +365,7 @@ describe('контакты и организации', () => {
         emails: [email],
       })
       expect(res.status).toBe(409)
-      expect(await res.json()).toMatchObject({
+      expect(await problemOf(res)).toEqual({
         code: 'CONTACT_EXISTS',
         details: { contactId: byPhone.id },
       })
@@ -416,7 +414,7 @@ describe('контакты и организации', () => {
         organizationId: inB.id,
       })
       expect(res.status).toBe(404)
-      expect(await res.json()).toMatchObject({ code: 'ORGANIZATION_NOT_FOUND' })
+      expect(await problemOf(res)).toEqual({ code: 'ORGANIZATION_NOT_FOUND' })
 
       const trashed = await createOrganization('У кошику')
       expect((await call(admin, 'DELETE', `/v1/organizations/${trashed.id}`)).status).toBe(204)
@@ -425,13 +423,13 @@ describe('контакты и организации', () => {
         organizationId: trashed.id,
       })
       expect(onCreate.status).toBe(404)
-      expect(await onCreate.json()).toMatchObject({ code: 'ORGANIZATION_NOT_FOUND' })
+      expect(await problemOf(onCreate)).toEqual({ code: 'ORGANIZATION_NOT_FOUND' })
       const contact = await createContact(admin, { firstName: 'Без організації' })
       const onUpdate = await call(admin, 'PUT', `/v1/contacts/${contact.id}`, {
         organizationId: trashed.id,
       })
       expect(onUpdate.status).toBe(404)
-      expect(await onUpdate.json()).toMatchObject({ code: 'ORGANIZATION_NOT_FOUND' })
+      expect(await problemOf(onUpdate)).toEqual({ code: 'ORGANIZATION_NOT_FOUND' })
       expect(
         (await json<ContactView>(await call(admin, 'GET', `/v1/contacts/${contact.id}`)))
           .organizationId,
@@ -667,7 +665,7 @@ describe('контакты и организации', () => {
       const res = await call(ownRestorer, 'POST', `/v1/contacts/${mine.id}/restore`)
       expect(res.status).toBe(409)
       const text = await res.text()
-      expect(JSON.parse(text)).toMatchObject({ code: 'CONTACT_OUT_OF_SCOPE' })
+      expect(problemFields(JSON.parse(text), 409)).toEqual({ code: 'CONTACT_OUT_OF_SCOPE' })
       for (const secret of [theirs.id, 'Таємний', phone.e164, phone.e164.slice(4)]) {
         expect(text).not.toContain(secret)
       }
@@ -678,7 +676,7 @@ describe('контакты и организации', () => {
       const { mine, theirs } = await trashedWithClash(admin, managerA1, 'phone')
       const res = await call(admin, 'POST', `/v1/contacts/${mine.id}/restore`)
       expect(res.status).toBe(409)
-      expect(await res.json()).toMatchObject({
+      expect(await problemOf(res)).toEqual({
         code: 'CONTACT_EXISTS',
         details: { contactId: theirs.id },
       })
@@ -723,7 +721,7 @@ describe('контакты и организации', () => {
         phones: [phone.national],
       })
       expect(byPhone.status).toBe(409)
-      expect(await byPhone.json()).toMatchObject({ code: 'CONTACT_OUT_OF_SCOPE' })
+      expect(await problemOf(byPhone)).toEqual({ code: 'CONTACT_OUT_OF_SCOPE' })
     })
   })
 
@@ -747,7 +745,7 @@ describe('контакты и организации', () => {
       // Окончательно — только из корзины и только с правом «корзина: удалять».
       const notInTrash = await call(admin, 'DELETE', `/v1/contacts/${contact.id}/permanent`)
       expect(notInTrash.status).toBe(409)
-      expect(await notInTrash.json()).toMatchObject({ code: 'NOT_IN_TRASH' })
+      expect(await problemOf(notInTrash)).toEqual({ code: 'NOT_IN_TRASH' })
       expect((await call(head, 'DELETE', `/v1/contacts/${contact.id}`)).status).toBe(204)
       expect((await call(head, 'DELETE', `/v1/contacts/${contact.id}/permanent`)).status).toBe(403)
       expect((await call(managerA1, 'DELETE', `/v1/contacts/${contact.id}/permanent`)).status).toBe(

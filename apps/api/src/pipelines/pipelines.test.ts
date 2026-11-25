@@ -10,6 +10,7 @@ import { sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../app.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import type { StageDealsChecker } from './stage-deals.ts'
 
 // Воронки, этапы и причины проигрыша (тикет crm-deals/02) — на настоящем PostgreSQL, API ходит
@@ -200,7 +201,7 @@ describe('воронки, этапы и причины проигрыша', () =
       for (const [method, path, body] of attempts) {
         const res = await call(method, path, body)
         expect(res.status, `${method} ${path}`).toBe(403)
-        expect(await res.json()).toMatchObject({ code: 'PERMISSION_DENIED' })
+        expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
       }
       expect(await stagesOf(projectA, pipeline.id)).toHaveLength(1)
     })
@@ -240,13 +241,13 @@ describe('воронки, этапы и причины проигрыша', () =
       await createPipeline(projectA, { code: 'dup' })
       const again = await as(admin, projectA)('POST', '/pipelines', { name: 'Дубль', code: 'dup' })
       expect(again.status).toBe(409)
-      expect(await again.json()).toMatchObject({ code: 'PIPELINE_CODE_TAKEN' })
+      expect(await problemOf(again)).toEqual({ code: 'PIPELINE_CODE_TAKEN' })
       await createPipeline(projectB, { code: 'dup' })
 
       const other = await createPipeline(projectA, { code: 'dup-2' })
       const renamed = await as(admin, projectA)('PUT', `/pipelines/${other.id}`, { code: 'dup' })
       expect(renamed.status).toBe(409)
-      expect(await renamed.json()).toMatchObject({ code: 'PIPELINE_CODE_TAKEN' })
+      expect(await problemOf(renamed)).toEqual({ code: 'PIPELINE_CODE_TAKEN' })
     })
 
     it('код — только латиница', async () => {
@@ -266,12 +267,12 @@ describe('воронки, этапы и причины проигрыша', () =
         isUpsell: true,
       })
       expect(second.status).toBe(409)
-      expect(await second.json()).toMatchObject({ code: 'UPSELL_PIPELINE_EXISTS' })
+      expect(await problemOf(second)).toEqual({ code: 'UPSELL_PIPELINE_EXISTS' })
 
       const plain = await createPipeline(project, { code: 'plain' })
       const marked = await as(admin, project)('PUT', `/pipelines/${plain.id}`, { isUpsell: true })
       expect(marked.status).toBe(409)
-      expect(await marked.json()).toMatchObject({ code: 'UPSELL_PIPELINE_EXISTS' })
+      expect(await problemOf(marked)).toEqual({ code: 'UPSELL_PIPELINE_EXISTS' })
 
       // Снять отметку с одной и поставить другой — можно.
       await json(await as(admin, project)('PUT', `/pipelines/${upsell.id}`, { isUpsell: false }))
@@ -298,7 +299,7 @@ describe('воронки, этапы и причины проигрыша', () =
 
       const bad = await as(admin, project)('PUT', '/pipelines/order', { ids: [second.id] })
       expect(bad.status).toBe(400)
-      expect(await bad.json()).toMatchObject({ code: 'INVALID_ORDER' })
+      expect(await problemOf(bad)).toEqual({ code: 'INVALID_ORDER' })
 
       const restored = await json<PipelineSummary>(
         await as(admin, project)('PUT', `/pipelines/${first.id}`, { archived: false }),
@@ -350,7 +351,7 @@ describe('воронки, этапы и причины проигрыша', () =
         { project: projectA },
       )
       expect(refused.status).toBe(409)
-      expect(await refused.json()).toMatchObject({ code: 'STAGE_HAS_OPEN_DEALS' })
+      expect(await problemOf(refused)).toEqual({ code: 'STAGE_HAS_OPEN_DEALS' })
       expect(asked).toEqual([busy?.id])
       expect((await stagesOf(projectA, pipeline.id)).map((s) => s.id)).toEqual([busy?.id, free?.id])
 
@@ -382,10 +383,10 @@ describe('воронки, этапы и причины проигрыша', () =
       const group = await createGroup(project, 'Якість', ['Не дозвон', 'Не актуально'])
       const dup = await call('POST', '/lost-reasons', { groupId: group.id, name: 'Не дозвон' })
       expect(dup.status).toBe(409)
-      expect(await dup.json()).toMatchObject({ code: 'LOST_REASON_NAME_TAKEN' })
+      expect(await problemOf(dup)).toEqual({ code: 'LOST_REASON_NAME_TAKEN' })
       const dupGroup = await call('POST', '/lost-reasons/groups', { name: 'Якість' })
       expect(dupGroup.status).toBe(409)
-      expect(await dupGroup.json()).toMatchObject({ code: 'LOST_REASON_GROUP_NAME_TAKEN' })
+      expect(await problemOf(dupGroup)).toEqual({ code: 'LOST_REASON_GROUP_NAME_TAKEN' })
 
       let [listed] = await json<LostReasonGroupSummary[]>(await call('GET', '/lost-reasons'))
       const [first, second] = listed?.reasons ?? []

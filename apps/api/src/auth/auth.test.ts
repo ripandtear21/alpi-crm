@@ -5,6 +5,7 @@ import { getMigrations } from 'better-auth/db/migration'
 import { type Kysely, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../app.ts'
+import { problemOf } from '../testing/problem.ts'
 import { totp } from '../testing/totp.ts'
 import { type Auth, createAuth, SIGN_IN_RATE_LIMIT } from './auth.ts'
 import { createOwner, OWNER_ROLE } from './owner.ts'
@@ -152,7 +153,7 @@ describe('вход и обязательная 2FA', () => {
         await b.get('/auth/no-such-route'),
       ]) {
         expect(res.status).toBe(403)
-        expect(await res.json()).toMatchObject({ code: 'TWO_FACTOR_SETUP_REQUIRED' })
+        expect(await problemOf(res)).toEqual({ code: 'TWO_FACTOR_SETUP_REQUIRED' })
       }
 
       // Секрет выдан, но код ещё не подтверждён — доступа по-прежнему нет.
@@ -266,7 +267,7 @@ describe('вход и обязательная 2FA', () => {
         await b.post('/auth/two-factor/get-totp-uri', { password: user.password }),
       ]) {
         expect(res.status).toBe(401)
-        expect(await res.json()).toMatchObject({ code: 'SECOND_FACTOR_REQUIRED' })
+        expect(await problemOf(res)).toEqual({ code: 'SECOND_FACTOR_REQUIRED' })
       }
     })
 

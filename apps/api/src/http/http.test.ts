@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from 'node:crypto'
+import { createHash, randomInt, randomUUID } from 'node:crypto'
 import { withProject } from '@alpi/db'
 import {
   type ApiKeyWithSecret,
@@ -633,6 +633,50 @@ describe('общие правила /api/v1', () => {
       expect(docs.status).toBe(200)
       expect(docs.headers.get('content-type')).toMatch(/^text\/html/)
       expect(await docs.text()).toContain('/api/v1/openapi.json')
+    })
+
+    it('/api/v1/docs: скрипт с CDN — точный файл с integrity и crossorigin; CSP пускает только его, пустой элемент настроек по хешу и запросы к своему адресу', async () => {
+      const app = createApp({ auth: h.auth, db: h.appDb })
+      const docs = await app.request(`${ORIGIN}/v1/docs`)
+      expect(docs.status).toBe(200)
+      const csp = docs.headers.get('content-security-policy') ?? ''
+      const directives = new Map(
+        csp
+          .split(';')
+          .map((part) => part.trim().split(/\s+/))
+          .filter(([name]) => name)
+          .map(([name, ...sources]) => [name, sources]),
+      )
+      expect(directives.get('default-src')).toEqual(["'none'"])
+      expect(directives.get('connect-src')).toEqual(["'self'"])
+      expect(directives.get('base-uri')).toEqual(["'none'"])
+      expect(directives.get('form-action')).toEqual(["'none'"])
+      expect(directives.get('frame-ancestors')).toEqual(["'none'"])
+
+      const html = await docs.text()
+      const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].map(
+        ([, attrs = '', content = '']) => ({ attrs, content }),
+      )
+      const external = scripts.filter((s) => /\ssrc="/.test(s.attrs))
+      const inline = scripts.filter((s) => !/\ssrc="/.test(s.attrs))
+      expect(external).toHaveLength(1)
+      const [script] = external
+      const src = /\ssrc="([^"]+)"/.exec(script?.attrs ?? '')?.[1] ?? ''
+      // Точный файл точной версии, а не «последняя» и не файл по умолчанию.
+      expect(src).toMatch(
+        /^https:\/\/cdn\.jsdelivr\.net\/npm\/@scalar\/api-reference@\d+\.\d+\.\d+\/dist\/browser\/standalone\.js$/,
+      )
+      expect(script?.attrs).toMatch(/\sintegrity="sha384-[A-Za-z0-9+/]{64}"/)
+      expect(script?.attrs).toMatch(/\scrossorigin="anonymous"/)
+      // script-src: ровно этот файл и хеши встроенных элементов — без 'unsafe-inline',
+      // 'unsafe-eval', целого хоста CDN и подстановок.
+      const inlineHashes = inline.map(
+        (s) => `'sha256-${createHash('sha256').update(s.content).digest('base64')}'`,
+      )
+      expect(inline.length).toBeGreaterThan(0)
+      expect([...(directives.get('script-src') ?? [])].sort()).toEqual(
+        [...new Set(inlineHashes), src].sort(),
+      )
     })
 
     it('keyRoute: одна схема проверяет запрос и описывает маршрут; ошибка проверки — 400 с errors[].field', async () => {
