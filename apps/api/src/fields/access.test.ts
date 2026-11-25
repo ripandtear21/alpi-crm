@@ -315,6 +315,44 @@ describe('права ролей на группы полей', () => {
       expect((await storedCustom('deal', deal.id))[readField.code]).toBe('читаю')
     })
 
+    it('поле группы «только чтение» с прежним значением — тоже 403', async () => {
+      const stored = (await storedCustom('deal', deal.id))[readField.code]
+      expect(stored).toBe('читаю')
+      const res = await as(limited, projectA)('PUT', `/deals/${deal.id}`, {
+        custom: { [readField.code]: stored },
+      })
+      expect({ status: res.status, body: await res.json() }).toEqual({
+        status: 403,
+        body: { code: 'CUSTOM_FIELD_READ_ONLY', details: { field: readField.code } },
+      })
+    })
+
+    it('поле «только чтение» и скрытое поле в одном запросе — 422, как с неизвестным кодом', async () => {
+      // Поле «только чтение» — первым: отказ по нему (403) не должен опередить «неизвестный»,
+      // иначе 403 вместо 422 выдал бы, что скрытое поле есть.
+      const call = as(limited, projectA)
+      const code = hiddenField.deal.code
+      const unknownCode = `${code}x`
+      const hidden = await call('PUT', `/deals/${deal.id}`, {
+        custom: { [readField.code]: 'інакше', [code]: 'злам' },
+      })
+      const unknown = await call('PUT', `/deals/${deal.id}`, {
+        custom: { [readField.code]: 'інакше', [unknownCode]: 'злам' },
+      })
+      expect({ status: hidden.status, body: await hidden.json() }).toEqual({
+        status: 422,
+        body: { code: 'CUSTOM_FIELD_UNKNOWN', details: { field: code } },
+      })
+      expect({ status: unknown.status, body: await unknown.json() }).toEqual({
+        status: 422,
+        body: { code: 'CUSTOM_FIELD_UNKNOWN', details: { field: unknownCode } },
+      })
+      expect(await storedCustom('deal', deal.id)).toMatchObject({
+        [readField.code]: 'читаю',
+        [code]: `${SECRET_VALUE}-2`,
+      })
+    })
+
     it.each(['deal', 'contact', 'organization'] as const)(
       '%s: поле скрытой группы — 422 тем же телом, что неизвестный код',
       async (entity) => {
@@ -378,6 +416,237 @@ describe('права ролей на группы полей', () => {
       expect(
         (await storedCustom('organization', organization.id))[hiddenField.organization.code],
       ).toBe(`${SECRET_VALUE}-2`)
+    })
+  })
+
+  describe('конструктор полей под правами на группы', () => {
+    // Отдельный проект «Конструктор»: роль «Конструктор» — право «поля» целиком и сделки
+    // (смотреть, создавать, изменять). Группа «К прихована» у неё скрыта, «К читання» — только
+    // чтение, «К відкрита» и «К відкрита 2» — без записи (по правам: «изменять»).
+    let projectC: string
+    let builder: SignedInUser
+    let cRead: FieldGroupSummary
+    let cHidden: FieldGroupSummary
+    let cOpen: FieldGroupSummary
+    let cOpen2: FieldGroupSummary
+    let fHidden: FieldDefinitionSummary
+    let fRead: FieldDefinitionSummary
+    let fOpen: FieldDefinitionSummary
+
+    const asBuilder = (method: Method, path: string, body?: unknown) =>
+      as(builder, projectC)(method, path, body)
+    const asAdmin = (method: Method, path: string, body?: unknown) =>
+      as(admin, projectC)(method, path, body)
+
+    /** Ответ целиком: статус и тело. */
+    async function answer(res: Response) {
+      const text = await res.text()
+      return { status: res.status, body: text === '' ? null : JSON.parse(text) }
+    }
+
+    const NOT_FOUND = { status: 404, body: { code: 'NOT_FOUND' } }
+    const EXCEEDS = {
+      status: 403,
+      body: { code: 'EXCEEDS_OWN_PERMISSIONS', details: { path: 'groupId' } },
+    }
+    const GROUP_NOT_FOUND = {
+      status: 422,
+      body: { code: 'FIELD_GROUP_NOT_FOUND', details: { path: 'groupId' } },
+    }
+
+    async function optionField(group: FieldGroupSummary, code: string) {
+      return json<FieldDefinitionSummary>(
+        await asAdmin('POST', '/fields', {
+          groupId: group.id,
+          nameUk: `Поле ${code}`,
+          code,
+          type: 'single_option',
+          options: [{ nameUk: 'Варіант' }],
+        }),
+        201,
+      )
+    }
+
+    const adminField = async (id: string) =>
+      json<FieldDefinitionSummary>(await asAdmin('GET', `/fields/${id}`))
+    const adminGroups = async () =>
+      json<FieldGroupSummary[]>(await asAdmin('GET', '/field-groups?entity=deal'))
+
+    beforeAll(async () => {
+      projectC = (await h.createProject(admin, 'Конструктор')).id
+      builder = await h.signIn()
+      // Скрытая группа — посередине: порядок групп роли не должен её сдвигать.
+      cRead = await createGroup(projectC, 'deal', 'К читання')
+      cHidden = await createGroup(projectC, 'deal', 'К прихована')
+      cOpen = await createGroup(projectC, 'deal', 'К відкрита')
+      cOpen2 = await createGroup(projectC, 'deal', 'К відкрита 2')
+      fHidden = await optionField(cHidden, 'k_hidden')
+      fRead = await optionField(cRead, 'k_read')
+      fOpen = await optionField(cOpen, 'k_open')
+      const role = await json<RoleSummary>(
+        await admin.api('POST', '/roles', {
+          project: projectC,
+          body: {
+            name: 'Конструктор',
+            permissions: {
+              actions: { deals: RECORD_ACTIONS, fields: ['view', 'create', 'edit', 'delete'] },
+              scopes: { deals: { read: 'all', write: 'all' } },
+              fieldGroups: { [cHidden.id]: 'hidden', [cRead.id]: 'read' },
+            },
+          },
+        }),
+        201,
+      )
+      await addWithRole(projectC, builder.id, role.id)
+    })
+
+    it('поле скрытой группы: каждый изменяющий запрос — 404, как на несуществующее поле', async () => {
+      const before = await adminField(fHidden.id)
+      const optionId = fHidden.options[0]?.id as string
+      const missing = randomUUID()
+      const requests: [Method, string, unknown?][] = [
+        ['PUT', '', {}],
+        ['PUT', '', { nameUk: 'Перейменовано' }],
+        ['PUT', '', { groupId: cOpen.id }],
+        ['PUT', '', { required: { mode: 'always' } }],
+        ['POST', '/archive'],
+        ['POST', '/restore'],
+        ['DELETE', ''],
+        ['POST', '/options', { nameUk: 'Новий' }],
+        ['PUT', '/options/order', { ids: [optionId] }],
+        ['PUT', `/options/${optionId}`, { nameUk: 'Інший' }],
+      ]
+      for (const [method, suffix, body] of requests) {
+        const request = `${method} /fields/:id${suffix}`
+        const hidden = await answer(await asBuilder(method, `/fields/${fHidden.id}${suffix}`, body))
+        const absent = await answer(await asBuilder(method, `/fields/${missing}${suffix}`, body))
+        expect({ request, ...hidden }).toEqual({ request, ...NOT_FOUND })
+        expect({ request, ...absent }).toEqual({ request, ...NOT_FOUND })
+      }
+      expect(await adminField(fHidden.id)).toEqual(before)
+      // Администратор меняет поле, как прежде.
+      const renamed = await json<FieldDefinitionSummary>(
+        await asAdmin('PUT', `/fields/${fHidden.id}`, { nameUk: 'Поле k_hidden' }),
+      )
+      expect(renamed).toEqual(before)
+    })
+
+    it('скрытая группа: правка и удаление — 404, как несуществующая', async () => {
+      const missing = randomUUID()
+      const requests: [Method, unknown?][] = [['PUT', {}], ['PUT', { nameUk: 'Інша' }], ['DELETE']]
+      for (const [method, body] of requests) {
+        const hidden = await answer(await asBuilder(method, `/field-groups/${cHidden.id}`, body))
+        const absent = await answer(await asBuilder(method, `/field-groups/${missing}`, body))
+        expect({ method, ...hidden }).toEqual({ method, ...NOT_FOUND })
+        expect({ method, ...absent }).toEqual({ method, ...NOT_FOUND })
+      }
+      expect((await adminGroups()).find((g) => g.id === cHidden.id)).toEqual(cHidden)
+      const renamed = await json<FieldGroupSummary>(
+        await asAdmin('PUT', `/field-groups/${cHidden.id}`, { nameUk: 'К прихована' }),
+      )
+      expect(renamed).toEqual(cHidden)
+    })
+
+    it('порядок полей скрытой группы — тот же отказ, что у несуществующей группы', async () => {
+      const hidden = await answer(
+        await asBuilder('PUT', '/fields/order', { groupId: cHidden.id, ids: [fHidden.id] }),
+      )
+      const absent = await answer(
+        await asBuilder('PUT', '/fields/order', { groupId: randomUUID(), ids: [fHidden.id] }),
+      )
+      expect(hidden).toEqual({
+        status: 400,
+        body: { code: 'INVALID_INPUT', details: { path: 'groupId' } },
+      })
+      expect(absent).toEqual(hidden)
+    })
+
+    it('порядок групп: роль переставляет видимые, скрытая остаётся на своём месте', async () => {
+      const visible = await json<FieldGroupSummary[]>(
+        await asBuilder('GET', '/field-groups?entity=deal'),
+      )
+      expect(visible.map((g) => g.id)).toEqual([cRead.id, cOpen.id, cOpen2.id])
+      // id скрытой группы в списке — как неизвестный id.
+      const order = (ids: string[]) =>
+        asBuilder('PUT', '/field-groups/order', { entity: 'deal', ids })
+      const withHidden = await answer(await order([cRead.id, cHidden.id, cOpen.id, cOpen2.id]))
+      const withUnknown = await answer(await order([cRead.id, randomUUID(), cOpen.id, cOpen2.id]))
+      expect(withHidden).toEqual({ status: 400, body: { code: 'INVALID_ORDER' } })
+      expect(withUnknown).toEqual(withHidden)
+
+      const reordered = await json<FieldGroupSummary[]>(
+        await order([cOpen2.id, cOpen.id, cRead.id]),
+      )
+      expect(reordered.map((g) => g.id)).toEqual([cOpen2.id, cOpen.id, cRead.id])
+      expect((await adminGroups()).map((g) => g.id)).toEqual([
+        cOpen2.id,
+        cHidden.id,
+        cOpen.id,
+        cRead.id,
+      ])
+
+      // Администратор задаёт порядок всех групп, как прежде.
+      const initial = [cRead.id, cHidden.id, cOpen.id, cOpen2.id]
+      const restored = await json<FieldGroupSummary[]>(
+        await asAdmin('PUT', '/field-groups/order', { entity: 'deal', ids: initial }),
+      )
+      expect(restored.map((g) => g.id)).toEqual(initial)
+    })
+
+    it('перенос поля: нужно «изменять» на обе группы; скрытая цель — как несуществующая', async () => {
+      const move = (field: FieldDefinitionSummary, groupId: string) =>
+        asBuilder('PUT', `/fields/${field.id}`, { groupId })
+      expect(await answer(await move(fOpen, cRead.id))).toEqual(EXCEEDS)
+      expect(await answer(await move(fRead, cOpen.id))).toEqual(EXCEEDS)
+      expect(await answer(await move(fOpen, cHidden.id))).toEqual(GROUP_NOT_FOUND)
+      expect(await answer(await move(fOpen, randomUUID()))).toEqual(GROUP_NOT_FOUND)
+      expect((await adminField(fOpen.id)).groupId).toBe(cOpen.id)
+      expect((await adminField(fRead.id)).groupId).toBe(cRead.id)
+
+      // Между группами с «изменять» — можно.
+      expect((await json<FieldDefinitionSummary>(await move(fOpen, cOpen2.id))).groupId).toBe(
+        cOpen2.id,
+      )
+      await json(await move(fOpen, cOpen.id))
+
+      // Администратор переносит, как прежде, и в скрытую от роли группу, и из неё.
+      const toHidden = await asAdmin('PUT', `/fields/${fRead.id}`, { groupId: cHidden.id })
+      expect((await json<FieldDefinitionSummary>(toHidden)).groupId).toBe(cHidden.id)
+      const back = await asAdmin('PUT', `/fields/${fRead.id}`, { groupId: cRead.id })
+      expect((await json<FieldDefinitionSummary>(back)).groupId).toBe(cRead.id)
+    })
+
+    it('создание поля: в скрытой группе — как в несуществующей, в «только чтение» — 403', async () => {
+      const field = (groupId: string, nameUk = 'Нове поле') => ({ groupId, nameUk, type: 'text' })
+      expect(await answer(await asBuilder('POST', '/fields', field(cHidden.id)))).toEqual(
+        GROUP_NOT_FOUND,
+      )
+      expect(await answer(await asBuilder('POST', '/fields', field(randomUUID())))).toEqual(
+        GROUP_NOT_FOUND,
+      )
+      expect(await answer(await asBuilder('POST', '/fields', field(cRead.id)))).toEqual(EXCEEDS)
+      const created = await json<FieldDefinitionSummary>(
+        await asBuilder('POST', '/fields', field(cOpen.id)),
+        201,
+      )
+      expect(created.groupId).toBe(cOpen.id)
+      const all = await json<FieldDefinitionSummary[]>(await asAdmin('GET', '/fields?entity=deal'))
+      expect(all.filter((f) => f.nameUk === 'Нове поле').map((f) => f.groupId)).toEqual([cOpen.id])
+
+      // Известное ограничение (решено без владельца): код поля уникален в сущности проекта, и код
+      // скрытого поля отвечает «занят».
+      expect(
+        await answer(
+          await asBuilder('POST', '/fields', { ...field(cOpen.id), code: fHidden.code }),
+        ),
+      ).toEqual({ status: 422, body: { code: 'FIELD_CODE_TAKEN', details: { path: 'code' } } })
+
+      // Администратор создаёт поле и в скрытой от роли группе.
+      const own = await json<FieldDefinitionSummary>(
+        await asAdmin('POST', '/fields', field(cHidden.id, 'Поле адміністратора')),
+        201,
+      )
+      expect(own.groupId).toBe(cHidden.id)
     })
   })
 

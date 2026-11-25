@@ -192,6 +192,16 @@ describe('экран ролей', () => {
       await renderRoles('uk')
       expect(await screen.findByText('У проєкті ще немає груп полів.')).toBeTruthy()
     })
+
+    it('группы не загрузились — сообщение, которое читает скринридер (role="alert")', async () => {
+      const api = fakeRolesApi({ fieldGroups: GROUPS })
+      api.fieldGroups = async () => {
+        throw new Error('сеть недоступна')
+      }
+      await renderRoles('uk', api)
+      const alert = await screen.findByRole('alert')
+      expect(alert.textContent).toBe('Не вдалося завантажити групи полів. Оновіть сторінку.')
+    })
   })
 
   it('без права «пользователи и роли» — пояснение вместо редактора', async () => {

@@ -134,7 +134,11 @@ function FieldGroupsSection({
   const accessLabel = (access: FieldGroupAccess) => t(`roles.fieldGroupAccess.${access}`)
   let body: ReactNode
   if (failed) {
-    body = <p className="ui-notice">{t('roles.fieldGroupsFailed')}</p>
+    body = (
+      <p className="ui-notice" role="alert">
+        {t('roles.fieldGroupsFailed')}
+      </p>
+    )
   } else if (!groups) {
     body = <p>{t('roles.loading')}</p>
   } else if (groups.length === 0) {

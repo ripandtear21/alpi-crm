@@ -14,7 +14,8 @@ import { entityReader, invalid, isFieldEntity, notFound, readNames, unknownKey }
 // Группа принадлежит одной сущности (решено без владельца, подтвердить). Читает каждый с правом
 // смотреть сущность; меняет — право «поля» (fields). Группу с полями, в том числе архивными,
 // удалить нельзя — 409 (решено без владельца, подтвердить; держит и база внешним ключом).
-// Каждое изменение пишется в журнал проекта той же транзакцией.
+// Каждое изменение пишется в журнал проекта той же транзакцией. Скрытая от роли группа и для
+// изменяющих запросов — как несуществующая (тикет crm-fields/03).
 
 const FOREIGN_KEY_VIOLATION = '23503'
 
@@ -53,14 +54,21 @@ export async function listGroups(
   return rows.map(summary)
 }
 
-async function lockGroup(db: Kysely<Database>, id: string): Promise<GroupRow | undefined> {
+/**
+ * Группа `:id` текущего проекта, заблокированная до конца транзакции; undefined — нет такой или
+ * она скрыта от роли: ответ — как на несуществующую (тикет crm-fields/03).
+ */
+async function lockGroup(c: Ctx): Promise<GroupRow | undefined> {
+  const id = c.req.param('id') ?? ''
   if (!UUID.test(id)) return undefined
-  return db
+  const group = await c
+    .get('db')
     .selectFrom('field_group')
     .select(COLUMNS)
     .where('id', '=', id)
     .forUpdate()
     .executeTakeFirst()
+  return group && groupVisible(c.get('access').permissions, group) ? group : undefined
 }
 
 async function createGroup(c: Ctx) {
@@ -105,7 +113,7 @@ async function updateGroup(c: Ctx) {
   const names = readNames(body, true)
   if (typeof names === 'string') return fail(c, invalid(names))
   const db = c.get('db')
-  const group = await lockGroup(db, c.req.param('id') ?? '')
+  const group = await lockGroup(c)
   if (!group) return fail(c, notFound())
   const before: Record<string, unknown> = {}
   const after: Record<string, unknown> = {}
@@ -141,32 +149,42 @@ async function reorderGroups(c: Ctx) {
   const ids = readIds(body)
   if (!ids) return fail(c, invalid('ids'))
   const db = c.get('db')
+  const permissions = c.get('access').permissions
   const current = await db
     .selectFrom('field_group')
-    .select('id')
+    .select(['id', 'entity'])
     .where('entity', '=', body.entity)
+    .orderBy('position')
+    .orderBy('created_at')
+    .orderBy('id')
     .forUpdate()
     .execute()
-  if (
-    !(await reorder(
-      db,
-      'field_group',
-      current.map((r) => r.id),
-      ids,
-    ))
-  ) {
+  // Роль переставляет только видимые ей группы (тикет crm-fields/03): id скрытой группы — как
+  // неизвестный (400 INVALID_ORDER), скрытые группы остаются на своих местах в порядке — иначе
+  // отказ на список без них выдал бы, что они есть. Администратору видны все: порядок — ids.
+  const visible = new Set(current.filter((g) => groupVisible(permissions, g)).map((g) => g.id))
+  if (ids.length !== visible.size || !ids.every((id) => visible.has(id))) {
     return fail(c, refuse(400, 'INVALID_ORDER'))
   }
+  const queue = [...ids]
+  const order = current.map((g) => (visible.has(g.id) ? (queue.shift() as string) : g.id))
+  await reorder(
+    db,
+    'field_group',
+    current.map((g) => g.id),
+    order,
+  )
   await recordInRequest(c, {
     action: 'field_group.reordered',
     details: { entity: body.entity, after: { ids } },
   })
-  return c.json<FieldGroupSummary[]>(await listGroups(db, body.entity))
+  const groups = await listGroups(db, body.entity)
+  return c.json<FieldGroupSummary[]>(groups.filter((g) => groupVisible(permissions, g)))
 }
 
 async function deleteGroup(c: Ctx) {
   const db = c.get('db')
-  const group = await lockGroup(db, c.req.param('id') ?? '')
+  const group = await lockGroup(c)
   if (!group) return fail(c, notFound())
   const field = await db
     .selectFrom('field_definition')
