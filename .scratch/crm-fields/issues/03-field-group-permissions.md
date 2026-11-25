@@ -33,16 +33,27 @@ packages/shared/src/permissions.ts, apps/api/src/roles/** (guard.ts, прове�
 
 ## Done when
 
-- [ ] Тест каталога: `parsePermissions` принимает `{ группа: 'read' }` и отклоняет неизвестный доступ; сервер отклоняет id группы чужого проекта (422); тест `apps/api/src/roles/roles.test.ts` про обязательно пустой `fieldGroups` заменён тестом нового поведения.
-- [ ] Тест: группа без записи даёт `edit` роли с правом изменять сделки и `read` роли только с правом смотреть.
-- [ ] Тест: администратору нельзя записать `read` или `hidden` (422); не-администратор с `read` на группу не выдаёт другой роли `edit` на неё (403).
-- [ ] Тест скрытия под ролью с `hidden`: описания, `GET /api/v1/deals/:id`, ответы контакта и организации и история сделки не содержат ни кода, ни названия, ни значения скрытого поля (проверка по строке ответа целиком).
-- [ ] Тест записи: поле группы `read` — 403; поле группы `hidden` — 422 тем же телом, что неизвестный код; после изменения другого поля значение скрытого поля в базе сохранилось.
-- [ ] Тест изоляции: права на группы проекта A не влияют на группы проекта B.
-- [ ] Тест конструктора под ролью с правом «поля»: изменяющие запросы к полю и группе, скрытым от роли, отвечают так же, как на несуществующие (сравнение ответа целиком); создать поле в группе «только чтение» и перенести поле из такой группы или в неё — 403 `EXCEEDS_OWN_PERMISSIONS`; порядок групп не сдвигает скрытую; у администратора — как прежде.
-- [ ] Тест записи значений: поле «только чтение» с прежним значением — 403 `CUSTOM_FIELD_READ_ONLY`; поле «только чтение» и скрытое поле в одном запросе — 422 `CUSTOM_FIELD_UNKNOWN`, как с неизвестным кодом.
-- [ ] Ошибка загрузки групп в редакторе ролей показана с `role="alert"`.
-- [ ] `pnpm verify` зелёный.
+- [x] Тест каталога: `parsePermissions` принимает `{ группа: 'read' }` и отклоняет неизвестный доступ; сервер отклоняет id группы чужого проекта (422); тест `apps/api/src/roles/roles.test.ts` про обязательно пустой `fieldGroups` заменён тестом нового поведения.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Тест: группа без записи даёт `edit` роли с правом изменять сделки и `read` роли только с правом смотреть.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Тест: администратору нельзя записать `read` или `hidden` (422); не-администратор с `read` на группу не выдаёт другой роли `edit` на неё (403).
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Тест скрытия под ролью с `hidden`: описания, `GET /api/v1/deals/:id`, ответы контакта и организации и история сделки не содержат ни кода, ни названия, ни значения скрытого поля (проверка по строке ответа целиком).
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Тест записи: поле группы `read` — 403; поле группы `hidden` — 422 тем же телом, что неизвестный код; после изменения другого поля значение скрытого поля в базе сохранилось.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Тест изоляции: права на группы проекта A не влияют на группы проекта B.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Тест конструктора под ролью с правом «поля»: изменяющие запросы к полю и группе, скрытым от роли, отвечают так же, как на несуществующие (сравнение ответа целиком); создать поле в группе «только чтение» и перенести поле из такой группы или в неё — 403 `EXCEEDS_OWN_PERMISSIONS`; порядок групп не сдвигает скрытую; у администратора — как прежде.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Тест записи значений: поле «только чтение» с прежним значением — 403 `CUSTOM_FIELD_READ_ONLY`; поле «только чтение» и скрытое поле в одном запросе — 422 `CUSTOM_FIELD_UNKNOWN`, как с неизвестным кодом.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] Ошибка загрузки групп в редакторе ролей показана с `role="alert"`.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts apps/api/src/fields/access.test.ts apps/api/src/fields/fields.test.ts apps/web/src/routes/settings/roles-page.test.tsx` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+- [x] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 7efef91358d4601815fb64a5f722c7d6d69a4339
 
 ## Результат
 
