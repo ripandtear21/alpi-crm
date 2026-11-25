@@ -11,7 +11,7 @@ import { fieldsSettingsAllowed } from './fields/fields-data.ts'
 import './settings.css'
 
 // Настройки проекта: роли, пользователи, команды, журнал действий, воронки, причины проигрыша,
-// товары и поля; остальные подразделы придут со своими тикетами. Пункт «Поля» — только с правом
+// товары, поля и ключи API; остальные подразделы придут со своими тикетами. Пункт «Поля» — только с правом
 // «поля» (тикет crm-fields/05): права пользователя — `GET /project/access`.
 export function SettingsPage({
   access,
@@ -70,6 +70,11 @@ export function SettingsPage({
           <li>
             <Link to="/p/$code/settings/products" params={{ code }}>
               {t('products.title')}
+            </Link>
+          </li>
+          <li>
+            <Link to="/p/$code/settings/api-keys" params={{ code }}>
+              {t('apiKeys.title')}
             </Link>
           </li>
           {fieldsAllowed && (

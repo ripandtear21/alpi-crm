@@ -2,7 +2,8 @@ import type { AuditActor, AuditEntry, ProjectAuditAction } from '@alpi/shared'
 import { type AuditApi, AuditApiError, type AuditFilter } from './audit-api.ts'
 
 // Подставной клиент журнала для тестов: записи в памяти (новые первыми), страницы по
-// `pageSize`; `deny` — ответ 403, как без права «настройки проекта».
+// `pageSize`; `deny` — ответ 403, как без права «настройки проекта»; `first` — записи перед
+// остальными (например, автор — ключ API).
 
 export interface FakeAuditApi extends AuditApi {
   /** Запрошенные страницы — с какими фильтрами. */
@@ -25,6 +26,7 @@ function entry(
     id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
     occurredAt: new Date(Date.UTC(2026, 10, 4, 12, 0, 60 - n)).toISOString(),
     actor,
+    apiKey: null,
     ip: '203.0.113.7',
     action,
     entityType: entity.type,
@@ -61,11 +63,13 @@ export function fakeAuditEntries(): AuditEntry<ProjectAuditAction>[] {
 export function fakeAuditApi({
   deny = false,
   pageSize = 50,
+  first = [],
 }: {
   deny?: boolean
   pageSize?: number
+  first?: AuditEntry<ProjectAuditAction>[]
 } = {}): FakeAuditApi {
-  const entries = fakeAuditEntries()
+  const entries = [...first, ...fakeAuditEntries()]
 
   const api: FakeAuditApi = {
     calls: [],

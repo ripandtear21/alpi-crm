@@ -44,6 +44,29 @@ async function rows(): Promise<string[]> {
 }
 
 describe('экран журнала', () => {
+  it('запись с автором-ключом API: название ключа и пометка «ключ API»', async () => {
+    await renderAudit(
+      'uk',
+      fakeAuditApi({
+        first: [
+          {
+            id: '00000000-0000-4000-8000-000000000099',
+            occurredAt: '2026-11-04T12:01:00.000Z',
+            actor: null,
+            apiKey: { id: 'k-1', name: 'Робот n8n' },
+            ip: '203.0.113.9',
+            action: 'api_key.request',
+            entityType: 'api_key',
+            entityId: 'k-1',
+            entityName: null,
+            details: { method: 'POST', path: '/v1/deals', status: 201 },
+          },
+        ],
+      }),
+    )
+    expect((await rows())[0]).toMatch(/^Робот n8n \(ключ API\) \| Зміна через ключ API \| /)
+  })
+
   it('записи новые сверху: кто, действие, «было → стало»', async () => {
     await renderAudit('uk')
     expect(await rows()).toEqual([

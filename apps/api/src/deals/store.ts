@@ -1,13 +1,14 @@
 import type { Database } from '@alpi/db'
 import type { ResourceScope, RolePermissions, Scope } from '@alpi/shared'
 import { type Kysely, sql } from 'kysely'
+import { requestAuthor } from '../api-keys/actor.ts'
 import type { ChangeAuthor } from '../change-log/record.ts'
 import type { ContactsErrorCode } from '../contacts/contacts.ts'
 import { type Ctx, type Outcome, ok, refuse } from '../contacts/http.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
-import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
+import { API_KEY_VIEWER, PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
 
 // Сделки в базе (тикет crm-deals/05): чтение строки в охвате, ответ API, запись с переводом
@@ -82,7 +83,8 @@ export type Result<T> = Outcome<T, DealsErrorCode | ContactsErrorCode>
 
 /** Запрос в контексте проекта: кто действует, его права, охват и транзакция. */
 export interface DealContext extends ChangeAuthor {
-  actorId: string
+  /** null — запрос по ключу API (тогда заполнен `actorApiKeyId`). */
+  actorId: string | null
   permissions: RolePermissions
   /** Охват сделок. */
   scope: ResourceScope
@@ -91,15 +93,16 @@ export interface DealContext extends ChangeAuthor {
 
 export async function dealContext(c: Ctx): Promise<DealContext> {
   const db = c.get('db')
-  const userId = c.get('session').user.id
+  const actor = c.get('actor')
   const { permissions } = c.get('access')
   return {
     db,
     projectId: c.get('projectId'),
-    actorId: userId,
+    ...requestAuthor(actor),
     permissions,
     scope: permissions.scopes.deals,
-    viewer: await resolveViewer(db, userId, PROJECT_TEAMS),
+    viewer:
+      actor.type === 'user' ? await resolveViewer(db, actor.userId, PROJECT_TEAMS) : API_KEY_VIEWER,
   }
 }
 

@@ -89,7 +89,8 @@ const FIELD_SQL: { [E in FilterEntity]: Record<string, FieldSql> } = {
 
 /** Для кого строится фильтр: значение 'me' у поля-пользователя — это он. */
 export interface FilterViewer {
-  actorId: string
+  /** null — ключ API (тикет crm-api/01): «я» — никто, условие `= 'me'` не совпадает ни с чем. */
+  actorId: string | null
   /**
    * Пользовательские поля, которые он видит (loadFilterCatalog): по ним проверены условия
    * `custom.<id>`. Нет — в фильтре таких условий быть не может.

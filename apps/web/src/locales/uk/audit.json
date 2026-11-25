@@ -21,6 +21,7 @@
     "ip": "IP-адреса"
   },
   "system": "Система",
+  "apiKeyActor": "{{name}} (ключ API)",
   "more": "Показати ще",
   "actions": {
     "role": {
@@ -101,6 +102,12 @@
       "created": "Додано варіант поля",
       "updated": "Змінено варіант поля",
       "reordered": "Змінено порядок варіантів"
+    },
+    "api_key": {
+      "created": "Створено ключ API",
+      "reissued": "Перевипущено ключ API",
+      "revoked": "Відкликано ключ API",
+      "request": "Зміна через ключ API"
     }
   },
   "summary": {

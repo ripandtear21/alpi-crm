@@ -103,7 +103,7 @@ export function compileCustomCondition(
   table: RecordTable,
   field: CatalogField,
   condition: FilterCondition,
-  me: string,
+  me: string | null,
 ): RawBuilder<SqlBool> {
   const ref = parseCustomRef(condition.field)
   const part = ref?.part

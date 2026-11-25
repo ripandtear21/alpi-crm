@@ -3,6 +3,7 @@ import type { HealthResponse } from '@alpi/shared'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { Kysely } from 'kysely'
+import { apiKeysRoutes } from './api-keys/routes.ts'
 import { auditRoutes, systemAuditRoutes } from './audit/routes.ts'
 import { type AccessEnv, accessGuard } from './auth/access-guard.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth/auth.ts'
@@ -23,6 +24,7 @@ import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { membersRoutes } from './members/members.ts'
 import { OPEN_MEMBER_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
 import { memberTransferRoutes } from './members/transfer.ts'
+import { apiKeyAuth } from './middleware/api-key.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
 import { organizationListRoutes } from './organizations/list.ts'
@@ -126,12 +128,16 @@ function v1Routes({
       // Конструктор полей (эпик crm-fields): группы, описания и варианты.
       .route('/field-groups', fieldGroupsRoutes())
       .route('/fields', fieldsRoutes(fields))
+      // Ключи API (тикет crm-api/01): только по сессии.
+      .route('/api-keys', apiKeysRoutes())
   )
 }
 
 /**
  * Приложение API. Открыт без входа только /health; всё, что зарегистрировано после
- * accessGuard, требует сессию с включённой 2FA (исключения — в access-guard.ts).
+ * accessGuard, требует сессию с включённой 2FA (исключения — в access-guard.ts) или ключ API
+ * (`Authorization: Bearer`, middleware/api-key.ts) — и тогда только на маршрутах с отметкой
+ * apiKeyRoute.
  * Всё, что зарегистрировано после projectContext, выполняется в контексте проекта из
  * заголовка X-Project-Id, и только для его участника; новые разделы (сделки, контакты…)
  * регистрируются там же — путь вне проекта нужно добавить выше осознанно.
@@ -151,6 +157,7 @@ export function createApp({
     maxSize: MAX_BODY_BYTES,
     onError: (c) => c.json({ code: 'PAYLOAD_TOO_LARGE' }, 413),
   })
+  const sessionGuard = accessGuard(auth)
   return (
     new Hono<AccessEnv>()
       .get('/health', (c) => c.json<HealthResponse>({ status: 'ok' }))
@@ -159,7 +166,9 @@ export function createApp({
       .use('*', (c, next) =>
         isFileUpload(c.req.method, c.req.path) ? next() : jsonBodyLimit(c, next),
       )
-      .use('*', accessGuard(auth))
+      // Запрос с ключом API: ключ и маршрут проверены здесь, сессия (cookie) не читается.
+      .use('*', apiKeyAuth(db, auth))
+      .use('*', (c, next) => (c.get('apiKey') ? next() : sessionGuard(c, next)))
       .on(['GET', 'POST'], `${AUTH_BASE_PATH}/*`, (c) => auth.handler(c.req.raw))
       .get('/me', (c) => {
         const { user } = c.get('session')

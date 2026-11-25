@@ -40,6 +40,7 @@ import {
   prepareCustom,
   readCustomInput,
 } from '../fields/values.ts'
+import { apiKeyRoute } from '../middleware/api-key.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { dealAggregates, dealOwners, listDeals } from './board.ts'
@@ -1117,7 +1118,10 @@ export function dealsRoutes({
   return (
     new Hono<PermissionsEnv>()
       // Канбан и списки (тикет 11): до `/:id`, иначе `owners` разберётся как id сделки.
-      .get('/', view, async (c) => respond(c, await listDeals(c, await dealContext(c))))
+      // Доступно ключу API (тикет crm-api/01); остальные маршруты сделок открывает тикет 03.
+      .get('/', apiKeyRoute, view, async (c) =>
+        respond(c, await listDeals(c, await dealContext(c))),
+      )
       .get('/owners', view, async (c) => respond(c, ok(await dealOwners(await dealContext(c)))))
       .get('/:id', requirePermission('deals', 'view'), async (c) => {
         const ctx = await dealContext(c)

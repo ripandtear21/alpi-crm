@@ -250,6 +250,11 @@ interface AuditColumns {
 /** Журнал проекта: виден только в контексте своего проекта. */
 export interface AuditLogTable extends AuditColumns {
   project_id: string
+  /**
+   * Ключ API, по запросу которого действовали (migrations/0019_api_keys.ts); не вместе с
+   * `actor_id`.
+   */
+  actor_api_key_id: ColumnType<string | null, string | null | undefined, never>
 }
 
 /**
@@ -374,6 +379,8 @@ export interface ChangeLogTable {
   project_id: string
   occurred_at: Timestamp
   actor_id: string | null
+  /** Автор — ключ API (migrations/0019_api_keys.ts); не вместе с `actor_id`. */
+  actor_api_key_id: ColumnType<string | null, string | null | undefined, never>
   entity_type: string
   entity_id: string
   field: string
@@ -628,6 +635,29 @@ export interface FieldOptionTable {
 }
 
 /** Таблицы базы для типов Kysely. */
+/**
+ * Ключ API проекта (migrations/0019_api_keys.ts). Виден только в контексте своего проекта.
+ * Отпечаток секрета роль приложения пишет, но не читает: ключ по секрету находит функция
+ * `api_key_by_secret_hash`. Строка не удаляется; отозванный ключ не меняется.
+ */
+export interface ApiKeyTable {
+  id: Generated<string>
+  project_id: string
+  name: string
+  /** null — роль отозванного или истёкшего ключа удалена. */
+  role_id: string | null
+  /** SHA-256 секрета, hex. Читать его роль приложения не может. */
+  secret_hash: ColumnType<never, string, string>
+  /** Первые 8 символов секрета — для показа в списке. */
+  secret_prefix: string
+  created_by: string
+  created_at: Timestamp
+  expires_at: Date | null
+  revoked_at: Date | null
+  revoked_by: string | null
+  last_used_at: Date | null
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -667,4 +697,5 @@ export interface Database {
   field_option: FieldOptionTable
   custom_value: CustomValueTable
   pipeline_card_field: PipelineCardFieldTable
+  api_key: ApiKeyTable
 }

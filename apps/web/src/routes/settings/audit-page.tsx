@@ -167,6 +167,13 @@ function useSummary() {
         const code = text(entry.details.code)
         return code === '' ? text(entry.details.name) : `${text(entry.details.name)} (${code})`
       }
+      // Тикет crm-api/01: ключи API; изменение по ключу — метод и путь запроса.
+      case 'api_key.created':
+      case 'api_key.reissued':
+      case 'api_key.revoked':
+        return text(entry.details.name)
+      case 'api_key.request':
+        return `${text(entry.details.method)} ${text(entry.details.path)}`
     }
   }
 }
@@ -269,7 +276,13 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
                       {time.format(new Date(entry.occurredAt))}
                     </time>
                   </td>
-                  <td>{entry.actor ? entry.actor.name : t('system')}</td>
+                  <td>
+                    {entry.actor
+                      ? entry.actor.name
+                      : entry.apiKey
+                        ? t('apiKeyActor', { name: entry.apiKey.name })
+                        : t('system')}
+                  </td>
                   <td>{t(`actions.${entry.action}`)}</td>
                   <td>{summary(entry)}</td>
                   <td>{entry.ip ?? '—'}</td>

@@ -69,6 +69,16 @@ export const PROJECT_AUDIT_ACTIONS = [
   /** Название варианта, архив или возврат из архива. */
   'field_option.updated',
   'field_option.reordered',
+  // Тикет crm-api/01: ключи API (entity — api_key; details — название и роль, без секрета).
+  'api_key.created',
+  /** Новый секрет вместо старого; старый перестал работать сразу. */
+  'api_key.reissued',
+  'api_key.revoked',
+  /**
+   * Запрос по ключу API, который изменил данные (автор — ключ; details — метод, путь, ответ).
+   * Что именно изменилось — в истории записи (change_log) с тем же автором.
+   */
+  'api_key.request',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 
@@ -116,8 +126,10 @@ export interface AuditEntry<A extends AuditAction = AuditAction> {
   id: string
   /** Время в ISO 8601. */
   occurredAt: string
-  /** null — неизвестный пользователь (неудачный вход) или система. */
+  /** null — неизвестный пользователь (неудачный вход), ключ API или система. */
   actor: AuditActor | null
+  /** Ключ API, по запросу которого действовали (только в журнале проекта); иначе null. */
+  apiKey: { id: string; name: string } | null
   ip: string | null
   action: A
   entityType: string | null

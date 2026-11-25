@@ -55,6 +55,9 @@ interface Row {
   actor_id: string | null
   actor_name: string | null
   actor_email: string | null
+  /** Только в журнале проекта: автор — ключ API (тикет crm-api/01). */
+  api_key_id?: string | null
+  api_key_name?: string | null
   ip: string | null
   action: string
   entity_type: string | null
@@ -106,6 +109,7 @@ function toPage<A extends string>(rows: Row[], limit: number): AuditPage<A & Aud
               name: row.actor_name ?? '',
               email: row.actor_email ?? '',
             } satisfies AuditActor),
+      apiKey: row.api_key_id == null ? null : { id: row.api_key_id, name: row.api_key_name ?? '' },
       ip: row.ip,
       action: row.action as A & AuditEntry['action'],
       entityType: row.entity_type,
@@ -135,6 +139,7 @@ export function auditRoutes() {
         .get('db')
         .selectFrom('audit_log as l')
         .leftJoin('user as u', 'u.id', 'l.actor_id')
+        .leftJoin('api_key as k', 'k.id', 'l.actor_api_key_id')
         .leftJoin('user as t', (join) =>
           join.onRef('t.id', '=', 'l.entity_id').on('l.entity_type', '=', 'user'),
         )
@@ -145,6 +150,8 @@ export function auditRoutes() {
           'l.actor_id',
           'u.name as actor_name',
           'u.email as actor_email',
+          'l.actor_api_key_id as api_key_id',
+          'k.name as api_key_name',
           sql<string | null>`host(l.ip)`.as('ip'),
           'l.action',
           'l.entity_type',

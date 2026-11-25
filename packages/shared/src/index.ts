@@ -1,5 +1,6 @@
 import type { RolePermissions } from './permissions.ts'
 
+export * from './api-keys/index.ts'
 export * from './audit.ts'
 export * from './fields/index.ts'
 export * from './filters/index.ts'

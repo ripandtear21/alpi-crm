@@ -1,6 +1,6 @@
 import type { Database } from '@alpi/db'
 import { fullPermissions, parseRolePermissions, type RolePermissions } from '@alpi/shared'
-import type { Kysely } from 'kysely'
+import { type Kysely, sql } from 'kysely'
 
 /** Роль участника в текущем проекте и её права. */
 export interface MemberAccess {
@@ -48,6 +48,31 @@ export async function loadMemberAccess(
     .where('m.user_id', '=', userId)
     .where('m.disabled_at', 'is', null)
     .where('u.banned', '=', false)
+    .executeTakeFirst()
+  if (!row) return null
+  return { roleId: row.id, isAdmin: row.is_admin, permissions: effectivePermissions(row) }
+}
+
+/**
+ * Роль ключа API в проекте, где выполняется запрос (тикет crm-api/01). `db` — транзакция
+ * проекта; null — ключ отозван, истёк или его роль удалена (в том числе после проверки ключа в
+ * начале запроса). Роль читается на каждом запросе: смена её прав действует сразу.
+ */
+export async function loadApiKeyAccess(
+  db: Kysely<Database>,
+  apiKeyId: string,
+): Promise<MemberAccess | null> {
+  const row = await db
+    .selectFrom('api_key as k')
+    .innerJoin('role as r', (join) =>
+      join.onRef('r.id', '=', 'k.role_id').onRef('r.project_id', '=', 'k.project_id'),
+    )
+    .select(['r.id', 'r.is_admin', 'r.permissions'])
+    .where('k.id', '=', apiKeyId)
+    .where('k.revoked_at', 'is', null)
+    .where((eb) =>
+      eb.or([eb('k.expires_at', 'is', null), eb('k.expires_at', '>', sql<Date>`now()`)]),
+    )
     .executeTakeFirst()
   if (!row) return null
   return { roleId: row.id, isAdmin: row.is_admin, permissions: effectivePermissions(row) }

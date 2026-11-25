@@ -195,6 +195,9 @@ async function readFilters(c: Ctx, ctx: DealContext): Promise<Result<DealFilters
   if (contact.value !== undefined) filters.contactId = contact.value
   if (organization.value !== undefined) filters.organizationId = organization.value
   if (owner !== undefined) {
+    // У ключа API (actorId null) «я» нет: иначе owner=me выбрал бы общую очередь.
+    if (owner === 'me' && ctx.actorId === null)
+      return refuse(400, 'INVALID_DEAL', { path: 'owner' })
     filters.ownerId = owner === 'me' ? ctx.actorId : owner === 'none' ? null : owner
   }
   return ok(filters)

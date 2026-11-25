@@ -2,6 +2,7 @@ import { isIP } from 'node:net'
 import type { Database } from '@alpi/db'
 import type { ProjectAuditAction, SystemAuditAction } from '@alpi/shared'
 import type { Kysely } from 'kysely'
+import { requestAuthor } from '../api-keys/actor.ts'
 import type { ProjectEnv } from '../middleware/project-context.ts'
 
 // Запись в журнал (тикет crm-foundation/07; таблицы — packages/db/migrations/0005_audit.ts).
@@ -17,7 +18,7 @@ import type { ProjectEnv } from '../middleware/project-context.ts'
 /** Событие для записи в журнал. */
 export interface AuditEvent<A extends string> {
   action: A
-  /** Кто действовал (`user.id`); null — неизвестный пользователь или система. */
+  /** Кто действовал (`user.id`); null — неизвестный пользователь, ключ API или система. */
   actorId: string | null
   /** Адрес клиента; не адрес (мусор из заголовка) пишется как null. */
   ip: string | null
@@ -25,6 +26,11 @@ export interface AuditEvent<A extends string> {
   entity?: { type: string; id: string }
   /** Подробности, например «было → стало». */
   details?: Record<string, unknown>
+}
+
+/** Событие проекта: автором бывает и ключ API (тикет crm-api/01), не вместе с `actorId`. */
+export interface ProjectAuditEvent extends AuditEvent<ProjectAuditAction> {
+  actorApiKeyId?: string | null
 }
 
 /** Событие вне проекта; у неудачного входа — ещё email, который вводили. */
@@ -77,14 +83,14 @@ export const audit = {
    * Событие проекта. `db` — транзакция проекта (withProject): row-level security пропустит
    * запись только с `projectId` текущего проекта.
    */
-  async record(
-    db: Kysely<Database>,
-    projectId: string,
-    event: AuditEvent<ProjectAuditAction>,
-  ): Promise<void> {
+  async record(db: Kysely<Database>, projectId: string, event: ProjectAuditEvent): Promise<void> {
     await db
       .insertInto('audit_log')
-      .values({ project_id: projectId, ...columns(event) })
+      .values({
+        project_id: projectId,
+        ...columns(event),
+        actor_api_key_id: event.actorApiKeyId ?? null,
+      })
       .execute()
   },
 
@@ -103,8 +109,8 @@ export const audit = {
 }
 
 /**
- * Событие проекта от имени пользователя запроса: проект, автор и адрес — из контекста
- * запроса, запись — в его транзакции проекта.
+ * Событие проекта от имени автора запроса (пользователь или ключ API): проект, автор и адрес —
+ * из контекста запроса, запись — в его транзакции проекта.
  */
 export function recordInRequest(
   c: { var: ProjectEnv['Variables'] },
@@ -112,7 +118,7 @@ export function recordInRequest(
 ): Promise<void> {
   return audit.record(c.var.db, c.var.projectId, {
     ...event,
-    actorId: c.var.session.user.id,
+    ...requestAuthor(c.var.actor),
     ip: c.var.clientIp,
   })
 }

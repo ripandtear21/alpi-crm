@@ -40,6 +40,8 @@ import { DealsListPage, type DealsListSearch } from './routes/deals/list/deals-l
 import { createListsApi, type ListsApi } from './routes/deals/list/lists-api.ts'
 import { OrganizationCardPage } from './routes/organizations/$organizationId/organization-card-page.tsx'
 import { OrganizationsListPage } from './routes/organizations/organizations-list-page.tsx'
+import { type ApiKeysApi, createApiKeysApi } from './routes/settings/api-keys-api.ts'
+import { ApiKeysPage } from './routes/settings/api-keys-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
 import { AuditPage } from './routes/settings/audit-page.tsx'
 import {
@@ -77,6 +79,8 @@ export interface RouterContext {
   search: SearchApi
   /** Конструктор полей в настройках (тикет crm-fields/05). */
   fields: FieldsSettingsApi
+  /** Ключи API проекта в настройках (тикет crm-api/01). */
+  apiKeys: ApiKeysApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -390,6 +394,16 @@ const productsRoute = createRoute({
   },
 })
 
+// Налаштування → Ключі API (тикет crm-api/01).
+const apiKeysRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: 'settings/api-keys',
+  component: function ApiKeysRoute() {
+    const { apiKeys } = apiKeysRoute.useRouteContext()
+    return <ApiKeysPage api={apiKeys} />
+  },
+})
+
 // Налаштування → Поля (тикет crm-fields/05).
 const fieldsSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
@@ -481,6 +495,7 @@ const routeTree = rootRoute.addChildren([
       lostReasonsRoute,
       productsRoute,
       fieldsSettingsRoute,
+      apiKeysRoute,
       trashRoute,
       dealCardRoute,
       contactCardRoute,
@@ -520,6 +535,8 @@ export interface AppRouterOptions {
   search?: SearchApi
   /** Только в тестах: подставной клиент конструктора полей. В браузере — запросы к API. */
   fields?: FieldsSettingsApi
+  /** Только в тестах: подставной клиент ключей API. В браузере — запросы к API. */
+  apiKeys?: ApiKeysApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -540,6 +557,7 @@ export function createAppRouter({
   lists = createListsApi(),
   search = createSearchApi(),
   fields = createFieldsSettingsApi(),
+  apiKeys = createApiKeysApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -557,6 +575,7 @@ export function createAppRouter({
     lists,
     search,
     fields,
+    apiKeys,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })
