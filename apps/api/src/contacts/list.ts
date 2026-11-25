@@ -4,6 +4,7 @@ import {
   type ListCount,
   type ListSort,
   parseSort,
+  type RolePermissions,
   type Scope,
 } from '@alpi/shared'
 import { Hono } from 'hono'
@@ -93,6 +94,8 @@ export interface ContactListContext {
   /** Охват чтения контактов. */
   scope: Scope
   viewer: Viewer
+  /** Права роли: какие группы полей видны (fields/access.ts). */
+  permissions: RolePermissions
 }
 
 export interface ContactListQuery {
@@ -118,6 +121,7 @@ export async function contactListContext(c: Ctx): Promise<ContactListContext> {
     actorId,
     scope: c.get('access').permissions.scopes.contacts.read,
     viewer: await resolveViewer(db, actorId, PROJECT_TEAMS),
+    permissions: c.get('access').permissions,
   }
 }
 
@@ -217,7 +221,7 @@ export async function listContactsPage(
         ).map((row) => [row.id, row.name]),
   )
   const custom = await visibleCustom(
-    ctx.db,
+    ctx,
     'contact',
     page.map((row) => row.custom),
   )

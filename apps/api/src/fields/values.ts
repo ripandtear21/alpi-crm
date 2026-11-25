@@ -1,13 +1,13 @@
-import type { Database } from '@alpi/db'
 import {
   type CustomFieldErrorCode,
   type FieldEntity,
   type FieldType,
   type FieldValue,
+  fieldGroupAccess,
   hasOptions,
   normalizeFieldValue,
 } from '@alpi/shared'
-import { type Kysely, type RawBuilder, sql } from 'kysely'
+import { type RawBuilder, sql } from 'kysely'
 import {
   type ChangeAuthor,
   type ChangeLogEntity,
@@ -15,17 +15,22 @@ import {
   recordChanges,
 } from '../change-log/record.ts'
 import { type Outcome, ok, refuse } from '../contacts/http.ts'
+import type { FieldViewer } from './access.ts'
 
 // Значения пользовательских полей в записях (тикет crm-fields/02; spec.md MVP, раздел 3.3):
 // единственное место, где API читает и пишет `custom` сделки, контакта и организации.
-// Права на группы полей (тикет 03) фильтруют здесь же: запись — в prepareCustom, чтение — в
-// visibleCustom.
+// Права на группы полей (тикет 03, fields/access.ts) действуют здесь же: запись — в
+// prepareCustom, чтение — в visibleCustom.
 //
 // - Запрос создания и изменения записи несёт `custom: { код: значение | null }`; меняются только
 //   переданные коды, null (и пустое значение) убирает ключ.
 // - Неизвестный код, код архивного поля или поля, которое окончательно удаляется, — 422
 //   CUSTOM_FIELD_UNKNOWN; значение не по типу — 422 CUSTOM_FIELD_INVALID с причиной
 //   (packages/shared/src/fields/values.ts); идёт смена типа поля — 409 CUSTOM_FIELD_CONVERTING.
+// - Поле группы, скрытой от роли, — тот же 422 CUSTOM_FIELD_UNKNOWN, что неизвестный код: ответ
+//   не выдаёт, что поле есть (решено без владельца, подтвердить); поле группы «только чтение» —
+//   403 CUSTOM_FIELD_READ_ONLY. Значения скрытых полей запись других кодов не трогает
+//   (customUpdate меняет только переданные коды).
 // - Запись в два шага: prepareCustom проверяет всё и ничего не пишет (отказ не оставляет следов
 //   в транзакции запроса), вызывающий кладёт customUpdate / customInsert в свою запись строки,
 //   потом finishCustom ставит first_value_at полям с первым значением и пишет «было → стало»
@@ -73,29 +78,46 @@ function canonical(value: unknown): string {
  * что меняется. Ничего не пишет.
  */
 export async function prepareCustom(
-  db: Kysely<Database>,
+  viewer: FieldViewer,
   entity: FieldEntity,
   current: CustomValues,
   input: CustomValues,
 ): Promise<Outcome<CustomWrite, CustomFieldErrorCode>> {
   const codes = Object.keys(input)
   if (codes.length === 0) return ok(NO_WRITE)
+  const { db } = viewer
   const fields = await db
     .selectFrom('field_definition')
     .select(['id', 'code', 'type', 'first_value_at', 'archived_at', 'purge_requested_at'])
-    .select('converting_to')
+    .select(['converting_to', 'group_id'])
     .where('entity', '=', entity)
     .where('code', 'in', codes)
     .orderBy('id')
     .forKeyShare()
     .execute()
   const byCode = new Map(fields.map((f) => [f.code, f]))
+  const accessOf = (field: { group_id: string }) =>
+    fieldGroupAccess(viewer.permissions, { id: field.group_id, entity })
+  // Сначала «неизвестные» по всем кодам, потом остальные отказы: иначе по тому, какой отказ
+  // пришёл при паре кодов, можно было бы угадать, что скрытое поле есть.
   for (const code of codes) {
     const field = byCode.get(code)
-    if (!field || field.archived_at !== null || field.purge_requested_at !== null) {
+    if (
+      !field ||
+      field.archived_at !== null ||
+      field.purge_requested_at !== null ||
+      accessOf(field) === 'hidden'
+    ) {
       return refuse(422, 'CUSTOM_FIELD_UNKNOWN', { field: code })
     }
-    if (field.converting_to !== null) return refuse(409, 'CUSTOM_FIELD_CONVERTING', { field: code })
+  }
+  for (const field of fields) {
+    if (accessOf(field) !== 'edit') {
+      return refuse(403, 'CUSTOM_FIELD_READ_ONLY', { field: field.code })
+    }
+    if (field.converting_to !== null) {
+      return refuse(409, 'CUSTOM_FIELD_CONVERTING', { field: field.code })
+    }
   }
 
   // Запросы по очереди: транзакция проекта — одно соединение.
@@ -195,22 +217,27 @@ export async function finishCustom(
 
 /**
  * `custom` записей для ответа API: только коды действующих полей сущности (архивные и
- * удаляемые не отдаются, их значения лежат до возврата из архива или окончательного удаления).
+ * удаляемые не отдаются, их значения лежат до возврата из архива или окончательного удаления)
+ * из групп, которые роль `viewer` видит.
  */
 export async function visibleCustom(
-  db: Kysely<Database>,
+  viewer: FieldViewer,
   entity: FieldEntity,
   values: readonly CustomValues[],
 ): Promise<CustomValues[]> {
   if (values.every((v) => Object.keys(v).length === 0)) return values.map(() => ({}))
-  const live = await db
+  const live = await viewer.db
     .selectFrom('field_definition')
-    .select('code')
+    .select(['code', 'group_id'])
     .where('entity', '=', entity)
     .where('archived_at', 'is', null)
     .where('purge_requested_at', 'is', null)
     .execute()
-  const codes = new Set(live.map((f) => f.code))
+  const codes = new Set(
+    live
+      .filter((f) => fieldGroupAccess(viewer.permissions, { id: f.group_id, entity }) !== 'hidden')
+      .map((f) => f.code),
+  )
   return values.map((v) =>
     Object.fromEntries(Object.entries(v).filter(([code]) => codes.has(code))),
   )

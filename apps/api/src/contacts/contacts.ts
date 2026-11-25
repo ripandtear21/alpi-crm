@@ -17,6 +17,7 @@ import {
   purgeFromTrash,
   recordChanges,
 } from '../change-log/record.ts'
+import type { FieldViewer } from '../fields/access.ts'
 import {
   type CustomValues,
   changesCustom,
@@ -274,7 +275,8 @@ async function writableContact(ctx: ContactContext, id: string): Promise<Result<
 const iso = (value: Date | string) => new Date(value).toISOString()
 
 /** Ответ API для строк контактов: телефоны и email — одним запросом на всех. */
-async function contactViews(db: Kysely<Database>, rows: ContactRow[]): Promise<ContactView[]> {
+async function contactViews(viewer: FieldViewer, rows: ContactRow[]): Promise<ContactView[]> {
+  const { db } = viewer
   if (rows.length === 0) return []
   const ids = rows.map((row) => row.id)
   const phones = await db
@@ -301,7 +303,7 @@ async function contactViews(db: Kysely<Database>, rows: ContactRow[]): Promise<C
   const phonesOf = group(phones)
   const emailsOf = group(emails)
   const custom = await visibleCustom(
-    db,
+    viewer,
     'contact',
     rows.map((row) => row.custom),
   )
@@ -321,8 +323,8 @@ async function contactViews(db: Kysely<Database>, rows: ContactRow[]): Promise<C
   }))
 }
 
-async function contactView(db: Kysely<Database>, row: ContactRow): Promise<ContactView> {
-  const [view] = await contactViews(db, [row])
+async function contactView(viewer: FieldViewer, row: ContactRow): Promise<ContactView> {
+  const [view] = await contactViews(viewer, [row])
   if (!view) throw new Error('контакт пропал в той же транзакции')
   return view
 }
@@ -450,7 +452,7 @@ async function createContact(
   if (input.organizationId && !(await organizationExists(ctx.db, input.organizationId))) {
     return refuse(404, 'ORGANIZATION_NOT_FOUND')
   }
-  const custom = await prepareCustom(ctx.db, 'contact', {}, input.custom ?? {})
+  const custom = await prepareCustom(ctx, 'contact', {}, input.custom ?? {})
   if (!custom.ok) return custom
   const keys = await checkKeys(ctx, input.phones ?? [], input.emails ?? [])
   if (!keys.ok) return keys
@@ -470,7 +472,7 @@ async function createContact(
     .executeTakeFirstOrThrow()
   await replaceKeys(ctx, row.id, input)
   await finishCustom(ctx, { type: 'contact', id: row.id }, custom.value, { history: false })
-  return ok(await contactView(ctx.db, row))
+  return ok(await contactView(ctx, row))
 }
 
 async function updateContact(
@@ -489,11 +491,11 @@ async function updateContact(
   ) {
     return refuse(404, 'ORGANIZATION_NOT_FOUND')
   }
-  const custom = await prepareCustom(ctx.db, 'contact', row.custom, input.custom ?? {})
+  const custom = await prepareCustom(ctx, 'contact', row.custom, input.custom ?? {})
   if (!custom.ok) return custom
   const keys = await checkKeys(ctx, input.phones ?? [], input.emails ?? [], id)
   if (!keys.ok) return keys
-  const before = await contactView(ctx.db, row)
+  const before = await contactView(ctx, row)
   await ctx.db
     .updateTable('contact')
     .set({
@@ -508,7 +510,7 @@ async function updateContact(
     .where('id', '=', id)
     .execute()
   await replaceKeys(ctx, id, input)
-  const after = await contactView(ctx.db, await reload(ctx, id))
+  const after = await contactView(ctx, await reload(ctx, id))
   await recordChanges(ctx, { type: 'contact', id }, diffFields(before, after, LOGGED_FIELDS))
   await finishCustom(ctx, { type: 'contact', id }, custom.value, { history: true })
   return ok(after)
@@ -582,7 +584,7 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
   const row = found.value
   const { deleted_at } = row
   if (deleted_at === null) return refuse(409, 'NOT_IN_TRASH')
-  const before = await contactView(ctx.db, row)
+  const before = await contactView(ctx, row)
   const keys = await checkKeys(ctx, before.phones, before.emails, id)
   if (!keys.ok) return keys
   // Пока контакт в корзине, его отметка deleted_at — та же, что у сделок, удалённых с ним.
@@ -598,7 +600,7 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
     })
     .where('id', '=', id)
     .execute()
-  const after = await contactView(ctx.db, await reload(ctx, id))
+  const after = await contactView(ctx, await reload(ctx, id))
   await recordChanges(ctx, { type: 'contact', id }, [
     deletedAtChange(deleted_at, null),
     ...diffFields(before, after, LOGGED_FIELDS),
@@ -663,7 +665,7 @@ async function listContacts(ctx: ContactContext, c: Ctx): Promise<Result<Contact
     if (!UUID.test(organizationId)) return ok([])
     query = query.where('organization_id', '=', organizationId)
   }
-  return ok(await contactViews(ctx.db, await query.execute()))
+  return ok(await contactViews(ctx, await query.execute()))
 }
 
 /**
@@ -696,7 +698,7 @@ export function contactsRoutes({
       const ctx = await context(c)
       const row = UUID.test(id) ? await findContact(ctx, id, ctx.scope.read) : undefined
       if (!row || row.deleted_at !== null) return fail(c, refuse(404, 'CONTACT_NOT_FOUND'))
-      return c.json<ContactView>(await contactView(ctx.db, row))
+      return c.json<ContactView>(await contactView(ctx, row))
     })
     .post('/', requirePermission('contacts', 'create'), async (c) => {
       const body = await readBody(c)

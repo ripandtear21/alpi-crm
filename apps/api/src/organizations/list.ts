@@ -16,6 +16,7 @@ import {
   readLanguage,
   UTF8_BOM,
 } from '../export/csv.ts'
+import type { FieldViewer } from '../fields/access.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { compileFilter, readFilterParam } from '../filters/compile.ts'
 import {
@@ -102,11 +103,12 @@ function baseQuery(db: Kysely<Database>, actorId: string, filter: FilterGroup | 
 }
 
 export async function listOrganizationsPage(
-  db: Kysely<Database>,
+  viewer: FieldViewer,
   actorId: string,
   { filter, sort, cursor, limit }: OrganizationListQuery,
 ): Promise<OrganizationListPage> {
   const key = SORT_KEYS[sort.column]
+  const { db } = viewer
   let query = baseQuery(db, actorId, filter)
     .select([
       'organization.id',
@@ -126,7 +128,7 @@ export async function listOrganizationsPage(
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   const custom = await visibleCustom(
-    db,
+    viewer,
     'organization',
     page.map((row) => row.custom),
   )
@@ -185,6 +187,7 @@ export async function exportOrganizations(c: Ctx, rootDb: Kysely<Database>): Pro
   const { filter, sort, cursor: start } = query.value
   const projectId = c.get('projectId')
   const actorId = c.get('session').user.id
+  const { permissions } = c.get('access')
   await recordInRequest(c, {
     action: 'export.downloaded',
     details: {
@@ -199,7 +202,7 @@ export async function exportOrganizations(c: Ctx, rootDb: Kysely<Database>): Pro
     let cursor = start
     while (true) {
       const page = await withProject(rootDb, projectId, (trx) =>
-        listOrganizationsPage(trx, actorId, {
+        listOrganizationsPage({ db: trx, permissions }, actorId, {
           filter,
           sort,
           limit: EXPORT_BATCH,
@@ -227,7 +230,11 @@ export function organizationListRoutes(rootDb: Kysely<Database>) {
       const query = readOrganizationListQuery(c)
       if (!query.ok) return fail(c, query)
       return c.json<OrganizationListPage>(
-        await listOrganizationsPage(c.get('db'), c.get('session').user.id, query.value),
+        await listOrganizationsPage(
+          { db: c.get('db'), permissions: c.get('access').permissions },
+          c.get('session').user.id,
+          query.value,
+        ),
       )
     })
     .get('/count', view, async (c) => {

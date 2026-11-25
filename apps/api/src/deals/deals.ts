@@ -22,6 +22,7 @@ import {
   UUID,
 } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
+import { CUSTOM_HISTORY_PREFIX, visibleHistoryFields } from '../fields/access.ts'
 import {
   type CustomValues,
   type CustomWrite,
@@ -321,7 +322,7 @@ async function applyChange(
   row: DealRow,
   set: DealSet,
 ): Promise<Result<DealView>> {
-  const before = await dealView(ctx.db, row)
+  const before = await dealView(ctx, row)
   const target: OpenDealTarget = {
     pipelineId: typeof set.pipeline_id === 'string' ? set.pipeline_id : row.pipeline_id,
     contactId:
@@ -336,7 +337,7 @@ async function applyChange(
       .execute(),
   )
   if (!written.ok) return written
-  const after = await dealView(ctx.db, await reloadDeal(ctx, row.id))
+  const after = await dealView(ctx, await reloadDeal(ctx, row.id))
   await recordChanges(ctx, { type: 'deal', id: row.id }, diffFields(before, after, LOGGED_FIELDS))
   return ok(after)
 }
@@ -352,7 +353,7 @@ async function changeDeal(
   const set = await change(found.value)
   if (!set.ok) return set
   // null — менять нечего (сделка уже в нужном состоянии).
-  if (set.value === null) return ok(await dealView(ctx.db, found.value))
+  if (set.value === null) return ok(await dealView(ctx, found.value))
   return applyChange(ctx, found.value, set.value)
 }
 
@@ -373,7 +374,7 @@ interface NewDeal {
 }
 
 async function insertDeal(ctx: DealContext, deal: NewDeal): Promise<Result<DealView>> {
-  const custom = await prepareCustom(ctx.db, 'deal', {}, deal.custom)
+  const custom = await prepareCustom(ctx, 'deal', {}, deal.custom)
   if (!custom.ok) return custom
   const place = await placement(ctx, deal.pipelineId, deal.stageId)
   if (!place.ok) return place
@@ -410,7 +411,7 @@ async function insertDeal(ctx: DealContext, deal: NewDeal): Promise<Result<DealV
   if (!inserted.ok) return inserted
   const id = inserted.value.id
   await finishCustom(ctx, { type: 'deal', id }, custom.value, { history: false })
-  return ok(await dealView(ctx.db, await reloadDeal(ctx, id)))
+  return ok(await dealView(ctx, await reloadDeal(ctx, id)))
 }
 
 const CREATE_KEYS = [...FIELD_KEYS, 'pipelineId', 'stageId', 'contactId', 'contact']
@@ -556,7 +557,7 @@ async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<
   let custom: CustomWrite | undefined
   const changed = await changeDeal(ctx, id, async (row) => {
     const set: DealSet = {}
-    const prepared = await prepareCustom(ctx.db, 'deal', row.custom, customInput ?? {})
+    const prepared = await prepareCustom(ctx, 'deal', row.custom, customInput ?? {})
     if (!prepared.ok) return prepared
     custom = prepared.value
     if (changesCustom(custom)) set.custom = customUpdate(custom)
@@ -745,7 +746,7 @@ async function takeDeal(ctx: DealContext, id: string): Promise<Result<DealView>>
   await recordChanges(ctx, { type: 'deal', id }, [
     { field: 'ownerId', before: null, after: ctx.actorId },
   ])
-  return ok(await dealView(ctx.db, await reloadDeal(ctx, id)))
+  return ok(await dealView(ctx, await reloadDeal(ctx, id)))
 }
 
 // ---- Корзина --------------------------------------------------------------------------------
@@ -792,7 +793,7 @@ async function restoreDeal(ctx: DealContext, id: string): Promise<Result<DealVie
   )
   if (!written.ok) return written
   await recordChanges(ctx, { type: 'deal', id }, [deletedAtChange(row.deleted_at, null)])
-  return ok(await dealView(ctx.db, await reloadDeal(ctx, id)))
+  return ok(await dealView(ctx, await reloadDeal(ctx, id)))
 }
 
 /**
@@ -821,10 +822,10 @@ async function changeParticipants(
 ): Promise<Result<DealView>> {
   const found = await writableDeal(ctx, id)
   if (!found.ok) return found
-  const before = await dealView(ctx.db, found.value)
+  const before = await dealView(ctx, found.value)
   const changed = await change(found.value)
   if (!changed.ok) return changed
-  const after = await dealView(ctx.db, found.value)
+  const after = await dealView(ctx, found.value)
   await recordChanges(ctx, { type: 'deal', id }, diffFields(before, after, ['participants']))
   return ok(after)
 }
@@ -929,12 +930,20 @@ async function dealHistory(c: Ctx, ctx: DealContext, id: string) {
   const limit = readLimit(c.req.query('limit'))
   if (limit === undefined) return invalid('limit')
   if (!(await visibleDeal(ctx, id))) return refuse(404, 'DEAL_NOT_FOUND')
+  // Изменения пользовательских полей — только тех, что роль видит (тикет crm-fields/03).
+  const customFields = await visibleHistoryFields(ctx, 'deal')
   const rows = await ctx.db
     .selectFrom('change_log as l')
     .leftJoin('user as u', 'u.id', 'l.actor_id')
     .select(['l.id', 'l.occurred_at', 'l.actor_id', 'u.name', 'l.field', 'l.before', 'l.after'])
     .where('l.entity_type', '=', 'deal')
     .where('l.entity_id', '=', id)
+    .where((eb) =>
+      eb.or([
+        eb('l.field', 'not like', `${CUSTOM_HISTORY_PREFIX}%`),
+        ...(customFields.length === 0 ? [] : [eb('l.field', 'in', customFields)]),
+      ]),
+    )
     .orderBy('l.occurred_at', 'desc')
     .orderBy('l.id', 'desc')
     .limit(limit)
@@ -979,7 +988,7 @@ export function dealsRoutes({
         const ctx = await dealContext(c)
         const row = await visibleDeal(ctx, c.req.param('id'))
         if (!row) return fail(c, refuse(404, 'DEAL_NOT_FOUND'))
-        return c.json<DealView>(await dealView(ctx.db, row))
+        return c.json<DealView>(await dealView(ctx, row))
       })
       .get('/:id/history', requirePermission('deals', 'view'), async (c) =>
         respond(c, await dealHistory(c, await dealContext(c), c.req.param('id'))),

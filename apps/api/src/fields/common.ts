@@ -2,11 +2,12 @@ import type { Database } from '@alpi/db'
 import {
   can,
   FIELD_ENTITIES,
+  FIELD_ENTITY_RESOURCE,
   FIELD_NAME_MAX_LENGTH,
   type FieldEntity,
   type FieldNames,
   type FieldsErrorCode,
-  type Resource,
+  type RolePermissions,
 } from '@alpi/shared'
 import type { Transaction } from 'kysely'
 import { type Ctx, optionalText, type Refusal, refuse, requiredText } from '../contacts/http.ts'
@@ -18,11 +19,7 @@ import type { FieldRetypeMessage } from './retype.ts'
 // разбор названий, ответы с кодом ошибки, зависимости (очередь и часы).
 
 /** Часть системы сущности: право «смотреть» на неё открывает чтение описаний полей. */
-export const ENTITY_RESOURCE: Record<FieldEntity, Resource> = {
-  deal: 'deals',
-  contact: 'contacts',
-  organization: 'organizations',
-}
+export const ENTITY_RESOURCE = FIELD_ENTITY_RESOURCE
 
 export const isFieldEntity = (value: unknown): value is FieldEntity =>
   FIELD_ENTITIES.some((entity) => entity === value)
@@ -36,17 +33,18 @@ export const notFound = (): FieldsRefusal => refuse(404, 'NOT_FOUND')
 
 /**
  * Читать описания может каждый, у кого есть право смотреть сущность (решено без владельца,
- * подтвердить). Роль читается один раз за запрос, как в requirePermission.
+ * подтвердить); какие группы он видит — по его правам (fields/access.ts). Права роли, если
+ * сущность видна; null — нет. Роль читается один раз за запрос, как в requirePermission.
  */
-export async function canViewEntity(c: Ctx, entity: FieldEntity): Promise<boolean> {
+export async function entityReader(c: Ctx, entity: FieldEntity): Promise<RolePermissions | null> {
   let access = c.get('access') as MemberAccess | undefined
   if (!access) {
     const loaded = await loadMemberAccess(c.get('db'), c.get('session').user.id)
-    if (!loaded) return false
+    if (!loaded) return null
     access = loaded
     c.set('access', access)
   }
-  return can(access.permissions, ENTITY_RESOURCE[entity], 'view')
+  return can(access.permissions, ENTITY_RESOURCE[entity], 'view') ? access.permissions : null
 }
 
 /**

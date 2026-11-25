@@ -373,7 +373,7 @@ export async function listDealsPage(
         ).map((row) => [row.id, row.name]),
   )
   const custom = await visibleCustom(
-    ctx.db,
+    ctx,
     'deal',
     page.map((row) => row.custom),
   )

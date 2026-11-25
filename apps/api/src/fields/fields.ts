@@ -23,8 +23,9 @@ import { type Ctx, fail, readBody, refuse, UUID } from '../contacts/http.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { isoOrNull, readIds, reorder } from '../pipelines/directory.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
+import { fieldVisible } from './access.ts'
 import {
-  canViewEntity,
+  entityReader,
   type FieldsDeps,
   type FieldsRefusal,
   invalid,
@@ -774,7 +775,10 @@ async function readField(c: Ctx) {
   if (!UUID.test(id)) return fail(c, notFound())
   const [field] = await loadFields(c.get('db'), { ids: [id], includeArchived: true })
   if (!field) return fail(c, notFound())
-  if (!(await canViewEntity(c, field.entity))) return fail(c, refuse(403, 'PERMISSION_DENIED'))
+  const permissions = await entityReader(c, field.entity)
+  if (!permissions) return fail(c, refuse(403, 'PERMISSION_DENIED'))
+  // Поле скрытой группы — как несуществующее: ответ не выдаёт, что оно есть (тикет 03).
+  if (!fieldVisible(permissions, field)) return fail(c, notFound())
   return c.json<FieldDefinitionSummary>(field)
 }
 
@@ -918,10 +922,14 @@ export function fieldsRoutes(deps: FieldsDeps) {
         if (archived !== undefined && archived !== 'true' && archived !== 'false') {
           return fail(c, invalid('includeArchived'))
         }
-        if (!(await canViewEntity(c, entity))) return fail(c, refuse(403, 'PERMISSION_DENIED'))
-        return c.json<FieldDefinitionSummary[]>(
-          await loadFields(c.get('db'), { entity, includeArchived: archived === 'true' }),
-        )
+        const permissions = await entityReader(c, entity)
+        if (!permissions) return fail(c, refuse(403, 'PERMISSION_DENIED'))
+        const fields = await loadFields(c.get('db'), {
+          entity,
+          includeArchived: archived === 'true',
+        })
+        // Поля скрытых от роли групп не отдаются (тикет 03).
+        return c.json<FieldDefinitionSummary[]>(fields.filter((f) => fieldVisible(permissions, f)))
       })
       .post('/', requirePermission('fields', 'create'), createField)
       // /order — до /:id: иначе «order» читался бы как id поля.

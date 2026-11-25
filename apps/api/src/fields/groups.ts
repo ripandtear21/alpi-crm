@@ -7,7 +7,8 @@ import { type Ctx, fail, readBody, refuse, UUID } from '../contacts/http.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { readIds, reorder } from '../pipelines/directory.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
-import { canViewEntity, invalid, isFieldEntity, notFound, readNames, unknownKey } from './common.ts'
+import { groupVisible } from './access.ts'
+import { entityReader, invalid, isFieldEntity, notFound, readNames, unknownKey } from './common.ts'
 
 // Группы полей (тикет crm-fields/01): `/api/v1/field-groups?entity=deal|contact|organization`.
 // Группа принадлежит одной сущности (решено без владельца, подтвердить). Читает каждый с правом
@@ -183,10 +184,27 @@ async function deleteGroup(c: Ctx) {
     }
     throw error
   }
+  // Удалённая группа уходит из прав всех ролей той же транзакцией (тикет 03): иначе её id
+  // остался бы в правах ролей висячей ссылкой. У роли администратора записей о группах нет
+  // (её строку не меняет и база).
+  const roles = await db
+    .updateTable('role')
+    .set({
+      permissions: sql`jsonb_set(permissions, '{fieldGroups}', (permissions -> 'fieldGroups') - ${group.id}::text)`,
+      updated_at: sql`now()`,
+    })
+    .where('is_admin', '=', false)
+    .where(sql<boolean>`permissions -> 'fieldGroups' ? ${group.id}::text`)
+    .returning('id')
+    .execute()
   await recordInRequest(c, {
     action: 'field_group.deleted',
     entity: { type: 'field_group', id: group.id },
-    details: { name: group.name_uk, entity: group.entity },
+    details: {
+      name: group.name_uk,
+      entity: group.entity,
+      ...(roles.length > 0 ? { roles: roles.map((r) => r.id) } : {}),
+    },
   })
   return c.body(null, 204)
 }
@@ -198,8 +216,11 @@ export function fieldGroupsRoutes() {
       .get('/', async (c) => {
         const entity = c.req.query('entity')
         if (!isFieldEntity(entity)) return fail(c, invalid('entity'))
-        if (!(await canViewEntity(c, entity))) return fail(c, refuse(403, 'PERMISSION_DENIED'))
-        return c.json<FieldGroupSummary[]>(await listGroups(c.get('db'), entity))
+        const permissions = await entityReader(c, entity)
+        if (!permissions) return fail(c, refuse(403, 'PERMISSION_DENIED'))
+        // Скрытые от роли группы не отдаются (тикет 03).
+        const groups = await listGroups(c.get('db'), entity)
+        return c.json<FieldGroupSummary[]>(groups.filter((g) => groupVisible(permissions, g)))
       })
       .post('/', requirePermission('fields', 'create'), createGroup)
       // /order — до /:id: иначе «order» читался бы как id группы.

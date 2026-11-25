@@ -77,9 +77,9 @@ export interface RolePermissions {
   /** Включённые отдельные права (в порядке STANDALONE_PERMISSIONS). */
   standalone: StandalonePermission[]
   /**
-   * Права на группы полей: id группы → доступ. Место зарезервировано: группы полей появятся
-   * с пользовательскими полями, до тех пор объект пустой. Группа без записи — по правам
-   * части системы.
+   * Права на группы полей (тикет crm-fields/03): id группы → доступ. Группа без записи — по
+   * правам части системы её сущности (fieldGroupAccess в fields/index.ts). Что каждый id —
+   * группа этого проекта, проверяет сервер: каталог проектов не знает.
    */
   fieldGroups: Record<string, FieldGroupAccess>
 }
@@ -178,14 +178,26 @@ export function parseRolePermissions(input: unknown): ParseResult {
 
   const rawFieldGroups = input.fieldGroups ?? {}
   if (!isPlainObject(rawFieldGroups)) return fail('fieldGroups', 'ожидается объект')
-  // Групп полей ещё нет: любой ключ ссылался бы на несуществующую группу. Когда группы
-  // появятся, здесь будет проверка id группы и доступа по FIELD_GROUP_ACCESS.
-  const [firstGroup] = Object.keys(rawFieldGroups)
-  if (firstGroup !== undefined) {
-    return fail(`fieldGroups.${firstGroup}`, 'групп полей пока нет — ожидается пустой объект')
+  const groupEntries: [string, FieldGroupAccess][] = []
+  for (const [id, access] of Object.entries(rawFieldGroups)) {
+    if (!UUID.test(id)) return fail(`fieldGroups.${id}`, 'ожидается id группы полей')
+    if (!includes(FIELD_GROUP_ACCESS, access)) {
+      return fail(`fieldGroups.${id}`, `неизвестный доступ ${JSON.stringify(access)}`)
+    }
+    groupEntries.push([id.toLowerCase(), access])
   }
+  // Ключи по порядку: одни и те же права — одна и та же строка JSON.
+  groupEntries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const fieldGroups = Object.fromEntries(groupEntries)
 
-  return { ok: true, permissions: { actions, scopes, standalone, fieldGroups: {} } }
+  return { ok: true, permissions: { actions, scopes, standalone, fieldGroups } }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Ранг доступа к группе полей: «скрыто» < «только чтение» < «видно и можно менять». */
+export function fieldGroupAccessRank(access: FieldGroupAccess): number {
+  return FIELD_GROUP_ACCESS.length - 1 - FIELD_GROUP_ACCESS.indexOf(access)
 }
 
 /** Все права: так действует роль «администратор», что бы ни лежало в её строке. */
@@ -326,6 +338,10 @@ export interface RoleSummary {
 export type RolesErrorCode =
   | 'PERMISSION_DENIED'
   | 'INVALID_ROLE'
+  /** В `fieldGroups` — id, который не группа полей этого проекта (422, `details.path`). */
+  | 'FIELD_GROUP_NOT_FOUND'
+  /** Роли «администратор» записывают доступ к группе ниже «изменять» (422). */
+  | 'ADMIN_FIELD_GROUPS_LOCKED'
   | 'ROLE_NOT_FOUND'
   | 'ROLE_NAME_TAKEN'
   | 'ADMIN_ROLE_LOCKED'
