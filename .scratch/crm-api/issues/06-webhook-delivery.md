@@ -62,17 +62,28 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест изоляции: адреса, доставки и попытки проекта A не видны в контексте B; событие проекта A не уходит на адрес проекта B.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/api/src/webhook-endpoints` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест прав: без `integrations` — 403 на все запросы адресов; запрос по ключу API — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест подписи: `verify()` пакета `standardwebhooks` принимает отправленное событие; изменённое тело, чужой секрет и время старше 5 минут — отклоняет; в первые 24 часа после смены секрета принимаются и старый, и новый секрет, потом только новый.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/sign.test.ts apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест подписки: адрес получает только подписанные типы; отключённый адрес не получает ничего, его доставки `cancelled`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест повторов (с укороченными паузами): ответ 500 и таймаут дают повтор с тем же `webhook-id`; 3xx — неудача без перехода по редиректу; успех только на 2xx; после последней попытки — `failed`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест отключения: `410` отключает адрес сразу; 5 суток без успеха (время подменено в тесте) отключают адрес, пишут журнал и показывают предупреждение пользователю с правом «интеграции» и не показывают менеджеру.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/web/src/layout/webhook-alert-banner.test.tsx` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест SSRF: `http://`, `https://127.0.0.1`, `https://10.0.0.5`, `https://169.254.169.254`, `https://[::1]` и имя, которое разрешается в частный адрес, — 422 при сохранении; имя, которое после сохранения стало разрешаться в частный адрес, — отправка отклонена, попытка записана с причиной; без переменной для тестов `http://localhost` отклоняется; с ней при `NODE_ENV=production` API не запускается.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/ssrf.test.ts apps/api/src/webhook-endpoints apps/api/src/events/delivery.test.ts apps/api/src/config.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест секрета: секрет показан один раз; в базе он не лежит открытым текстом; в логах и журнале его нет.
 - [ ] Тест ручного повтора: повтор одной доставки и «всё неудачное с даты» отправляют заново с тем же `webhook-id`, попытки видны в журнале.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест хранения: записи старше 30 дней удаляются задачей, новее — остаются.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] `pnpm verify` зелёный.
+  - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 
 ## Результат
 
@@ -92,3 +103,6 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 - Задача `webhook-fanout` теперь несёт `projectId` (обработчик работает в `withProject`); задачи из очереди без него (поставленные до этой ветки) падают и уходят в ошибки pg-boss.
 - Ночная очистка `webhook-purge` (04:00 по Киеву) удаляет события старше 30 дней; доставки и попытки уходят каскадом. Роли приложения выдан `delete` на `webhook_event`.
 - Время следующей попытки (`next_attempt_at`) — самое раннее по формуле pg-boss без случайной добавки.
+
+Не закрыто:
+- Пункт 9 («в базе секрет не лежит открытым текстом») доказан только для запросов без `Idempotency-Key`. С этим заголовком общий слой повтора (`apps/api/src/http/idempotency.ts`, тикет 02) сохраняет ответ на создание адреса и на смену секрета — вместе с секретом — в `idempotency_record` на 24 часа. Так же и с секретом ключа API (тикет 01). Нужна правка в `idempotency.ts` (вне этого тикета): не хранить тела ответов, несущих секрет.
