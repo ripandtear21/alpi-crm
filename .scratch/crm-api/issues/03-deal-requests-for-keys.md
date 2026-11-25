@@ -46,14 +46,24 @@ apps/api/src/deals/** (отметки «доступно ключу», схем�
 ## Done when
 
 - [ ] Тест изоляции: ключ проекта A не читает и не меняет сделку проекта B (404), не ставит этап, воронку, причину проигрыша, контакт и ответственного из проекта B (422 или 404).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] Тесты прав и охвата: без «сделки: изменять» — 403 на каждое изменяющее действие; роль с охватом «свои» видит только сделки общей очереди; смена ответственного без `transfer_deals` — 403.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] Тест: каждое действие из списка проходит по ключу и пишет в `change_log` автора-ключ; удаление, восстановление, «взять в работу», допродажа, участники и строки товаров по ключу — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] Тест ADR 0003: `PATCH` суммы не меняет этап, статус и ответственного; смена этапа не меняет статус и сумму; выигрыш не меняет этап.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] Тест обязательных полей по ключу: смена этапа на X и выигрыш с пустым обязательным полем — 422 со списком в `errors`, сделка на месте; со значением в том же запросе — проходит.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] Тест «одна открытая сделка» по ключу: создание, повторное открытие, перенос в воронку и возврат из архива второй открытой сделки того же контакта — 409.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] Тест скрытых полей: ответ сделки для ключа с ролью, где группа скрыта, не содержит ни кода, ни значения поля.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] Описание OpenAPI содержит все маршруты из списка с примерами, и только их из раздела сделок.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/deals/api-key.test.ts` exit 0 (in pnpm verify) · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 1e97fd6363bb03e7c185554218b323aaf0dbdaca
 
 ## Результат
 
