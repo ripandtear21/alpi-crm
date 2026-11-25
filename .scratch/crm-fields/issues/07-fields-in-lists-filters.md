@@ -44,6 +44,7 @@ packages/shared/src/filters/**, apps/api/src/filters/**, apps/api/src/deals/** (
   - evidence: test-run pass · `pnpm verify` exit 0: apps/api/src/filters/custom-fields.test.ts, describe «сохранённые фильтры»; apps/web/src/routes/deals/list/custom-fields.test.tsx · windows - · 8993ff571ef9e7ab61d5932aa9ba55ab4461b16b
 - [ ] Тест прав: под ролью со скрытой группой условие, колонка, сортировка и выгрузка по её полю — 422; в выгрузке и выдаче канбана нет кода и значения скрытого поля.
   - evidence: test-run pass · `pnpm verify` exit 0: apps/api/src/filters/custom-fields.test.ts, describe «права: скрытая группа» · windows - · 8993ff571ef9e7ab61d5932aa9ba55ab4461b16b
+  - evidence: test-run pass · `pnpm verify` exit 0: apps/api/src/filters/custom-fields.test.ts, describe «массовая операция по фильтру с пользовательским полем» (скрытое поле при запуске — тот же ответ, что неизвестное; поле скрыли или убрали в архив до выборки — failed FILTER_UNAVAILABLE) · windows - · 08bdbcad9300c8568af2a22b6e66eee6d1eb43f4
 - [ ] Тест канбана: выбор четырёх полей для воронки — 422; карточка канбана отдаёт значения только выбранных полей.
   - evidence: test-run pass · `pnpm verify` exit 0: apps/api/src/filters/custom-fields.test.ts, describe «карточка канбана»; apps/web/src/routes/settings/pipelines-page.test.tsx · windows - · 8993ff571ef9e7ab61d5932aa9ba55ab4461b16b
 - [ ] Тест индекса: отметка «часто фильтруют» создаёт индекс фоновой задачей, состояние «готов»; на 100 тыс. сгенерированных сделок `EXPLAIN` фильтра «равно» по этому полю, выполненный ролью приложения `alpi_app` внутри `withProject` (не владельцем таблиц), показывает использование индекса; снятие отметки индекс удаляет.
@@ -52,6 +53,7 @@ packages/shared/src/filters/**, apps/api/src/filters/**, apps/api/src/deals/** (
   - evidence: test-run pass · `pnpm verify` exit 0: apps/api/src/filters/custom-fields.test.ts, describe «изоляция проектов» (строки копии поля A — только project_id A, RLS) · windows - · 8993ff571ef9e7ab61d5932aa9ba55ab4461b16b
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · windows - · 8993ff571ef9e7ab61d5932aa9ba55ab4461b16b
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 08bdbcad9300c8568af2a22b6e66eee6d1eb43f4
 
 ## Результат
 
