@@ -30,20 +30,30 @@ apps/api/src/fields/** (функция требований), apps/api/src/deals
 
 - [ ] Тест: поле «с этапа X» пусто — смена этапа на X и на этап после X запросом `/api/v1` отвечает 422 со списком, сделка осталась на месте; на этап до X — проходит; с заполненным полем (в том же запросе) — проходит.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/requirements.test.ts` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
 - [ ] Тест: выигрыш с пустым полем «с этапа X» или «с выигрыша» — 422; с заполненным — сделка выиграна и этап не изменился.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/requirements.test.ts` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
   - evidence: test-run pass · `pnpm e2e` exit 0 · windows - · c4c9a918e9b352591ae2492e5dda448a3929928c
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
+  - evidence: test-run pass · `pnpm e2e` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
 - [ ] Тест путей: создание сделки сразу на этапе X, перенос в другую воронку на этап X и массовая смена этапа (запись в журнале ошибок операции) блокируются одинаково; повторное открытие и проигрыш — нет.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/requirements.test.ts` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
 - [ ] Тест «всегда»: создание без значения — 422; очистка — 422; правка другого поля старой записи с пустым полем — 200.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/requirements.test.ts` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
 - [ ] Тест: одна и та же проверка срабатывает под ролью менеджера и под ролью администратора; поле, не видимое в воронке сделки, и архивное поле не блокируют.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/requirements.test.ts` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
 - [ ] Тест: незаполненное поле скрытой от роли группы даёт 422 без кода и названия, только число скрытых полей.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/requirements.test.ts` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
 - [ ] Тест интерфейса: в канбане перенос на этап X открывает форму, отмена возвращает карточку, «Зберегти» с значением переводит сделку.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals/kanban-page.test.tsx` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 6a65322a414c1736588765c2b89993691cce643e
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · c4c9a918e9b352591ae2492e5dda448a3929928c
   - evidence: gate pass · `gate fast` exit 0 · windows - · c4c9a918e9b352591ae2492e5dda448a3929928c
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 641e4e6d3b2c42303a413a40180e0da81670a1f2
