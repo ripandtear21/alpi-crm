@@ -7,6 +7,7 @@ import { expect } from 'vitest'
 import { createApp } from '../app.ts'
 import { type Auth, createAuth } from '../auth/auth.ts'
 import { createOwner } from '../auth/owner.ts'
+import { startEventQueue } from '../jobs/jobs.ts'
 import { totp } from './totp.ts'
 
 // Только для тестов: API на настоящем PostgreSQL (миграции packages/db), подключение ролью
@@ -77,6 +78,9 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
   url.username = appUser
   url.password = appPassword
   const appDb = createDb(url.href)
+  // Изменения сделок и контактов пишут события с задачей pg-boss (events/emit.ts): очередь
+  // событий нужна каждому API, даже без фоновых задач.
+  const eventQueue = await startEventQueue(url.href)
   const auth = createAuth({
     db: appDb,
     secret: randomBytes(32).toString('base64'),
@@ -192,6 +196,7 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
     createProject,
     addMember,
     async stop() {
+      await eventQueue.stop()
       await appDb.destroy()
       await owner.destroy()
       await testDb.stop()

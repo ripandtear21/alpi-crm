@@ -1,7 +1,7 @@
 # События: запись в той же транзакции, что изменение, и каталог сделок и контактов
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T21:50Z
 Blocked by: 01
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «События», «Доставка», волна 2); .scratch/crm-build/issues/04-webhook-delivery-research.md (Answer); docs/research/webhook-delivery.md на ветке origin/research/webhook-delivery, разделы 1.2, 4.1, 4.2; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Событие», «Возможный дубль»); .scratch/crm-deals/issues/03-contacts-organizations.md, 04-jobs-bulk-trash.md, 05-deals.md, 09-deal-handover.md; .scratch/crm-api/spec.md
 
@@ -66,10 +66,22 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест изоляции: события проекта A не видны в контексте B без фильтра в коде.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест транзакции: изменение сделки, которое откатилось (например, 409 «одна открытая сделка» или 422 обязательных полей), не оставляет ни строки `webhook_event`, ни задачи `webhook-fanout`; зафиксированное — оставляет ровно по одной.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/jobs/stop.test.ts` exit 0 (in pnpm verify), events written during shutdown · windows - · ba3e435e06d66a9313f93890e10dca8d41c8f435
 - [ ] Тест каталога: каждое действие из таблицы создаёт ровно одно событие своего типа с фактами из таблицы; тело проходит схему типа; изменение суммы и названия событий не создаёт.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест автора: действие менеджера — `actor.type = user`, запрос по ключу — `actor.type = api_key` с id ключа, массовый архив — инициатор операции.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Тест персональных данных: тела событий тестового прогона не содержат имён, телефонов, email и значений пользовательских полей (поиск по строкам выдуманных данных).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 (in pnpm verify) · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] Описание API содержит раздел событий (OpenAPI `webhooks`) со схемой каждого типа.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/events.test.ts` exit 0, test of the webhooks section · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
+  - evidence: gate pass · `gate fast` exit 0 · windows - · e1351868d11810185c5c7227be6093c5ed9bbc2f
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ba3e435e06d66a9313f93890e10dca8d41c8f435
+  - evidence: gate pass · `gate fast` exit 0 · windows - · ba3e435e06d66a9313f93890e10dca8d41c8f435

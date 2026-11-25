@@ -2,7 +2,8 @@ import type { Database } from '@alpi/db'
 import { type Kysely, sql } from 'kysely'
 import type { BulkAction } from '../bulk/registry.ts'
 import { BulkRecordError } from '../bulk/registry.ts'
-import { recordChanges } from '../change-log/record.ts'
+import { type ChangeAuthor, recordChanges } from '../change-log/record.ts'
+import { emitDealChanges } from '../events/deal-events.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
 
 // Передача открытых сделок участника одному менеджеру или в общую очередь (тикет crm-deals/09;
@@ -10,8 +11,9 @@ import { dealInScope, ownerAllowed } from './scope.ts'
 // (bulk/runner.ts) режет сделки на порции и на каждой порции заново проверяет права
 // инициатора; запускает его маршрут POST /v1/members/:userId/transfer-deals
 // (members/transfer.ts). Каждая переданная сделка получает запись «ответственный: было →
-// стало» в истории. Сделки передаются только по команде человека (ADR 0003): ни событий, ни
-// раздачи по команде.
+// стало» в истории и событие deal.owner_changed (events/deal-events.ts) с автором — инициатором
+// операции. Сделки передаются только по команде человека (ADR 0003): ни автоматики, ни раздачи
+// по команде.
 
 /** Код действия в реестре массовых операций. */
 export const TRANSFER_DEALS_ACTION = 'deals.transfer'
@@ -100,7 +102,16 @@ export const transferDeals: BulkAction = {
     const { fromUserId, toUserId } = params(ctx)
     const deal = await trx
       .selectFrom('deal')
-      .select(['project_id', 'owner_id', 'status', 'deleted_at'])
+      .select([
+        'project_id',
+        'pipeline_id',
+        'stage_id',
+        'owner_id',
+        'status',
+        'lost_reason_id',
+        'archived_at',
+        'deleted_at',
+      ])
       .where('id', '=', id)
       .forUpdate()
       .executeTakeFirst()
@@ -128,10 +139,10 @@ export const transferDeals: BulkAction = {
       .set({ owner_id: toUserId, updated_at: sql`now()` })
       .where('id', '=', id)
       .execute()
-    await recordChanges(
-      { db: trx, projectId: deal.project_id, actorId: ctx.initiatorId },
-      { type: 'deal', id },
-      [{ field: 'ownerId', before: fromUserId, after: toUserId }],
-    )
+    const author: ChangeAuthor = { db: trx, projectId: deal.project_id, actorId: ctx.initiatorId }
+    await recordChanges(author, { type: 'deal', id }, [
+      { field: 'ownerId', before: fromUserId, after: toUserId },
+    ])
+    await emitDealChanges(author, { ...deal, id }, { ...deal, id, owner_id: toUserId })
   },
 }

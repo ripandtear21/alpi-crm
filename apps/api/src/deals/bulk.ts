@@ -7,7 +7,8 @@ import {
   BulkRecordError,
   BulkSelectionError,
 } from '../bulk/registry.ts'
-import { type FieldChange, recordChanges } from '../change-log/record.ts'
+import { type ChangeAuthor, type FieldChange, recordChanges } from '../change-log/record.ts'
+import { emitDealChanges } from '../events/deal-events.ts'
 import { anyMissing, missingRequired } from '../fields/requirements.ts'
 import { catalogFor, loadFilterCatalog } from '../filters/custom.ts'
 import { dealsWhere } from './board.ts'
@@ -20,7 +21,8 @@ import { dealInScope, ownerAllowed } from './scope.ts'
 // filters): фильтр разворачивается той же функцией выдачи, что у списка и канбана
 // (deals/board.ts, dealsWhere), с охватом чтения инициатора. Менять можно только сделки в
 // охвате изменения: остальные каркас пишет в журнал операции (OUT_OF_SCOPE) и не трогает.
-// Каждое изменение пишется в историю сделки «было → стало». Запускает только человек (ADR 0003).
+// Каждое изменение пишется в историю сделки «было → стало» и даёт события (events/deal-events.ts)
+// с автором — инициатором операции. Запускает только человек (ADR 0003).
 
 export const DEAL_BULK_ACTIONS = {
   archive: 'deals.archive',
@@ -111,6 +113,7 @@ async function lockDeal(trx: Transaction<Database>, id: string) {
       'pipeline_id',
       'stage_id',
       'status',
+      'lost_reason_id',
       'owner_id',
       'primary_contact_id',
       'archived_at',
@@ -121,10 +124,15 @@ async function lockDeal(trx: Transaction<Database>, id: string) {
     .forUpdate()
     .executeTakeFirst()
   if (!deal || deal.deleted_at !== null) throw new BulkRecordError('DEAL_NOT_FOUND')
-  return deal
+  return { ...deal, id }
 }
 
 const iso = (value: Date | string | null) => (value === null ? null : new Date(value).toISOString())
+
+/** Автор изменений и событий операции — её инициатор. */
+function initiator(trx: Kysely<Database>, projectId: string, ctx: BulkContext): ChangeAuthor {
+  return { db: trx, projectId, actorId: ctx.initiatorId }
+}
 
 async function log(
   trx: Kysely<Database>,
@@ -133,11 +141,7 @@ async function log(
   id: string,
   changes: FieldChange[],
 ) {
-  await recordChanges(
-    { db: trx, projectId, actorId: ctx.initiatorId },
-    { type: 'deal', id },
-    changes,
-  )
+  await recordChanges(initiator(trx, projectId, ctx), { type: 'deal', id }, changes)
 }
 
 /** Общее у действий: выбор по фильтру и охват изменения. */
@@ -162,6 +166,7 @@ export const archiveDeals: BulkAction = {
     await log(trx, deal.project_id, ctx, id, [
       { field: 'archivedAt', before: null, after: iso(archived_at) },
     ])
+    await emitDealChanges(initiator(trx, deal.project_id, ctx), deal, { ...deal, archived_at })
   },
 }
 
@@ -211,6 +216,10 @@ export const unarchiveDeals: BulkAction = {
     await log(trx, deal.project_id, ctx, id, [
       { field: 'archivedAt', before: iso(deal.archived_at), after: null },
     ])
+    await emitDealChanges(initiator(trx, deal.project_id, ctx), deal, {
+      ...deal,
+      archived_at: null,
+    })
   },
 }
 
@@ -265,6 +274,7 @@ export const assignDeals: BulkAction = {
     await log(trx, deal.project_id, ctx, id, [
       { field: 'ownerId', before: deal.owner_id, after: owner },
     ])
+    await emitDealChanges(initiator(trx, deal.project_id, ctx), deal, { ...deal, owner_id: owner })
   },
 }
 
@@ -330,6 +340,10 @@ export const changeDealsStage: BulkAction = {
     await log(trx, deal.project_id, ctx, id, [
       { field: 'stageId', before: deal.stage_id, after: stageId },
     ])
+    await emitDealChanges(initiator(trx, deal.project_id, ctx), deal, {
+      ...deal,
+      stage_id: stageId,
+    })
   },
 }
 

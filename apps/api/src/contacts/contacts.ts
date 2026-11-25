@@ -17,6 +17,7 @@ import {
   purgeFromTrash,
   recordChanges,
 } from '../change-log/record.ts'
+import { emitEvent } from '../events/emit.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { clearedRequired, missingRequired, requiredFieldsOutcome } from '../fields/requirements.ts'
 import {
@@ -56,6 +57,9 @@ import { contactScopePredicate } from './scope.ts'
 // Контакты проекта (тикет crm-deals/03; spec.md, разделы 3.2 и 4): маршруты `/v1/contacts`
 // (снаружи — /api/v1/contacts: прокси Vite и Caddy снимают префикс /api).
 //
+// - События (тикет crm-api/05): contact.created при создании, contact.possible_duplicate — когда
+//   контакт получает отметку «возможный дубль» (создание, правка, восстановление); той же
+//   транзакцией, сразу после записи — markedDuplicate ниже.
 // - Права — часть системы `contacts`; восстановить из корзины — «корзина: изменять»,
 //   окончательно удалить — «корзина: удалять».
 // - Охват чтения и изменения — contacts/scope.ts. Контакт вне охвата чтения — 404, как
@@ -446,6 +450,11 @@ async function replaceKeys(ctx: ContactContext, contactId: string, input: Contac
   }
 }
 
+/** Контакт получил отметку «возможный дубль» — событие contact.possible_duplicate. */
+async function markedDuplicate(ctx: ContactContext, id: string, before: boolean, after: boolean) {
+  if (!before && after) await emitEvent(ctx, 'contact.possible_duplicate', { contact_id: id })
+}
+
 async function createContact(
   ctx: ContactContext,
   input: ContactInput,
@@ -478,6 +487,8 @@ async function createContact(
     .executeTakeFirstOrThrow()
   await replaceKeys(ctx, row.id, input)
   await finishCustom(ctx, { type: 'contact', id: row.id }, custom.value, { history: false })
+  await emitEvent(ctx, 'contact.created', { contact_id: row.id })
+  await markedDuplicate(ctx, row.id, false, row.possible_duplicate)
   return ok(await contactView(ctx, row))
 }
 
@@ -522,6 +533,7 @@ async function updateContact(
   const after = await contactView(ctx, await reload(ctx, id))
   await recordChanges(ctx, { type: 'contact', id }, diffFields(before, after, LOGGED_FIELDS))
   await finishCustom(ctx, { type: 'contact', id }, custom.value, { history: true })
+  await markedDuplicate(ctx, id, before.possibleDuplicate, after.possibleDuplicate)
   return ok(after)
 }
 
@@ -614,6 +626,7 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
     deletedAtChange(deleted_at, null),
     ...diffFields(before, after, LOGGED_FIELDS),
   ])
+  await markedDuplicate(ctx, id, before.possibleDuplicate, after.possibleDuplicate)
   return ok(after)
 }
 
