@@ -174,6 +174,15 @@ function useSummary() {
         return text(entry.details.name)
       case 'api_key.request':
         return `${text(entry.details.method)} ${text(entry.details.path)}`
+      // Тикет crm-api/06: адреса событий — адрес (секрета в подробностях нет).
+      case 'webhook_endpoint.created':
+      case 'webhook_endpoint.deleted':
+      case 'webhook_endpoint.secret_rotated':
+      case 'webhook_endpoint.enabled':
+      case 'webhook_endpoint.disabled':
+        return text(entry.details.url)
+      case 'webhook_endpoint.updated':
+        return text(after.url)
     }
   }
 }

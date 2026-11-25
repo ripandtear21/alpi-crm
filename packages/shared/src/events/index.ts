@@ -289,3 +289,5 @@ export function eventBodySchema(type: EventType, actorSchema: JsonSchema = EVENT
     },
   } satisfies JsonSchema
 }
+
+export * from './webhooks.ts'

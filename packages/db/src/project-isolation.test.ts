@@ -35,6 +35,7 @@ const migrationNames = [
   '0020_idempotency',
   '0021_webhook_events',
   '0023_note_api_key_author',
+  '0022_webhook_delivery',
 ]
 
 const tablesOfMigration = [
@@ -95,6 +96,10 @@ const tablesOfMigration = [
   'idempotency_record',
   // 0021_webhook_events
   'webhook_event',
+  // 0022_webhook_delivery
+  'webhook_endpoint',
+  'webhook_delivery',
+  'webhook_delivery_attempt',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -438,6 +443,9 @@ describe('схема и изоляция проектов', () => {
         { table: 'saved_filter', rls: true, policies: 1 },
         { table: 'stage', rls: true, policies: 1 },
         { table: 'team', rls: true, policies: 1 },
+        { table: 'webhook_delivery', rls: true, policies: 1 },
+        { table: 'webhook_delivery_attempt', rls: true, policies: 1 },
+        { table: 'webhook_endpoint', rls: true, policies: 1 },
         { table: 'webhook_event', rls: true, policies: 1 },
       ])
     })

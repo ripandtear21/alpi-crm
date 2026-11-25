@@ -5,6 +5,14 @@
  */
 
 /* Шапка */
+/* Предупреждения об отключённых адресах событий — полосой под шапкой. */
+.app-layout__alerts {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--gutter);
+  border-bottom: 1px solid var(--line);
+}
+
 .app-header {
   position: sticky;
   top: 0;

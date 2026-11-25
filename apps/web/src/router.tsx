@@ -25,6 +25,7 @@ import { HomePage } from './home-page.tsx'
 import { AppLayout } from './layout/app-layout.tsx'
 import { DelayedNoAccess, NoAccess } from './layout/no-access.tsx'
 import { SectionPlaceholder } from './layout/section-placeholder.tsx'
+import type { WebhookAlertsApi } from './layout/webhook-alerts-api.ts'
 import { type AuthApi, createAuthApi } from './routes/auth/auth-api.ts'
 import { ChangePasswordPage } from './routes/auth/change-password-page.tsx'
 import { SignInPage } from './routes/auth/sign-in-page.tsx'
@@ -81,6 +82,11 @@ export interface RouterContext {
   fields: FieldsSettingsApi
   /** Ключи API проекта в настройках (тикет crm-api/01). */
   apiKeys: ApiKeysApi
+  /**
+   * Предупреждение в шапке об отключённых адресах событий (тикет crm-api/06). Нет — нет и
+   * предупреждения: тестам маршрутов оно не нужно, браузеру его передаёт main.tsx.
+   */
+  webhookAlerts?: WebhookAlertsApi | undefined
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -151,7 +157,7 @@ const appRoute = createRoute({
 })
 
 function AppShell() {
-  const { projects, queryClient, search } = appRoute.useRouteContext()
+  const { projects, queryClient, search, webhookAlerts } = appRoute.useRouteContext()
   // Код проекта — из адреса (`/p/<код>/…`); шапке он нужен так же, как экрану.
   const code = useRouterState({
     select: (state) =>
@@ -167,7 +173,7 @@ function AppShell() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <CurrentProjectProvider projects={projects} code={code} queryClient={queryClient}>
-          <AppLayout search={search}>
+          <AppLayout search={search} webhookAlerts={webhookAlerts}>
             <Outlet />
           </AppLayout>
         </CurrentProjectProvider>
@@ -537,6 +543,8 @@ export interface AppRouterOptions {
   fields?: FieldsSettingsApi
   /** Только в тестах: подставной клиент ключей API. В браузере — запросы к API. */
   apiKeys?: ApiKeysApi
+  /** Предупреждение об отключённых адресах событий; в тестах маршрутов — нет. */
+  webhookAlerts?: WebhookAlertsApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -558,6 +566,7 @@ export function createAppRouter({
   search = createSearchApi(),
   fields = createFieldsSettingsApi(),
   apiKeys = createApiKeysApi(),
+  webhookAlerts,
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -576,6 +585,7 @@ export function createAppRouter({
     search,
     fields,
     apiKeys,
+    webhookAlerts,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })

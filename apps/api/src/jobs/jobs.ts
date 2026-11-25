@@ -3,7 +3,19 @@ import type { Kysely, Transaction } from 'kysely'
 import { fromKysely, PgBoss } from 'pg-boss'
 import type { BulkActionRegistry } from '../bulk/registry.ts'
 import { BULK_BATCH_SIZE, type BulkJobMessage, failBulkJob, runBulkJob } from '../bulk/runner.ts'
-import { attachEventQueue, detachEventQueue } from '../events/queue.ts'
+import { deliverWebhook, failDeadDelivery, type WebhookDeliveryOptions } from '../events/deliver.ts'
+import { fanoutEvent } from '../events/fanout.ts'
+import {
+  attachEventQueue,
+  type DeliverQueueOptions,
+  type DeliveryMessage,
+  detachEventQueue,
+  type FanoutMessage,
+  WEBHOOK_DELIVER_DEAD_QUEUE,
+  WEBHOOK_DELIVER_QUEUE,
+  WEBHOOK_DELIVER_QUEUE_OPTIONS,
+  WEBHOOK_FANOUT_QUEUE,
+} from '../events/queue.ts'
 import { FIELD_PURGE_BATCH_SIZE, type FieldPurgeMessage, purgeField } from '../fields/purge.ts'
 import { FIELD_RETYPE_BATCH_SIZE, type FieldRetypeMessage, retypeField } from '../fields/retype.ts'
 import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
@@ -14,6 +26,7 @@ import {
   pendingFieldIndexes,
 } from './field-index.ts'
 import { purgeIdempotencyRecords } from './idempotency-purge.ts'
+import { purgeWebhookLog } from './webhook-purge.ts'
 
 // Фоновые задачи на pg-boss (тикет crm-deals/04). Обработчик работает в процессе API (решено без
 // владельца, подтвердить; отдельный процесс — эпик эксплуатации) и ходит в базу той же ролью
@@ -35,11 +48,16 @@ import { purgeIdempotencyRecords } from './idempotency-purge.ts'
 // - field-index — копия значений поля с отметкой «часто фильтруют» для быстрого фильтра
 //   (field-index.ts, тикет crm-fields/07). При старте задача ставится заново всем полям, у
 //   которых копия строится (отмеченные служебными скриптами, потерявшие задачу).
-// - webhook-fanout — рассылка события по подпискам (events/queue.ts, тикет crm-api/05): задачу
-//   ставит запись события той же транзакцией, что изменение; обработчик — доставка (тикет 06),
-//   до него задачи лежат в очереди.
-// Задачи по расписанию трогают только корзину, журнал входов и ответы Idempotency-Key и никогда
-// не меняют сделки (ADR 0003).
+// - webhook-fanout — рассылка события по подпискам (events/fanout.ts, тикеты crm-api/05 и 06):
+//   задачу ставит запись события той же транзакцией, что изменение; обработчик создаёт доставки
+//   на подписанные адреса проекта;
+// - webhook-deliver — одна доставка события на адрес (events/deliver.ts, тикет crm-api/06):
+//   подпись, отправка, повторы pg-boss; webhook-deliver-dead помечает failed доставку, задача
+//   которой исчерпала повторы, не дойдя до итога;
+// - webhook-purge — ежедневно: события, доставки и попытки старше 30 дней (webhook-purge.ts).
+// Обработчики событий и доставки работают в withProject проекта из задачи.
+// Задачи по расписанию трогают только корзину, журнал входов, ответы Idempotency-Key и журнал
+// доставки и никогда не меняют сделки (ADR 0003).
 
 /** Схема таблиц pg-boss; та же константа — в packages/db/migrations/0007_jobs_bulk.ts. */
 export const PGBOSS_SCHEMA = 'pgboss'
@@ -55,6 +73,7 @@ export const QUEUES = {
   trashPurge: 'trash-purge',
   signInPurge: 'failed-sign-in-purge',
   idempotencyPurge: 'idempotency-purge',
+  webhookPurge: 'webhook-purge',
   fieldPurge: 'field-purge',
   fieldRetype: 'field-retype',
   fieldIndex: 'field-index',
@@ -65,6 +84,13 @@ const TIMEZONE = 'Europe/Kyiv'
 const TRASH_PURGE_CRON = '0 3 * * *'
 const SIGN_IN_PURGE_CRON = '30 3 * * *'
 const IDEMPOTENCY_PURGE_CRON = '45 3 * * *'
+const WEBHOOK_PURGE_CRON = '0 4 * * *'
+
+/**
+ * Доставок одновременно в процессе: медленный адрес (до 15 с на попытку) не задерживает
+ * остальные.
+ */
+const WEBHOOK_DELIVER_CONCURRENCY = 5
 
 /** Повторов массовой операции после сбоя: каждая продолжает с первой необработанной записи. */
 const BULK_RETRY_LIMIT = 5
@@ -93,6 +119,13 @@ export interface JobsOptions {
   schedule?: boolean
   /** Сколько остановка ждёт текущих задач, мс. */
   stopTimeoutMs?: number
+  /**
+   * Доставка событий: ключ шифрования секретов, разрешение http/localhost (только тесты), часы.
+   * Без неё доставки не отправляются (нет ключа) и повторяются.
+   */
+  webhooks?: WebhookDeliveryOptions
+  /** Повторы доставки; по умолчанию WEBHOOK_DELIVER_QUEUE_OPTIONS. Тесты укорачивают паузы. */
+  webhookQueue?: DeliverQueueOptions
 }
 
 export interface Jobs {
@@ -147,8 +180,14 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   await boss.createQueue(QUEUES.fieldRetype, { retryLimit: 5, retryDelay: 60, retryBackoff: true })
   // Ошибку построения задача пишет полю сама (failed) и не повторяется.
   await boss.createQueue(QUEUES.fieldIndex, { retryLimit: 2, retryDelay: 60 })
-  // Очередь событий: задачи ставит запись события (events/emit.ts), обработчик — тикет 06.
-  await attachEventQueue(boss)
+  await boss.createQueue(QUEUES.webhookPurge, { retryLimit: 3, retryDelay: 15 * 60 })
+  // Очереди событий: рассылку ставит запись события (events/emit.ts), доставки — рассылка и
+  // ручной повтор.
+  await attachEventQueue(boss, options.webhookQueue ?? WEBHOOK_DELIVER_QUEUE_OPTIONS)
+  const webhooks: WebhookDeliveryOptions = options.webhooks ?? {
+    secretKey: null,
+    allowInsecureUrls: false,
+  }
 
   await boss.work<BulkJobMessage>(QUEUES.bulk, polling, async (batch) => {
     for (const job of batch) {
@@ -197,6 +236,31 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
       )
     }
   })
+  await boss.work<FanoutMessage>(WEBHOOK_FANOUT_QUEUE, polling, async (batch) => {
+    for (const job of batch) {
+      await fanoutEvent(options.db, job.data)
+    }
+  })
+  const deliverWork = {
+    ...polling,
+    includeMetadata: true as const,
+    localConcurrency: WEBHOOK_DELIVER_CONCURRENCY,
+  }
+  await boss.work<DeliveryMessage, void, typeof deliverWork>(
+    WEBHOOK_DELIVER_QUEUE,
+    deliverWork,
+    async ([job]) => {
+      if (job) await deliverWebhook(options.db, webhooks, job)
+    },
+  )
+  await boss.work<DeliveryMessage>(WEBHOOK_DELIVER_DEAD_QUEUE, polling, async (batch) => {
+    for (const job of batch) {
+      await failDeadDelivery(options.db, job.data)
+    }
+  })
+  await boss.work(QUEUES.webhookPurge, polling, async () => {
+    await purgeWebhookLog(options.db)
+  })
   for (const message of await pendingFieldIndexes(options.db)) {
     await boss.send(QUEUES.fieldIndex, message, { singletonKey: message.fieldId })
   }
@@ -204,6 +268,7 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
     await boss.schedule(QUEUES.trashPurge, TRASH_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.signInPurge, SIGN_IN_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.idempotencyPurge, IDEMPOTENCY_PURGE_CRON, null, { tz: TIMEZONE })
+    await boss.schedule(QUEUES.webhookPurge, WEBHOOK_PURGE_CRON, null, { tz: TIMEZONE })
   }
 
   return {
@@ -234,8 +299,10 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
     },
     async stop() {
       // Очередь событий отключается только после остановки: штатная остановка дожидается
-      // текущих обработчиков, а они пишут события (массовая операция, передача сделок).
-      // Отключить раньше — их записи падали бы и навсегда уходили в журнал ошибок операции.
+      // текущих обработчиков, а они пишут события (массовая операция, передача сделок) и
+      // ставят доставки (рассылка). Отключить раньше — их записи падали бы и навсегда уходили
+      // в журнал ошибок операции. Текущие доставки остановка тоже дожидается (попытка — до
+      // 15 с); не дождалась — сигнал задачи обрывает запрос, доставка повторится.
       try {
         await boss.stop({ graceful: true, timeout: options.stopTimeoutMs ?? 30_000 })
       } finally {

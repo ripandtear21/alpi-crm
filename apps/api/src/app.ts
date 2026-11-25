@@ -17,6 +17,7 @@ import { dealsRoutes, pipelineAggregatesRoutes } from './deals/deals.ts'
 import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
 import { dealListRoutes } from './deals/list-routes.ts'
 import { CUSTOM_FIELD_REQUIREMENTS, type StageRequirements } from './deals/stage-requirements.ts'
+import type { WebhookDeliveryOptions } from './events/deliver.ts'
 import { type FieldsDeps, NO_FIELD_JOBS } from './fields/common.ts'
 import { fieldsRoutes } from './fields/fields.ts'
 import { fieldGroupsRoutes } from './fields/groups.ts'
@@ -46,6 +47,7 @@ import { type FileStorage, NO_FILE_STORAGE } from './storage/storage.ts'
 import { teamsRoutes } from './teams/teams.ts'
 import { entityRecordsRoutes } from './timeline/timeline.ts'
 import { trashRoutes } from './trash/routes.ts'
+import { NO_WEBHOOKS, webhookEndpointsRoutes } from './webhook-endpoints/routes.ts'
 
 /**
  * Наибольшее тело запроса. JSON API (роли, вход) — единицы килобайт; большие тела не должны
@@ -89,6 +91,11 @@ export interface AppDeps {
   fields?: FieldsDeps
   /** Лимит запросов ключа API (http/rate-limit.ts): по умолчанию 600 в минуту, часы — Date.now. */
   rateLimit?: RateLimitOptions
+  /**
+   * Адреса событий (тикет crm-api/06): ключ шифрования секретов, разрешение http/localhost
+   * (только тесты), разрешение имён; без ключа адреса не создаются (500).
+   */
+  webhooks?: WebhookDeliveryOptions
 }
 
 /** Код ошибки ответа на HTTPException (её бросают промежуточные слои Hono и @hono/zod-openapi). */
@@ -113,6 +120,7 @@ function v1Routes({
   stageRequirements,
   fields,
   db,
+  webhooks,
 }: {
   stageDeals: StageDealsChecker
   contactDependents: ContactDependents
@@ -121,6 +129,7 @@ function v1Routes({
   fields: FieldsDeps
   /** Подключение ролью приложения: порции выгрузки CSV — в своих транзакциях проекта. */
   db: Kysely<Database>
+  webhooks: WebhookDeliveryOptions
 }) {
   return (
     // OpenAPIHono (@hono/zod-openapi): маршруты, объявленные через keyRoute (openapi/openapi.ts),
@@ -154,6 +163,8 @@ function v1Routes({
       .route('/fields', fieldsRoutes(fields))
       // Ключи API (тикет crm-api/01): только по сессии.
       .route('/api-keys', apiKeysRoutes())
+      // Адреса событий и журнал доставок (тикет crm-api/06): только по сессии.
+      .route('/webhook-endpoints', webhookEndpointsRoutes(webhooks))
   )
 }
 
@@ -177,13 +188,22 @@ export function createApp({
   stageRequirements = CUSTOM_FIELD_REQUIREMENTS,
   fields = NO_FIELD_JOBS,
   rateLimit,
+  webhooks = NO_WEBHOOKS,
 }: AppDeps) {
   const jsonBodyLimit = bodyLimit({
     maxSize: MAX_BODY_BYTES,
     onError: (c) => problem(c, 413, 'PAYLOAD_TOO_LARGE'),
   })
   const sessionGuard = accessGuard(auth)
-  const v1 = v1Routes({ stageDeals, contactDependents, storage, stageRequirements, fields, db })
+  const v1 = v1Routes({
+    stageDeals,
+    contactDependents,
+    storage,
+    stageRequirements,
+    fields,
+    db,
+    webhooks,
+  })
   // Описание строится один раз: маршруты приложения после создания не меняются.
   const openApiDocument = v1Document(v1)
   return (

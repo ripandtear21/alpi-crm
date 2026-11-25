@@ -58,4 +58,31 @@ describe('readApiEnv', () => {
       readApiEnv({ ...BASE, STORAGE_DIR: path.resolve(import.meta.dirname, 'files') }),
     ).toThrow(/STORAGE_DIR внутри каталога приложения/)
   })
+
+  it('WEBHOOK_SECRET_KEY — base64 от 32 байт; не задана — null (адреса событий недоступны)', () => {
+    const key = Buffer.alloc(32, 7).toString('base64')
+    expect(readApiEnv({ ...BASE, WEBHOOK_SECRET_KEY: key }).webhookSecretKey).toEqual(
+      Buffer.alloc(32, 7),
+    )
+    expect(readApiEnv(BASE).webhookSecretKey).toBeNull()
+    for (const bad of ['short', Buffer.alloc(16).toString('base64'), `${key}x`]) {
+      expect(() => readApiEnv({ ...BASE, WEBHOOK_SECRET_KEY: bad })).toThrow(
+        /WEBHOOK_SECRET_KEY: ожидается base64 от 32 байт/,
+      )
+    }
+  })
+
+  it('WEBHOOK_ALLOW_INSECURE_URLS=1 — только вне production: с NODE_ENV=production API не запускается', () => {
+    expect(readApiEnv(BASE).webhookAllowInsecureUrls).toBe(false)
+    expect(
+      readApiEnv({ ...BASE, NODE_ENV: 'development', WEBHOOK_ALLOW_INSECURE_URLS: '1' })
+        .webhookAllowInsecureUrls,
+    ).toBe(true)
+    expect(() =>
+      readApiEnv({ ...BASE, NODE_ENV: 'production', WEBHOOK_ALLOW_INSECURE_URLS: '1' }),
+    ).toThrow(/WEBHOOK_ALLOW_INSECURE_URLS=1 запрещена при NODE_ENV=production/)
+    expect(() => readApiEnv({ ...BASE, WEBHOOK_ALLOW_INSECURE_URLS: 'yes' })).toThrow(
+      /WEBHOOK_ALLOW_INSECURE_URLS: ожидается 1 или 0/,
+    )
+  })
 })

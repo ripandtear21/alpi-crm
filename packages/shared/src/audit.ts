@@ -79,6 +79,20 @@ export const PROJECT_AUDIT_ACTIONS = [
    * Что именно изменилось — в истории записи (change_log) с тем же автором.
    */
   'api_key.request',
+  // Тикет crm-api/06: адреса событий (entity — webhook_endpoint; details — адрес, описание,
+  // типы событий, без секрета).
+  'webhook_endpoint.created',
+  /** Адрес, описание или типы событий. */
+  'webhook_endpoint.updated',
+  'webhook_endpoint.deleted',
+  /** Новый секрет подписи; прежний действует ещё 24 часа. */
+  'webhook_endpoint.secret_rotated',
+  'webhook_endpoint.enabled',
+  /**
+   * Адрес отключён: вручную (автор — пользователь) или системой (автора нет; details.reason —
+   * gone_410 или failing_5_days).
+   */
+  'webhook_endpoint.disabled',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 
