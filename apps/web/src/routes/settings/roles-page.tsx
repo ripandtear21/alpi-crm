@@ -1,6 +1,12 @@
 import {
   ACTIONS,
   type Action,
+  FIELD_ENTITIES,
+  FIELD_GROUP_ACCESS,
+  type FieldGroupAccess,
+  type FieldGroupSummary,
+  fieldGroupAccess,
+  fieldName,
   parseRolePermissions,
   RESOURCES,
   type Resource,
@@ -15,7 +21,7 @@ import {
   type StandalonePermission,
 } from '@alpi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   projectQueryKey,
@@ -27,8 +33,9 @@ import './settings.css'
 import { Button } from '../../ui/button.tsx'
 
 // Настройки → роли: список ролей проекта и редактор прав роли — таблица «часть системы ×
-// действие», охват для частей с ответственным, отдельные права. Роль «администратор» —
-// только для чтения: её не меняет и API (база отклоняет).
+// действие», охват для частей с ответственным, отдельные права, доступ к группам полей
+// (тикет crm-fields/03). Роль «администратор» — только для чтения: её не меняет и API (база
+// отклоняет); к группам полей у неё всегда «изменять».
 
 /** Права пустой новой роли: ничего не разрешено, охват «свои». */
 function emptyPermissions(): RolePermissions {
@@ -96,6 +103,109 @@ function toggleStandalone(
   return { ...permissions, standalone: STANDALONE_PERMISSIONS.filter((p) => current.has(p)) }
 }
 
+/**
+ * Доступ к группе меняется записью о группе. Группа без записи показывает доступ по правам
+ * части системы (fieldGroupAccess) и получает запись, только когда его выбирают.
+ */
+function setFieldGroup(
+  permissions: RolePermissions,
+  groupId: string,
+  access: FieldGroupAccess,
+): RolePermissions {
+  return { ...permissions, fieldGroups: { ...permissions.fieldGroups, [groupId]: access } }
+}
+
+/** Раздел «Групи полів»: группы по сущностям, у каждой — выбор доступа. */
+function FieldGroupsSection({
+  groups,
+  permissions,
+  isAdmin,
+  failed,
+  onChange,
+}: {
+  groups: FieldGroupSummary[] | undefined
+  permissions: RolePermissions
+  isAdmin: boolean
+  failed: boolean
+  onChange: (groupId: string, access: FieldGroupAccess) => void
+}) {
+  const { t, i18n } = useTranslation('settings')
+  const locale = i18n.language === 'ru' ? 'ru' : 'uk'
+  const accessLabel = (access: FieldGroupAccess) => t(`roles.fieldGroupAccess.${access}`)
+  let body: ReactNode
+  if (failed) {
+    body = <p className="ui-notice">{t('roles.fieldGroupsFailed')}</p>
+  } else if (!groups) {
+    body = <p>{t('roles.loading')}</p>
+  } else if (groups.length === 0) {
+    body = <p className="roles__hint">{t('roles.fieldGroupsEmpty')}</p>
+  } else {
+    body = (
+      <div className="ui-table-wrap">
+        <table className="ui-table roles__groups">
+          <thead>
+            <tr>
+              <th scope="col">{t('roles.fieldGroupColumn')}</th>
+              <th scope="col">{t('roles.fieldGroupAccessColumn')}</th>
+            </tr>
+          </thead>
+          {FIELD_ENTITIES.map((entity) => {
+            const ofEntity = groups.filter((g) => g.entity === entity)
+            if (ofEntity.length === 0) return null
+            return (
+              <tbody key={entity}>
+                <tr>
+                  <th scope="colgroup" colSpan={2} className="roles__groups-entity">
+                    {t(`roles.fieldGroupEntities.${entity}`)}
+                  </th>
+                </tr>
+                {ofEntity.map((group) => {
+                  const name = fieldName(group, locale)
+                  const access = isAdmin ? 'edit' : fieldGroupAccess(permissions, group)
+                  return (
+                    <tr key={group.id}>
+                      <th scope="row">{name}</th>
+                      <td>
+                        {isAdmin ? (
+                          accessLabel('edit')
+                        ) : (
+                          <select
+                            className="ui-select ui-select--sm"
+                            aria-label={t('roles.fieldGroupLabel', { name })}
+                            value={access}
+                            onChange={(event) =>
+                              onChange(group.id, event.target.value as FieldGroupAccess)
+                            }
+                          >
+                            {FIELD_GROUP_ACCESS.map((option) => (
+                              <option key={option} value={option}>
+                                {accessLabel(option)}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            )
+          })}
+        </table>
+      </div>
+    )
+  }
+  return (
+    <fieldset>
+      <legend>{t('roles.fieldGroupsTitle')}</legend>
+      <p className="roles__hint">
+        {isAdmin ? t('roles.fieldGroupsAdmin') : t('roles.fieldGroupsHint')}
+      </p>
+      {body}
+    </fieldset>
+  )
+}
+
 interface Draft extends RoleInput {
   /** id сохранённой роли; null — новая роль. */
   id: string | null
@@ -150,6 +260,11 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
   const queryClient = useQueryClient()
   const queryKey = projectQueryKey(projectId, 'roles')
   const roles = useQuery({ queryKey, queryFn: () => api.list(projectId), retry: false })
+  const fieldGroups = useQuery({
+    queryKey: projectQueryKey(projectId, 'field-groups'),
+    queryFn: () => api.fieldGroups(projectId),
+    retry: false,
+  })
   const [draft, setDraft] = useState<Draft | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -355,6 +470,14 @@ function RolesEditor({ api, projectId }: { api: RolesApi; projectId: string }) {
                 </label>
               ))}
             </fieldset>
+
+            <FieldGroupsSection
+              groups={fieldGroups.data}
+              permissions={shown.permissions}
+              isAdmin={shown.isAdmin}
+              failed={fieldGroups.isError}
+              onChange={(groupId, access) => edit((p) => setFieldGroup(p, groupId, access))}
+            />
 
             <div className="roles__actions">
               {!readOnly && (

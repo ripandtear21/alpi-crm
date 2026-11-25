@@ -1,8 +1,9 @@
-import { ROLE_TEMPLATES, type RoleSummary } from '@alpi/shared'
+import { type FieldGroupSummary, ROLE_TEMPLATES, type RoleSummary } from '@alpi/shared'
 import { type RoleInput, type RolesApi, RolesApiError } from './roles-api.ts'
 
 // Подставной клиент ролей для тестов: роли-шаблоны нового проекта в памяти, вызовы
-// записываются; `deny` — ответ 403, как без права «пользователи и роли».
+// записываются; `deny` — ответ 403, как без права «пользователи и роли»; `fieldGroups` — группы
+// полей проекта.
 
 export interface FakeRolesApi extends RolesApi {
   calls: { method: 'create' | 'update' | 'remove'; roleId?: string; input?: RoleInput }[]
@@ -14,7 +15,13 @@ function fakeId(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 }
 
-export function fakeRolesApi({ deny = false }: { deny?: boolean } = {}): FakeRolesApi {
+export function fakeRolesApi({
+  deny = false,
+  fieldGroups = [],
+}: {
+  deny?: boolean
+  fieldGroups?: FieldGroupSummary[]
+} = {}): FakeRolesApi {
   let roles: RoleSummary[] = ROLE_TEMPLATES.map((template, index) => ({
     id: fakeId(index + 1),
     name: template.name,
@@ -66,6 +73,9 @@ export function fakeRolesApi({ deny = false }: { deny?: boolean } = {}): FakeRol
       api.calls.push({ method: 'remove', roleId })
       failIfAsked()
       roles = roles.filter((r) => r.id !== roleId)
+    },
+    async fieldGroups() {
+      return structuredClone(fieldGroups)
     },
   }
 
