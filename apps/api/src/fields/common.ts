@@ -12,7 +12,7 @@ import {
 import type { Transaction } from 'kysely'
 import { type Ctx, optionalText, type Refusal, refuse, requiredText } from '../contacts/http.ts'
 import type { FieldIndexMessage } from '../jobs/field-index.ts'
-import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
+import { loadApiKeyAccess, loadMemberAccess, type MemberAccess } from '../roles/access.ts'
 import type { FieldPurgeMessage } from './purge.ts'
 import type { FieldRetypeMessage } from './retype.ts'
 
@@ -35,12 +35,18 @@ export const notFound = (): FieldsRefusal => refuse(404, 'NOT_FOUND')
 /**
  * Читать описания может каждый, у кого есть право смотреть сущность (решено без владельца,
  * подтвердить); какие группы он видит — по его правам (fields/access.ts). Права роли, если
- * сущность видна; null — нет. Роль читается один раз за запрос, как в requirePermission.
+ * сущность видна; null — нет. Роль (участника или ключа API) читается один раз за запрос, как
+ * в requirePermission.
  */
 export async function entityReader(c: Ctx, entity: FieldEntity): Promise<RolePermissions | null> {
   let access = c.get('access') as MemberAccess | undefined
   if (!access) {
-    const loaded = await loadMemberAccess(c.get('db'), c.get('session').user.id)
+    // Автор запроса — участник или ключ API (тикет crm-api/03): у запроса по ключу сессии нет.
+    const actor = c.get('actor')
+    const loaded =
+      actor.type === 'user'
+        ? await loadMemberAccess(c.get('db'), actor.userId)
+        : await loadApiKeyAccess(c.get('db'), actor.apiKeyId)
     if (!loaded) return null
     access = loaded
     c.set('access', access)

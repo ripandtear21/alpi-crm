@@ -23,6 +23,12 @@ export type DealCurrency = (typeof DEAL_CURRENCIES)[number]
 /** Валюта новой сделки, если не указана (как в Pipedrive; решено без владельца — подтвердить). */
 export const DEFAULT_CURRENCY: DealCurrency = 'EUR'
 
+export const MAX_TITLE_LENGTH = 200
+/** numeric(14, 2): до триллиона без копейки. */
+export const MAX_AMOUNT = 999_999_999_999.99
+/** Ожидаемая дата закрытия: YYYY-MM-DD (существующий день проверяет разбор тела). */
+export const DATE = /^\d{4}-\d{2}-\d{2}$/
+
 export type DealsErrorCode =
   | 'PERMISSION_DENIED'
   /** Тело запроса не той формы: `details.path` — какое поле. */

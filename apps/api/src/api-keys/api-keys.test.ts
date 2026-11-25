@@ -559,7 +559,8 @@ describe('ключи API', () => {
         ['GET', '/me'],
         ['GET', '/projects'],
         ['GET', '/v1/deals/count'],
-        ['GET', `/v1/deals/${dealOwnedA}`],
+        // Карточку сделки открыл ключу тикет crm-api/03; история сделки ключу закрыта.
+        ['GET', `/v1/deals/${dealOwnedA}/history`],
         ['GET', '/v1/no-such-route'],
       ]
       for (const [method, path, body] of routes) {

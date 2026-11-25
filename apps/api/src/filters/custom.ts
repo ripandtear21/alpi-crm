@@ -96,8 +96,18 @@ const asFloat = (value: unknown) => sql`cast(${value} as double precision)`
 const asTextArray = (values: readonly unknown[]) => sql`cast(${values} as text[])`
 
 /**
+ * Значение «я» у поля-пользователя: id того, кто смотрит. У ключа API «я» нет: фильтр с ним
+ * отклоняет разбор (readFilterParam с `me: false`), сюда он дойти не должен.
+ */
+export function meOf(actorId: string | null): string {
+  // NULL вместо «я» молча дал бы разные выборки для `= me` и `!= me` (тикет crm-api/03).
+  if (actorId === null) throw new Error('значение «я» в фильтре без пользователя')
+  return actorId
+}
+
+/**
  * Условие по пользовательскому полю `field` (условие уже проверено parseFilter с каталогом).
- * `me` — id того, кто смотрит список: значение «я» у поля «пользователь».
+ * `me` — id того, кто смотрит список: значение «я» у поля «пользователь»; null — ключ API.
  */
 export function compileCustomCondition(
   table: RecordTable,
@@ -108,7 +118,7 @@ export function compileCustomCondition(
   const ref = parseCustomRef(condition.field)
   const part = ref?.part
   const value = valueSql(table, field, part)
-  const user = (v: unknown) => (field.type === 'user' && v === 'me' ? me : v)
+  const user = (v: unknown) => (field.type === 'user' && v === 'me' ? meOf(me) : v)
   const single = user(condition.value)
   const list = Array.isArray(condition.value) ? condition.value.map(user) : []
   const numeric = isNumeric(field.type) && !part

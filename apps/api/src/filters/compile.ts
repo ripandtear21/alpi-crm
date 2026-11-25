@@ -11,7 +11,7 @@ import {
 } from '@alpi/shared'
 import { type RawBuilder, type SqlBool, sql } from 'kysely'
 import { likePattern } from '../contacts/http.ts'
-import { type CatalogField, compileCustomCondition, type RecordTable } from './custom.ts'
+import { type CatalogField, compileCustomCondition, meOf, type RecordTable } from './custom.ts'
 
 // Построитель условий фильтра (тикет crm-deals/12): дерево формата packages/shared/src/filters
 // → условие WHERE. Одна функция на список, канбан, счётчик, выгрузку и массовые действия.
@@ -89,7 +89,10 @@ const FIELD_SQL: { [E in FilterEntity]: Record<string, FieldSql> } = {
 
 /** Для кого строится фильтр: значение 'me' у поля-пользователя — это он. */
 export interface FilterViewer {
-  /** null — ключ API (тикет crm-api/01): «я» — никто, условие `= 'me'` не совпадает ни с чем. */
+  /**
+   * null — ключ API (тикет crm-api/01): «я» у него нет. Фильтр с «я» отклоняет разбор
+   * (readFilterParam с `me: false`); дошёл до построителя — ошибка кода, а не пустое значение.
+   */
   actorId: string | null
   /**
    * Пользовательские поля, которые он видит (loadFilterCatalog): по ним проверены условия
@@ -127,7 +130,7 @@ function compileCondition(
     return condition.value === true ? field.truthy : sql<SqlBool>`(not ${field.truthy})`
   }
   const { column, cast } = field
-  const me = (value: unknown) => (field.user && value === 'me' ? viewer.actorId : value)
+  const me = (value: unknown) => (field.user && value === 'me' ? meOf(viewer.actorId) : value)
   const value = me(condition.value)
   const list = Array.isArray(condition.value) ? condition.value.map(me) : []
   switch (condition.op) {
@@ -213,12 +216,14 @@ export type FilterParam =
 
 /**
  * Фильтр из параметра запроса `filter` (JSON); нет параметра — undefined. Условия по
- * пользовательским полям — из каталога `custom` того, кто смотрит.
+ * пользовательским полям — из каталога `custom` того, кто смотрит. `me` — есть ли у него «я»:
+ * у ключа API нет (тикет crm-api/03), и фильтр с «я» у поля-пользователя — ошибка запроса.
  */
 export function readFilterParam(
   entity: FilterEntity,
   raw: string | undefined,
   custom: readonly CatalogField[] = [],
+  { me = true }: { me?: boolean } = {},
 ): FilterParam {
   if (raw === undefined) return { ok: true, filter: undefined }
   if (raw.length > MAX_FILTER_PARAM) {
@@ -241,5 +246,20 @@ export function readFilterParam(
         : { unknownCustomField: parsed.error.unknownCustomField }),
     }
   }
+  if (!me && usesMe(entity, parsed.filter, custom)) {
+    return { ok: false, path: 'filter', message: 'значения «я» у ключа API нет' }
+  }
   return { ok: true, filter: parsed.filter }
+}
+
+/** Есть ли в фильтре значение «я» у поля-пользователя (системного или пользовательского). */
+function usesMe(entity: FilterEntity, node: FilterNode, custom: readonly CatalogField[]): boolean {
+  if (isFilterGroup(node)) return groupParts(node).items.some((n) => usesMe(entity, n, custom))
+  const ref = parseCustomRef(node.field)
+  const field = ref ? undefined : FIELD_SQL[entity][node.field]
+  const user = ref
+    ? custom.find((f) => f.id === ref.key)?.type === 'user'
+    : field !== undefined && 'user' in field && field.user === true
+  const values: unknown[] = Array.isArray(node.value) ? node.value : [node.value]
+  return user && values.includes('me')
 }
