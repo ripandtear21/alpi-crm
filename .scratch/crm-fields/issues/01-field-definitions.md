@@ -1,7 +1,8 @@
 # Описания полей и групп: база, API, коды, варианты, архив
 
 Type: task
-Status: claimed 2026-11-25T10:21Z
+Status: done 2026-11-25T10:56Z
+PR: #18
 Blocked by: —
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 1); .scratch/crm-mvp/issues/06-custom-fields.md (Answer); .scratch/crm-mvp/spec.md, разделы 3.2 (`field_group`, `field_definition`, `field_option`), 3.3, 13.0.3 (пункты 1, 11, 36)
 
@@ -34,25 +35,34 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/fields
 
 ## Done when
 
-- [ ] Миграции применяются на чистую базу и откатываются.
+- [x] Миграции применяются на чистую базу и откатываются.
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts apps/api/src/deals/deals.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] Тест изоляции: описания, группы и варианты проекта A не видны в контексте B без фильтра в коде.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] Тест изоляции: описания, группы и варианты проекта A не видны в контексте B без фильтра в коде.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts packages/db/src/project-isolation.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] Тест прав: создание, изменение и удаление поля без права `fields` — 403; чтение описаний с правом смотреть сущность — 200.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] Тест прав: создание, изменение и удаление поля без права `fields` — 403; чтение описаний с правом смотреть сущность — 200.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] Тесты кода: код по умолчанию из украинского названия («Головний мотив» → `holovnyi_motyv`); дубликат кода в проекте и типе сущности, код системного поля и код не по формату — 422; смена кода при заполненном `first_value_at` или при отметке «часто фильтруют» — 409; смена названия при этом проходит.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] Тесты кода: код по умолчанию из украинского названия («Головний мотив» → `holovnyi_motyv`); дубликат кода в проекте и типе сущности, код системного поля и код не по формату — 422; смена кода при заполненном `first_value_at` или при отметке «часто фильтруют» — 409; смена названия при этом проходит.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts packages/shared/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] Тест вариантов: переименование варианта не меняет его id; архивный вариант не попадает в список предлагаемых, но остаётся в описании поля.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] Тест вариантов: переименование варианта не меняет его id; архивный вариант не попадает в список предлагаемых, но остаётся в описании поля.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] Тест: правило «с этапа X» с этапом чужого проекта или воронки, где поле не видно, — 422; «с этапа X» у поля контакта — 422.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] Тест: правило «с этапа X» с этапом чужого проекта или воронки, где поле не видно, — 422; «с этапа X» у поля контакта — 422.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] Тест архива: поле с данными при удалении уходит в архив, а не удаляется; окончательное удаление раньше 30 дней — 409; после — задача убирает ключ из `custom` всех записей, описание удалено, код снова свободен, запись в журнале опасных действий есть. Поле без данных удаляется сразу.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] Тест архива: поле с данными при удалении уходит в архив, а не удаляется; окончательное удаление раньше 30 дней — 409; после — задача убирает ключ из `custom` всех записей, описание удалено, код снова свободен, запись в журнале опасных действий есть. Поле без данных удаляется сразу.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] Тест: группу с полем удалить нельзя (409), пустую — можно.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] Тест: группу с полем удалить нельзя (409), пустую — можно.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/fields.test.ts` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
-- [ ] `pnpm verify` зелёный.
+  - evidence: review pass · PR #18 · - - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
+- [x] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
   - evidence: gate pass · `gate fast` exit 0 · windows - · fd848d00c0c0839237dcd9cd71392b01b945f4a8
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45599075741 · ci - · 13d844cfbcdf31a8c456e0aa1dcffc4540cc84d2
 
 ## Результат
 
@@ -71,3 +81,6 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/fields
 - Список кодов системных полей (`SYSTEM_FIELD_CODES`): общие для всех сущностей служебные (`id`, `custom`, `created_at`, `archived`…) и свои у каждой сущности (сделка: `title`, `stage`, `amount`, `currency`, `owner`, `status`…; контакт: `name`, `first_name`, `phone`, `email`, `language`…; организация: `name`, `address`, `website`…).
 - Тип поля с вариантами нельзя сменить на тип без вариантов (409 `FIELD_HAS_OPTIONS`), даже пока значений нет: варианты не удаляются. Такое поле без значений удаляется сразу и заводится заново.
 - Порядок полей в группе (`PUT /fields/order`) переставляет только неархивные поля; архивные хранят свою позицию.
+- Проверка: VERIFIED (PR #18; проверяющий сам повторил `pnpm verify`, мутации RLS у `field_required_stage` и обрыва окончательного удаления — обе пойманы; экраны «Журнал дій» в светлой и тёмной теме — подписи новых событий читаются). `GATE_SCOPE=all` gate full зелёный, слит squash-коммитом c55be89; CI на `main`: https://github.com/ripandtear21/alpi-crm/actions/runs/45599075741 — success.
+- Consider (долг): [low] `apps/api/src/fields/fields.ts:712-737` — повторный `DELETE` поля с уже запрошенным окончательным удалением отвечает 202 и не ставит задачу заново; если pg-boss исчерпает повторы, поле навсегда остаётся в `FIELD_PURGE_PENDING` без выхода через API. Исправление: при повторном `DELETE` снова ставить задачу (`singletonKey` уберёт дубли).
+- Для тикета 02: триггер `field_definition_guard` (`0016_fields.ts`, ветка TYPE_LOCKED) сейчас запрещает любую смену типа поля с данными — тикет 02 должен ослабить его для безопасных смен.
