@@ -54,7 +54,11 @@ describe('конструктор полей', () => {
     app = createApp({
       auth: h.auth,
       db: h.appDb,
-      fields: { enqueuePurge: jobs.enqueueFieldPurge, now: () => clock ?? new Date() },
+      fields: {
+        enqueuePurge: jobs.enqueueFieldPurge,
+        enqueueRetype: jobs.enqueueFieldRetype,
+        now: () => clock ?? new Date(),
+      },
     })
     admin = await h.signIn('owner')
     projectA = (await h.createProject(admin, 'Поля А')).id

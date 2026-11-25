@@ -1,4 +1,5 @@
 import type { Database, OrganizationTable } from '@alpi/db'
+import type { CustomFieldErrorCode } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, type Selectable, sql } from 'kysely'
 import { audit } from '../audit/record.ts'
@@ -21,6 +22,16 @@ import {
   requiredText,
   UUID,
 } from '../contacts/http.ts'
+import {
+  type CustomValues,
+  changesCustom,
+  customInsert,
+  customUpdate,
+  finishCustom,
+  prepareCustom,
+  readCustomInput,
+  visibleCustom,
+} from '../fields/values.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 
 // Организации проекта (тикет crm-deals/03; spec.md, раздел 3.2): маршруты `/v1/organizations`
@@ -37,6 +48,8 @@ export type OrganizationsErrorCode =
   | 'INVALID_ORGANIZATION'
   | 'ORGANIZATION_NOT_FOUND'
   | 'NOT_IN_TRASH'
+  /** Значения пользовательских полей (`custom`, fields/values.ts). */
+  | CustomFieldErrorCode
 
 type Result<T> = Outcome<T, OrganizationsErrorCode>
 
@@ -46,6 +59,8 @@ export interface OrganizationView {
   name: string
   address: string | null
   website: string | null
+  /** Значения пользовательских полей по коду (fields/values.ts). */
+  custom: CustomValues
   createdBy: string | null
   createdAt: string
   updatedAt: string
@@ -64,9 +79,11 @@ interface OrganizationInput {
   name?: string
   address?: string | null
   website?: string | null
+  /** Значения пользовательских полей: меняются только переданные коды. */
+  custom?: CustomValues
 }
 
-const INPUT_FIELDS = new Set(['name', 'address', 'website'])
+const INPUT_FIELDS = new Set(['name', 'address', 'website', 'custom'])
 
 function parseInput(body: Record<string, unknown>, create: boolean): Result<OrganizationInput> {
   const invalid = (path: string) => refuse(400, 'INVALID_ORGANIZATION', { path })
@@ -85,6 +102,9 @@ function parseInput(body: Record<string, unknown>, create: boolean): Result<Orga
     if (value === undefined) return invalid(field)
     input[field] = value
   }
+  const custom = readCustomInput(body.custom)
+  if (custom === null) return invalid('custom')
+  if (custom !== undefined) input.custom = custom
   if (!create && Object.keys(input).length === 0) return invalid('')
   return ok(input)
 }
@@ -105,16 +125,29 @@ function organizationContext(c: Ctx): OrganizationContext {
 
 type OrganizationRow = Selectable<OrganizationTable>
 
-function view(row: OrganizationRow): OrganizationView {
-  return {
+/** Ответ API для строк организаций. */
+async function views(db: Kysely<Database>, rows: OrganizationRow[]): Promise<OrganizationView[]> {
+  const custom = await visibleCustom(
+    db,
+    'organization',
+    rows.map((row) => row.custom),
+  )
+  return rows.map((row, index) => ({
     id: row.id,
     name: row.name,
     address: row.address,
     website: row.website,
+    custom: custom[index] ?? {},
     createdBy: row.created_by,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
-  }
+  }))
+}
+
+async function view(db: Kysely<Database>, row: OrganizationRow): Promise<OrganizationView> {
+  const [one] = await views(db, [row])
+  if (!one) throw new Error('организация пропала в той же транзакции')
+  return one
 }
 
 /** Организация `id` (в корзине или нет), строка заблокирована до конца транзакции. */
@@ -138,18 +171,23 @@ async function updateOrganization(
 ): Promise<Result<OrganizationView>> {
   const row = await lockOrganization(ctx.db, id)
   if (!row || row.deleted_at !== null) return refuse(404, 'ORGANIZATION_NOT_FOUND')
+  const { custom: customInput, ...fields } = input
+  const custom = await prepareCustom(ctx.db, 'organization', row.custom, customInput ?? {})
+  if (!custom.ok) return custom
+  const before = await view(ctx.db, row)
   const updated = await ctx.db
     .updateTable('organization')
-    .set({ ...input, updated_at: sql`now()` })
+    .set({
+      ...fields,
+      ...(changesCustom(custom.value) ? { custom: customUpdate(custom.value) } : {}),
+      updated_at: sql`now()`,
+    })
     .where('id', '=', id)
     .returningAll()
     .executeTakeFirstOrThrow()
-  const after = view(updated)
-  await recordChanges(
-    ctx,
-    { type: 'organization', id },
-    diffFields(view(row), after, LOGGED_FIELDS),
-  )
+  const after = await view(ctx.db, updated)
+  await recordChanges(ctx, { type: 'organization', id }, diffFields(before, after, LOGGED_FIELDS))
+  await finishCustom(ctx, { type: 'organization', id }, custom.value, { history: true })
   return ok(after)
 }
 
@@ -184,7 +222,7 @@ async function restoreOrganization(
   await recordChanges(ctx, { type: 'organization', id }, [
     { field: 'deletedAt', before: new Date(row.deleted_at).toISOString(), after: null },
   ])
-  return ok(view(restored))
+  return ok(await view(ctx.db, restored))
 }
 
 async function purgeOrganization(ctx: OrganizationContext, id: string): Promise<Result<null>> {
@@ -230,7 +268,7 @@ export function organizationsRoutes() {
         .limit(limit)
       const q = c.req.query('q')?.trim()
       if (q) query = query.where('name', 'ilike', likePattern(q))
-      return c.json<OrganizationView[]>((await query.execute()).map(view))
+      return c.json<OrganizationView[]>(await views(c.get('db'), await query.execute()))
     })
     .get('/:id', requirePermission('organizations', 'view'), async (c) => {
       const id = c.req.param('id')
@@ -244,7 +282,7 @@ export function organizationsRoutes() {
             .executeTakeFirst()
         : undefined
       if (!row) return fail(c, refuse(404, 'ORGANIZATION_NOT_FOUND'))
-      return c.json<OrganizationView>(view(row))
+      return c.json<OrganizationView>(await view(c.get('db'), row))
     })
     .post('/', requirePermission('organizations', 'create'), async (c) => {
       const body = await readBody(c)
@@ -252,6 +290,8 @@ export function organizationsRoutes() {
       const input = parseInput(body, true)
       if (!input.ok) return fail(c, input)
       const ctx = organizationContext(c)
+      const custom = await prepareCustom(ctx.db, 'organization', {}, input.value.custom ?? {})
+      if (!custom.ok) return fail(c, custom)
       const row = await ctx.db
         .insertInto('organization')
         .values({
@@ -259,11 +299,15 @@ export function organizationsRoutes() {
           name: input.value.name ?? '',
           address: input.value.address ?? null,
           website: input.value.website ?? null,
+          custom: customInsert(custom.value),
           created_by: ctx.actorId,
         })
         .returningAll()
         .executeTakeFirstOrThrow()
-      return c.json<OrganizationView>(view(row), 201)
+      await finishCustom(ctx, { type: 'organization', id: row.id }, custom.value, {
+        history: false,
+      })
+      return c.json<OrganizationView>(await view(ctx.db, row), 201)
     })
     .put('/:id', requirePermission('organizations', 'edit'), async (c) => {
       const body = await readBody(c)

@@ -7,6 +7,7 @@ import { transliterateUk } from './transliterate.ts'
 // (packages/db/migrations/0016_fields.ts — снимок списков отсюда).
 
 export { transliterateUk } from './transliterate.ts'
+export * from './values.ts'
 
 /** Сущности, у которых есть пользовательские поля. */
 export const FIELD_ENTITIES = ['deal', 'contact', 'organization'] as const
@@ -219,6 +220,11 @@ export interface FieldDefinitionSummary extends FieldNames {
   isFrequentlyFiltered: boolean
   /** Время первого значения; пока null — код и тип меняются свободно. */
   firstValueAt: string | null
+  /**
+   * Идёт безопасная смена типа поля с данными (тикет 02): фоновая задача переписывает значения
+   * в этот тип, поле только для чтения (запись — 409). null — смены нет.
+   */
+  convertingTo: FieldType | null
   archivedAt: string | null
   /** Окончательное удаление запрошено: фоновая задача убирает значения, потом описание. */
   purgeRequestedAt: string | null
@@ -255,8 +261,13 @@ export type FieldsErrorCode =
   | 'FIELD_CODE_TAKEN'
   /** Код не меняется: у поля были значения или оно отмечено «часто фильтруют». */
   | 'FIELD_CODE_LOCKED'
-  /** Тип не меняется: у поля были значения (безопасная смена типа — тикет 02). */
+  /**
+   * Тип не меняется: у поля были значения, а смена не из безопасных (typeChangeWithValues) —
+   * «создайте новое поле».
+   */
   | 'FIELD_TYPE_LOCKED'
+  /** Идёт смена типа поля с данными: тип и удаление ждут её конца. */
+  | 'FIELD_CONVERTING'
   /** Группа не найдена или другой сущности. */
   | 'FIELD_GROUP_NOT_FOUND'
   /** В группе есть поля (в том числе архивные): удалить нельзя. */
@@ -277,3 +288,15 @@ export type FieldsErrorCode =
   | 'FIELD_PURGE_TOO_EARLY'
   /** Окончательное удаление уже идёт: поле не меняется и не возвращается из архива. */
   | 'FIELD_PURGE_PENDING'
+
+/**
+ * Коды ошибок записи значений (`custom`) в запросах сделок, контактов и организаций;
+ * `details.field` — код поля.
+ */
+export type CustomFieldErrorCode =
+  /** Поля с таким кодом у сущности нет или оно в архиве (422). */
+  | 'CUSTOM_FIELD_UNKNOWN'
+  /** Значение не по типу поля (422): `details.reason` — FieldValueProblem. */
+  | 'CUSTOM_FIELD_INVALID'
+  /** Идёт смена типа поля: поле только для чтения (409). */
+  | 'CUSTOM_FIELD_CONVERTING'

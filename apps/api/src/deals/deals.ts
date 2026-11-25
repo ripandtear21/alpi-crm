@@ -22,6 +22,16 @@ import {
   UUID,
 } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
+import {
+  type CustomValues,
+  type CustomWrite,
+  changesCustom,
+  customInsert,
+  customUpdate,
+  finishCustom,
+  prepareCustom,
+  readCustomInput,
+} from '../fields/values.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { dealAggregates, dealOwners, listDeals } from './board.ts'
@@ -118,6 +128,8 @@ const FIELD_KEYS = [
   'expectedCloseDate',
   'ownerId',
   'primaryContactId',
+  // Значения пользовательских полей (fields/values.ts): меняются только переданные коды.
+  'custom',
 ] as const
 
 function readFields(body: Record<string, unknown>): Result<DealFields> {
@@ -356,9 +368,13 @@ interface NewDeal {
   currency: DealCurrency
   ownerId: string | null
   expectedCloseDate: string | null
+  /** Значения пользовательских полей из тела запроса. */
+  custom: CustomValues
 }
 
 async function insertDeal(ctx: DealContext, deal: NewDeal): Promise<Result<DealView>> {
+  const custom = await prepareCustom(ctx.db, 'deal', {}, deal.custom)
+  if (!custom.ok) return custom
   const place = await placement(ctx, deal.pipelineId, deal.stageId)
   if (!place.ok) return place
   const contact = await liveContact(ctx, deal.contactId, 'bind')
@@ -385,13 +401,16 @@ async function insertDeal(ctx: DealContext, deal: NewDeal): Promise<Result<DealV
           primary_contact_id: deal.contactId,
           organization_id: deal.organizationId,
           expected_close_date: deal.expectedCloseDate,
+          custom: customInsert(custom.value),
           created_by: ctx.actorId,
         })
         .returning('id')
         .executeTakeFirstOrThrow(),
   )
   if (!inserted.ok) return inserted
-  return ok(await dealView(ctx.db, await reloadDeal(ctx, inserted.value.id)))
+  const id = inserted.value.id
+  await finishCustom(ctx, { type: 'deal', id }, custom.value, { history: false })
+  return ok(await dealView(ctx.db, await reloadDeal(ctx, id)))
 }
 
 const CREATE_KEYS = [...FIELD_KEYS, 'pipelineId', 'stageId', 'contactId', 'contact']
@@ -428,6 +447,8 @@ async function createDeal(c: Ctx, ctx: DealContext): Promise<Result<DealView>> {
   if (!hasContactId && !can(ctx.permissions, 'contacts', 'create')) {
     return refuse(403, 'PERMISSION_DENIED')
   }
+  const custom = readCustomInput(body.custom)
+  if (custom === null) return invalid('custom')
   const title = fields.value.title
 
   return rollbackOnRefusal(ctx, async () => {
@@ -447,6 +468,7 @@ async function createDeal(c: Ctx, ctx: DealContext): Promise<Result<DealView>> {
       currency: fields.value.currency ?? DEFAULT_CURRENCY,
       ownerId: fields.value.ownerId === undefined ? ctx.actorId : fields.value.ownerId,
       expectedCloseDate: fields.value.expectedCloseDate ?? null,
+      custom: custom ?? {},
     })
   })
 }
@@ -514,6 +536,7 @@ async function createUpsell(c: Ctx, ctx: DealContext, id: string): Promise<Resul
     currency: DEFAULT_CURRENCY,
     ownerId: ctx.actorId,
     expectedCloseDate: null,
+    custom: {},
   })
 }
 
@@ -527,9 +550,16 @@ async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<
   const fields = readFields(body)
   if (!fields.ok) return fields
   const input = fields.value
-  if (Object.keys(input).length === 0) return invalid('')
-  return changeDeal(ctx, id, async (row) => {
+  const customInput = readCustomInput(body.custom)
+  if (customInput === null) return invalid('custom')
+  if (Object.keys(input).length === 0 && customInput === undefined) return invalid('')
+  let custom: CustomWrite | undefined
+  const changed = await changeDeal(ctx, id, async (row) => {
     const set: DealSet = {}
+    const prepared = await prepareCustom(ctx.db, 'deal', row.custom, customInput ?? {})
+    if (!prepared.ok) return prepared
+    custom = prepared.value
+    if (changesCustom(custom)) set.custom = customUpdate(custom)
     if (input.title !== undefined) set.title = input.title
     if (input.amount !== undefined) set.amount = input.amount
     if (input.currency !== undefined) set.currency = input.currency
@@ -557,8 +587,13 @@ async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<
       if (participant) return refuse(409, 'CONTACT_IS_PARTICIPANT')
       set.primary_contact_id = input.primaryContactId
     }
-    return ok(set)
+    // Менять нечего (например, только `custom` с теми же значениями) — сделка не трогается.
+    return ok(Object.keys(set).length === 0 ? null : set)
   })
+  if (changed.ok && custom) {
+    await finishCustom(ctx, { type: 'deal', id: changed.value.id }, custom, { history: true })
+  }
+  return changed
 }
 
 // ---- Этап, статус, архив, перенос -----------------------------------------------------------

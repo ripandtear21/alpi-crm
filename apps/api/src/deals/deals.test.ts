@@ -8,6 +8,7 @@ import { down as downProducts } from '../../../../packages/db/migrations/0011_pr
 import { down as downNotesFiles } from '../../../../packages/db/migrations/0012_notes_files.ts'
 import { down as downSearch } from '../../../../packages/db/migrations/0015_search.ts'
 import { down as downFields } from '../../../../packages/db/migrations/0016_fields.ts'
+import { down as downFieldValues } from '../../../../packages/db/migrations/0017_field_values.ts'
 import type { ContactView } from '../contacts/contacts.ts'
 import {
   type ApiHarness,
@@ -1578,8 +1579,10 @@ describe('сделки', () => {
       await expect(
         h.owner.transaction().execute(async (trx) => {
           // Сначала миграции, чьи таблицы и представления ссылаются на deal (откат идёт в
-          // обратном порядке): 0016_fields добавила deal колонку custom и ссылается на этапы,
-          // представление deal_search (0015_search) читает deal.
+          // обратном порядке): 0017_field_values индексирует deal.custom, 0016_fields добавила
+          // deal колонку custom и ссылается на этапы, представление deal_search (0015_search)
+          // читает deal.
+          await downFieldValues(trx as unknown as Kysely<unknown>)
           await downFields(trx as unknown as Kysely<unknown>)
           await downSearch(trx as unknown as Kysely<unknown>)
           await downNotesFiles(trx as unknown as Kysely<unknown>)

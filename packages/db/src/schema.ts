@@ -555,6 +555,11 @@ export interface FieldDefinitionTable {
   first_value_at: Date | string | null
   archived_at: Date | string | null
   purge_requested_at: Date | string | null
+  /**
+   * Идёт смена типа поля с данными (migrations/0017_field_values.ts): фоновая задача
+   * переписывает значения в этот тип; null — смены нет.
+   */
+  converting_to: string | null
   created_at: Timestamp
   updated_at: Timestamp
   created_by: string | null

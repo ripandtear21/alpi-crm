@@ -4,6 +4,7 @@ import { type Kysely, sql } from 'kysely'
 import type { ChangeAuthor } from '../change-log/record.ts'
 import type { ContactsErrorCode } from '../contacts/contacts.ts'
 import { type Ctx, type Outcome, ok, refuse } from '../contacts/http.ts'
+import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
@@ -151,6 +152,8 @@ export interface DealView {
   products: DealProductView[]
   /** «Сума по товарах» — сумма строк в валюте сделки; 0 — строк нет. */
   productsTotal: number
+  /** Значения пользовательских полей по коду (fields/values.ts). */
+  custom: CustomValues
 }
 
 /** Поля, изменения которых пишутся в историю сделки (change_log). */
@@ -197,6 +200,7 @@ function selectDeals(db: Kysely<Database>) {
       'created_at',
       'updated_at',
       'deleted_at',
+      'custom',
     ])
     .select(
       sql<string | null>`to_char(expected_close_date, 'YYYY-MM-DD')`.as('expected_close_date'),
@@ -290,7 +294,12 @@ export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<
     ])
     totals.set(line.deal_id, Number(line.sum))
   }
-  return rows.map((row) => ({
+  const custom = await visibleCustom(
+    db,
+    'deal',
+    rows.map((row) => row.custom),
+  )
+  return rows.map((row, index) => ({
     id: row.id,
     title: row.title,
     pipelineId: row.pipeline_id,
@@ -314,6 +323,7 @@ export async function dealViews(db: Kysely<Database>, rows: DealRow[]): Promise<
     participants: byDeal.get(row.id) ?? [],
     products: linesByDeal.get(row.id) ?? [],
     productsTotal: totals.get(row.id) ?? 0,
+    custom: custom[index] ?? {},
   }))
 }
 

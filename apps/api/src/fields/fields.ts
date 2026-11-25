@@ -14,6 +14,7 @@ import {
   fieldCodeProblem,
   fieldCodeWithSuffix,
   hasOptions,
+  typeChangeWithValues,
 } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
@@ -43,7 +44,10 @@ import {
 // - Код: формат и запрет системных кодов — packages/shared/src/fields; по умолчанию — из
 //   украинского названия, с суффиксом _2, _3…, если занят. Меняется, пока у поля не было
 //   значений (first_value_at) и оно не отмечено «часто фильтруют»; потом — 409.
-// - Тип меняется, пока не было значений; смена типа поля с данными — тикет 02, здесь 409.
+// - Тип меняется, пока не было значений. У поля с данными — только безопасно (тикет 02,
+//   typeChangeWithValues): текст → большой текст сразу; число → текст и один вариант →
+//   несколько — фоновой задачей (retype.ts), ответ 202, пока она идёт, поле только для чтения
+//   (convertingTo); любая другая смена — 409 FIELD_TYPE_LOCKED («создайте новое поле»).
 // - Видимость по воронкам и правило «с этапа» — только у полей сделки; воронки и этапы — своего
 //   проекта; правило — для воронки, где поле видно.
 // - Удаление: поле без значений удаляется сразу; со значениями — уходит в архив; архивное со
@@ -82,6 +86,7 @@ interface FieldRow {
   first_value_at: Date | string | null
   archived_at: Date | string | null
   purge_requested_at: Date | string | null
+  converting_to: string | null
 }
 
 const FIELD_COLUMNS = [
@@ -100,6 +105,7 @@ const FIELD_COLUMNS = [
   'first_value_at',
   'archived_at',
   'purge_requested_at',
+  'converting_to',
 ] as const
 
 const OPTION_COLUMNS = ['id', 'field_id', 'name_uk', 'name_ru', 'position', 'archived_at'] as const
@@ -198,6 +204,7 @@ async function loadFields(
       firstValueAt: isoOrNull(row.first_value_at),
       archivedAt: isoOrNull(row.archived_at),
       purgeRequestedAt: isoOrNull(row.purge_requested_at),
+      convertingTo: row.converting_to as FieldType | null,
       options: options.filter((o) => o.field_id === row.id).map(optionSummary),
     }
   })
@@ -516,7 +523,7 @@ async function createField(c: Ctx) {
   return c.json<FieldDefinitionSummary>(field, 201)
 }
 
-async function updateField(c: Ctx) {
+async function updateField(c: Ctx, deps: FieldsDeps) {
   const body = await readBody(c)
   if (!body) return fail(c, invalid(''))
   const extra = unknownKey(body, [...FIELD_KEYS])
@@ -565,12 +572,27 @@ async function updateField(c: Ctx) {
     if (refusal) return fail(c, refusal)
     change('code', 'code', row.code, body.code)
   }
-  if (body.type !== undefined && body.type !== row.type) {
-    if (row.first_value_at !== null) return fail(c, refuse(409, 'FIELD_TYPE_LOCKED'))
-    if (!hasOptions(body.type as FieldType) && current.options.length > 0) {
+  // Смена типа поля с данными, которая переписывает значения: тип меняет фоновая задача.
+  let convertTo: FieldType | null = null
+  if (body.type !== undefined && body.type !== row.type && row.converting_to !== null) {
+    // Повтор той же смены снова ставит задачу (если очередь исчерпала повторы, поле не
+    // останется только для чтения навсегда; singletonKey не даст двух задач); другая — 409.
+    if (body.type !== row.converting_to) return fail(c, refuse(409, 'FIELD_CONVERTING'))
+    convertTo = row.converting_to as FieldType
+  } else if (body.type !== undefined && body.type !== row.type) {
+    const to = body.type as FieldType
+    const mode =
+      row.first_value_at === null ? 'keep' : typeChangeWithValues(row.type as FieldType, to)
+    if (mode === null) return fail(c, refuse(409, 'FIELD_TYPE_LOCKED'))
+    if (!hasOptions(to) && current.options.length > 0) {
       return fail(c, refuse(409, 'FIELD_HAS_OPTIONS'))
     }
-    change('type', 'type', row.type, body.type)
+    if (mode === 'keep') {
+      change('type', 'type', row.type, to)
+    } else {
+      convertTo = to
+      change('convertingTo', 'converting_to', null, to)
+    }
   }
   change('isImportant', 'is_important', row.is_important, isImportant)
   change(
@@ -623,6 +645,15 @@ async function updateField(c: Ctx) {
         after,
       },
     })
+  }
+  if (convertTo !== null) {
+    // Задача — в той же транзакции: откатится запрос — не будет и задачи.
+    await deps.enqueueRetype(db, {
+      projectId: c.get('projectId'),
+      fieldId: row.id,
+      actorId: c.get('session').user.id,
+    })
+    return c.json<FieldDefinitionSummary>(await fieldSummary(db, row.id), 202)
   }
   return c.json<FieldDefinitionSummary>(await fieldSummary(db, row.id))
 }
@@ -896,7 +927,7 @@ export function fieldsRoutes(deps: FieldsDeps) {
       // /order — до /:id: иначе «order» читался бы как id поля.
       .put('/order', requirePermission('fields', 'edit'), reorderFields)
       .get('/:id', readField)
-      .put('/:id', requirePermission('fields', 'edit'), updateField)
+      .put('/:id', requirePermission('fields', 'edit'), (c) => updateField(c, deps))
       .post('/:id/archive', requirePermission('fields', 'edit'), (c) => archiveField(c, deps, true))
       .post('/:id/restore', requirePermission('fields', 'edit'), (c) =>
         archiveField(c, deps, false),

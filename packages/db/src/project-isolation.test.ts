@@ -29,6 +29,7 @@ const migrationNames = [
   '0014_saved_filters',
   '0015_search',
   '0016_fields',
+  '0017_field_values',
 ]
 
 const tablesOfMigration = [
@@ -556,6 +557,99 @@ describe('схема и изоляция проектов', () => {
             .execute(),
         ),
       ).rejects.toThrow(/row-level security/)
+    })
+  })
+
+  // Значения полей (0017_field_values): GIN-индекс jsonb_path_ops по custom у сделки, контакта и
+  // организации. Поиск по значению идёт индексом, а строки отдаёт таблица со своей политикой.
+  describe('индекс значений custom для роли приложения', () => {
+    const tables = ['deal', 'contact', 'organization'] as const
+    /** id строк с custom {"motyv": "spilne"} по проектам и таблицам. */
+    const seeded = new Map<string, Record<(typeof tables)[number], string>>()
+
+    async function seedValues(projectId: string) {
+      const custom = JSON.stringify({ motyv: 'spilne' })
+      const organization = await owner
+        .insertInto('organization')
+        .values({ project_id: projectId, name: 'Значення', custom })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const contact = await owner
+        .insertInto('contact')
+        .values({ project_id: projectId, first_name: 'Значення', custom })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const pipeline = await owner
+        .insertInto('pipeline')
+        .values({ project_id: projectId, code: 'values_iso', name: 'Значення', position: 1 })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const stage = await owner
+        .insertInto('stage')
+        .values({ project_id: projectId, pipeline_id: pipeline.id, name: 'Новий', position: 1 })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const deal = await owner
+        .insertInto('deal')
+        .values({
+          project_id: projectId,
+          title: 'Значення',
+          pipeline_id: pipeline.id,
+          stage_id: stage.id,
+          primary_contact_id: contact.id,
+          custom,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      return { deal: deal.id, contact: contact.id, organization: organization.id }
+    }
+
+    beforeAll(async () => {
+      seeded.set(projectA, await seedValues(projectA))
+      seeded.set(projectB, await seedValues(projectB))
+    })
+
+    it('индексы есть: GIN jsonb_path_ops по custom', async () => {
+      const { rows } = await sql<{ indexname: string; indexdef: string }>`
+        select indexname, indexdef from pg_indexes
+        where schemaname = 'public' and indexname like '%_custom_idx' order by indexname
+      `.execute(owner)
+      expect(rows.map((r) => r.indexname)).toEqual([
+        'contact_custom_idx',
+        'deal_custom_idx',
+        'organization_custom_idx',
+      ])
+      for (const row of rows) expect(row.indexdef).toMatch(/USING gin \(custom jsonb_path_ops\)/)
+    })
+
+    it('поиск по значению (одинаковому у A и B) внутри withProject(B) отдаёт только строку B; без проекта — ноль', async () => {
+      for (const table of tables) {
+        // Индекс находит строки обоих проектов; отдаёт их таблица, и политика оставляет свои.
+        // Оператор @> (jsonb_contains) не LEAKPROOF: под row-level security PostgreSQL проверяет
+        // его после условия политики, поэтому план роли приложения здесь не проверяется.
+        const search = (trx: Kysely<Database>) =>
+          sql<{ id: string }>`
+            select id from ${sql.table(table)} where custom @> '{"motyv": "spilne"}'
+          `.execute(trx)
+        const inB = await withProject(app, projectB, search)
+        expect({ table, ids: inB.rows.map((r) => r.id) }).toEqual({
+          table,
+          ids: [seeded.get(projectB)?.[table]],
+        })
+        const outside = await app.transaction().execute(search)
+        expect({ table, count: outside.rows.length }).toEqual({ table, count: 0 })
+      }
+    })
+
+    it('custom не принимает не-объект', async () => {
+      for (const table of tables) {
+        await expect(
+          sql`update ${sql.table(table)} set custom = '[1]' where id = ${seeded.get(projectA)?.[table]}`.execute(
+            owner,
+          ),
+          table,
+        ).rejects.toThrow(new RegExp(`${table}_custom_object`))
+      }
     })
   })
 
