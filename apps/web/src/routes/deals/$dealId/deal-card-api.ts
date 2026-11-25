@@ -56,6 +56,8 @@ export interface DealCard {
   participants: DealParticipant[]
   products: DealProductLine[]
   productsTotal: number
+  /** Значения пользовательских полей по коду (тикет crm-fields/02), без скрытых от роли групп. */
+  custom: Record<string, unknown>
 }
 
 /** Контакт (ContactView в apps/api/src/contacts/contacts.ts). */

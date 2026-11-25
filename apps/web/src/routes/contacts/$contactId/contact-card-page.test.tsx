@@ -13,6 +13,13 @@ import {
   sampleContact,
   sampleDeal,
 } from '../../../components/contact-form/fake-contacts-api.ts'
+import { CustomFieldsApiProvider } from '../../../components/custom-fields/custom-fields-api.tsx'
+import {
+  type FakeCustomFieldsApi,
+  fakeCustomFieldsApi,
+  fieldDef,
+  fieldGroup,
+} from '../../../components/custom-fields/fake-custom-fields-api.ts'
 import { fakeProjectsApi } from '../../../components/project-switcher/fake-projects-api.ts'
 import { fakeTimelineApi } from '../../../components/timeline/fake-timeline-api.ts'
 import { createI18n } from '../../../i18n/index.ts'
@@ -27,10 +34,13 @@ async function renderCard({
   api = fakeContactsApi(),
   kanban = fakeDealsApi(),
   contactId = CONTACT_ID,
+  fields = fakeCustomFieldsApi(),
 }: {
   api?: FakeContactsApi
   kanban?: FakeDealsApi
   contactId?: string
+  /** Пользовательские поля (тикет crm-fields/06); по умолчанию — ни одного. */
+  fields?: FakeCustomFieldsApi
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -45,7 +55,9 @@ async function renderCard({
   render(
     <I18nextProvider i18n={createI18n('uk')}>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <CustomFieldsApiProvider api={fields}>
+          <RouterProvider router={router} />
+        </CustomFieldsApiProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )
@@ -285,5 +297,33 @@ describe('карточка контакта: доступ', () => {
     await renderCard({ api })
     expect(screen.queryByRole('button', { name: 'Видалити' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Змінити' })).toBeTruthy()
+  })
+})
+
+describe('карточка контакта: пользовательские поля (тикет crm-fields/06)', () => {
+  it('группа полей контакта показана, значение правится на месте запросом контакта', async () => {
+    const api = fakeContactsApi()
+    const group = fieldGroup({ entity: 'contact', nameUk: 'Про клієнта' })
+    const store = { custom: {} as Record<string, unknown> }
+    const fields = fakeCustomFieldsApi({
+      groups: [group],
+      fields: [fieldDef({ entity: 'contact', groupId: group.id, code: 'hobby', nameUk: 'Хобі' })],
+      record: (_entity, id) => {
+        const found = api.contacts.find((contact) => contact.id === id)
+        return found ? Object.assign(found, store) : undefined
+      },
+    })
+    await renderCard({ api, fields })
+    const block = await screen.findByRole('region', { name: 'Про клієнта' })
+    fireEvent.click(within(block).getByRole('button', { name: 'Змінити «Хобі»' }))
+    const form = await within(block).findByRole('form', { name: 'Хобі' })
+    fireEvent.change(within(form).getByLabelText('Хобі'), { target: { value: 'Шахи' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Зберегти' }))
+    await waitFor(() =>
+      expect(within(block).getByRole('button', { name: 'Змінити «Хобі»' }).textContent).toBe(
+        'Шахи',
+      ),
+    )
+    expect(fields.saves).toEqual([{ entity: 'contact', id: CONTACT_ID, custom: { hobby: 'Шахи' } }])
   })
 })

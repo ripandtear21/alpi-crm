@@ -1,7 +1,8 @@
 # Поля в карточках сделки, контакта и организации
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T12:50Z
+Branch: crm-fields/06
 Blocked by: 02, 03
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 3); .scratch/crm-mvp/issues/06-custom-fields.md (Answer: группы, видимость по воронкам, «важное»); .scratch/crm-mvp/spec.md, раздел 5.2 («Пользовательские поля по группам, с учётом видимости по воронке и прав на группы»; «карточки контакта и организации устроены так же»); .scratch/crm-deals/issues/13-deal-card.md, 14-contact-org-cards.md
 
@@ -30,10 +31,18 @@ apps/web/src/components/custom-fields/**, apps/web/src/routes/deals/$dealId/**, 
 ## Done when
 
 - [ ] Тесты компонентов: редактор каждого из 15 типов показывает и сохраняет значение в формате тикета 02; ссылка `javascript:` не сохраняется и не становится ссылкой.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/components/custom-fields` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
 - [ ] Тест: в карточке сделки воронки A нет поля, видимого только в воронке B; после переноса сделки в B поле появляется со старым значением.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals/$dealId` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
 - [ ] Тест: поле группы «только чтение» не открывает редактор; поля скрытой группы нет в разметке карточки.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals/$dealId apps/web/src/components/custom-fields` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
 - [ ] Тест: пустое «важное» поле подсвечено, после заполнения подсветки нет.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/components/custom-fields` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
 - [ ] Тест: правка на месте при ответе 422 возвращает прежнее значение и показывает ошибку у поля.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/components/custom-fields` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
 - [ ] Тест: изменение поля появляется в ленте сделки «було → стало» с названием поля и варианта.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals/$dealId` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
 - [ ] Карточки проверены на ширине 375 px (снимок приложен к отчёту).
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 9999e22e4ecc37708ccb5a9840b20d0930da54ef
