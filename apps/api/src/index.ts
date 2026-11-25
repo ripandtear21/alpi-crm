@@ -42,8 +42,13 @@ const app = createApp({
   auth,
   db,
   bulk: { actions: bulkActions, enqueue: jobs.enqueueBulk },
-  // Окончательное удаление пользовательского поля — фоновая задача (fields/purge.ts).
-  fields: { enqueuePurge: jobs.enqueueFieldPurge, now: () => new Date() },
+  // Окончательное удаление пользовательского поля и смена типа поля с данными — фоновые задачи
+  // (fields/purge.ts, fields/retype.ts).
+  fields: {
+    enqueuePurge: jobs.enqueueFieldPurge,
+    enqueueRetype: jobs.enqueueFieldRetype,
+    now: () => new Date(),
+  },
   storage: localDiskStorage(env.storageDir),
 })
 

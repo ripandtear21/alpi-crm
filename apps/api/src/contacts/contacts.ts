@@ -1,5 +1,6 @@
 import type { ContactTable, Database } from '@alpi/db'
 import {
+  type CustomFieldErrorCode,
   normalizeEmail,
   normalizePhone,
   type ResourceScope,
@@ -16,6 +17,16 @@ import {
   purgeFromTrash,
   recordChanges,
 } from '../change-log/record.ts'
+import {
+  type CustomValues,
+  changesCustom,
+  customInsert,
+  customUpdate,
+  finishCustom,
+  prepareCustom,
+  readCustomInput,
+  visibleCustom,
+} from '../fields/values.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
 import {
@@ -81,6 +92,8 @@ export type ContactsErrorCode =
   | 'ORGANIZATION_NOT_FOUND'
   /** Восстановить или окончательно удалить можно только запись из корзины. */
   | 'NOT_IN_TRASH'
+  /** Значения пользовательских полей (`custom`, fields/values.ts). */
+  | CustomFieldErrorCode
 
 type Result<T> = Outcome<T, ContactsErrorCode>
 
@@ -100,6 +113,8 @@ export interface ContactView {
   phones: string[]
   /** В нижнем регистре, основной — первым. */
   emails: string[]
+  /** Значения пользовательских полей по коду (fields/values.ts). */
+  custom: CustomValues
   createdBy: string | null
   createdAt: string
   updatedAt: string
@@ -128,6 +143,8 @@ interface ContactInput {
   organizationId?: string | null
   phones?: string[]
   emails?: string[]
+  /** Значения пользовательских полей: меняются только переданные коды. */
+  custom?: CustomValues
 }
 
 const INPUT_FIELDS = new Set([
@@ -137,6 +154,7 @@ const INPUT_FIELDS = new Set([
   'organizationId',
   'phones',
   'emails',
+  'custom',
 ])
 
 /** Список ключей: строки, не больше MAX_KEYS, нормализованные и без повторов. */
@@ -195,6 +213,9 @@ function parseInput(body: Record<string, unknown>, create: boolean): Result<Cont
     if (!keys.ok) return keys
     input[field] = keys.value
   }
+  const custom = readCustomInput(body.custom)
+  if (custom === null) return invalid('custom')
+  if (custom !== undefined) input.custom = custom
   if (!create && Object.keys(input).length === 0) return invalid('')
   return ok(input)
 }
@@ -279,7 +300,12 @@ async function contactViews(db: Kysely<Database>, rows: ContactRow[]): Promise<C
   }
   const phonesOf = group(phones)
   const emailsOf = group(emails)
-  return rows.map((row) => ({
+  const custom = await visibleCustom(
+    db,
+    'contact',
+    rows.map((row) => row.custom),
+  )
+  return rows.map((row, index) => ({
     id: row.id,
     firstName: row.first_name,
     lastName: row.last_name,
@@ -288,6 +314,7 @@ async function contactViews(db: Kysely<Database>, rows: ContactRow[]): Promise<C
     possibleDuplicate: row.possible_duplicate,
     phones: phonesOf.get(row.id) ?? [],
     emails: emailsOf.get(row.id) ?? [],
+    custom: custom[index] ?? {},
     createdBy: row.created_by,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -423,6 +450,8 @@ async function createContact(
   if (input.organizationId && !(await organizationExists(ctx.db, input.organizationId))) {
     return refuse(404, 'ORGANIZATION_NOT_FOUND')
   }
+  const custom = await prepareCustom(ctx.db, 'contact', {}, input.custom ?? {})
+  if (!custom.ok) return custom
   const keys = await checkKeys(ctx, input.phones ?? [], input.emails ?? [])
   if (!keys.ok) return keys
   const row = await ctx.db
@@ -434,11 +463,13 @@ async function createContact(
       language: input.language ?? null,
       organization_id: input.organizationId ?? null,
       possible_duplicate: keys.value.emailMatched,
+      custom: customInsert(custom.value),
       created_by: ctx.actorId,
     })
     .returningAll()
     .executeTakeFirstOrThrow()
   await replaceKeys(ctx, row.id, input)
+  await finishCustom(ctx, { type: 'contact', id: row.id }, custom.value, { history: false })
   return ok(await contactView(ctx.db, row))
 }
 
@@ -458,6 +489,8 @@ async function updateContact(
   ) {
     return refuse(404, 'ORGANIZATION_NOT_FOUND')
   }
+  const custom = await prepareCustom(ctx.db, 'contact', row.custom, input.custom ?? {})
+  if (!custom.ok) return custom
   const keys = await checkKeys(ctx, input.phones ?? [], input.emails ?? [], id)
   if (!keys.ok) return keys
   const before = await contactView(ctx.db, row)
@@ -468,6 +501,7 @@ async function updateContact(
       ...(input.lastName === undefined ? {} : { last_name: input.lastName }),
       ...(input.language === undefined ? {} : { language: input.language }),
       ...(input.organizationId === undefined ? {} : { organization_id: input.organizationId }),
+      ...(changesCustom(custom.value) ? { custom: customUpdate(custom.value) } : {}),
       possible_duplicate: row.possible_duplicate || keys.value.emailMatched,
       updated_at: sql`now()`,
     })
@@ -476,6 +510,7 @@ async function updateContact(
   await replaceKeys(ctx, id, input)
   const after = await contactView(ctx.db, await reload(ctx, id))
   await recordChanges(ctx, { type: 'contact', id }, diffFields(before, after, LOGGED_FIELDS))
+  await finishCustom(ctx, { type: 'contact', id }, custom.value, { history: true })
   return ok(after)
 }
 

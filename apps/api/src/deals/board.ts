@@ -3,6 +3,7 @@ import { type FilterGroup, type ListCount, type ListSort, parseSort } from '@alp
 import { type Expression, type ExpressionBuilder, type SqlBool, sql } from 'kysely'
 import { type Ctx, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
+import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { compileDealFilter, readFilterParam } from '../filters/compile.ts'
 import {
   afterPosition,
@@ -74,6 +75,8 @@ export interface BoardDeal {
   wonAt: string | null
   lostAt: string | null
   archivedAt: string | null
+  /** Значения пользовательских полей по коду (fields/values.ts). */
+  custom: CustomValues
 }
 
 export interface DealsPage {
@@ -309,6 +312,7 @@ export async function listDealsPage(
       'deal.won_at',
       'deal.lost_at',
       'deal.archived_at',
+      'deal.custom',
     ])
     .select(timeKey('deal.stage_changed_at').text.as('stage_changed_at'))
     .select(key.text.as('sort_value'))
@@ -368,9 +372,14 @@ export async function listDealsPage(
             .execute()
         ).map((row) => [row.id, row.name]),
   )
+  const custom = await visibleCustom(
+    ctx.db,
+    'deal',
+    page.map((row) => row.custom),
+  )
 
   return {
-    items: page.map((row) => ({
+    items: page.map((row, index) => ({
       id: row.id,
       title: row.title,
       pipelineId: row.pipeline_id,
@@ -391,6 +400,7 @@ export async function listDealsPage(
       wonAt: isoOrNull(row.won_at),
       lostAt: isoOrNull(row.lost_at),
       archivedAt: isoOrNull(row.archived_at),
+      custom: custom[index] ?? {},
     })),
     nextCursor,
   }

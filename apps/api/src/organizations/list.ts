@@ -16,6 +16,7 @@ import {
   readLanguage,
   UTF8_BOM,
 } from '../export/csv.ts'
+import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { compileFilter, readFilterParam } from '../filters/compile.ts'
 import {
   afterPosition,
@@ -43,6 +44,8 @@ export interface OrganizationListItem {
   name: string
   address: string | null
   website: string | null
+  /** Значения пользовательских полей по коду (fields/values.ts). */
+  custom: CustomValues
   createdAt: string
   updatedAt: string
 }
@@ -110,6 +113,7 @@ export async function listOrganizationsPage(
       'organization.name',
       'organization.address',
       'organization.website',
+      'organization.custom',
       'organization.created_at',
       'organization.updated_at',
     ])
@@ -121,12 +125,18 @@ export async function listOrganizationsPage(
   const rows = await query.execute()
   const page = rows.slice(0, limit)
   const last = page.at(-1)
+  const custom = await visibleCustom(
+    db,
+    'organization',
+    page.map((row) => row.custom),
+  )
   return {
-    items: page.map((row) => ({
+    items: page.map((row, index) => ({
       id: row.id,
       name: row.name,
       address: row.address,
       website: row.website,
+      custom: custom[index] ?? {},
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
     })),

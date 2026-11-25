@@ -21,6 +21,7 @@ import {
   readLanguage,
   UTF8_BOM,
 } from '../export/csv.ts'
+import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { compileFilter, readFilterParam } from '../filters/compile.ts'
 import {
   afterPosition,
@@ -60,6 +61,8 @@ export interface ContactListItem {
   organizationName: string | null
   language: string | null
   possibleDuplicate: boolean
+  /** Значения пользовательских полей по коду (fields/values.ts). */
+  custom: CustomValues
   createdAt: string
   updatedAt: string
 }
@@ -160,6 +163,7 @@ export async function listContactsPage(
       'contact.organization_id',
       'contact.language',
       'contact.possible_duplicate',
+      'contact.custom',
       'contact.created_at',
       'contact.updated_at',
     ])
@@ -212,8 +216,13 @@ export async function listContactsPage(
             .execute()
         ).map((row) => [row.id, row.name]),
   )
+  const custom = await visibleCustom(
+    ctx.db,
+    'contact',
+    page.map((row) => row.custom),
+  )
   return {
-    items: page.map((row) => ({
+    items: page.map((row, index) => ({
       id: row.id,
       firstName: row.first_name,
       lastName: row.last_name,
@@ -224,6 +233,7 @@ export async function listContactsPage(
         row.organization_id === null ? null : (organizations.get(row.organization_id) ?? null),
       language: row.language,
       possibleDuplicate: row.possible_duplicate,
+      custom: custom[index] ?? {},
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
     })),

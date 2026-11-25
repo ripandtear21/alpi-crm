@@ -12,6 +12,7 @@ import type { Transaction } from 'kysely'
 import { type Ctx, optionalText, type Refusal, refuse, requiredText } from '../contacts/http.ts'
 import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
 import type { FieldPurgeMessage } from './purge.ts'
+import type { FieldRetypeMessage } from './retype.ts'
 
 // Общее для маршрутов конструктора полей (тикет crm-fields/01): право смотреть сущность,
 // разбор названий, ответы с кодом ошибки, зависимости (очередь и часы).
@@ -78,14 +79,22 @@ export function unknownKey(body: Record<string, unknown>, allowed: string[]): st
 export interface FieldsDeps {
   /** Ставит окончательное удаление поля в очередь той же транзакцией проекта (jobs/jobs.ts). */
   enqueuePurge(trx: Transaction<Database>, message: FieldPurgeMessage): Promise<void>
+  /** Ставит смену типа поля с данными в очередь той же транзакцией проекта (jobs/jobs.ts). */
+  enqueueRetype(trx: Transaction<Database>, message: FieldRetypeMessage): Promise<void>
   /** Текущее время: отметка архива и срок 30 дней до окончательного удаления. */
   now(): Date
 }
 
-/** Без очереди: окончательное удаление поля с данными отвечает ошибкой (500). */
+const noJobs = async () => {
+  throw new Error('очередь фоновых задач не подключена')
+}
+
+/**
+ * Без очереди: окончательное удаление поля с данными и смена типа с переписыванием значений
+ * отвечают ошибкой (500).
+ */
 export const NO_FIELD_JOBS: FieldsDeps = {
-  enqueuePurge: async () => {
-    throw new Error('очередь фоновых задач не подключена')
-  },
+  enqueuePurge: noJobs,
+  enqueueRetype: noJobs,
   now: () => new Date(),
 }

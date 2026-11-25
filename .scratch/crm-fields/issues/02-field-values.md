@@ -1,7 +1,7 @@
 # Значения полей: хранение, проверка по типу, API значений, история
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T11:02Z
 Blocked by: 01
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 2; «изменения полей пишутся в историю сделки „было → стало“»); .scratch/crm-mvp/issues/06-custom-fields.md (Answer: типы, варианты, смена типа, фильтры и скорость); .scratch/crm-mvp/spec.md, разделы 3.3, 10 (JSONB + GIN `jsonb_path_ops`)
 
