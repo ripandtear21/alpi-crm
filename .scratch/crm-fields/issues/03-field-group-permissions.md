@@ -34,12 +34,20 @@ packages/shared/src/permissions.ts, apps/api/src/roles/** (guard.ts, прове�
 ## Done when
 
 - [ ] Тест каталога: `parsePermissions` принимает `{ группа: 'read' }` и отклоняет неизвестный доступ; сервер отклоняет id группы чужого проекта (422); тест `apps/api/src/roles/roles.test.ts` про обязательно пустой `fieldGroups` заменён тестом нового поведения.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/roles/roles.test.ts` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
 - [ ] Тест: группа без записи даёт `edit` роли с правом изменять сделки и `read` роли только с правом смотреть.
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/permissions.test.ts apps/api/src/fields/access.test.ts` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
 - [ ] Тест: администратору нельзя записать `read` или `hidden` (422); не-администратор с `read` на группу не выдаёт другой роли `edit` на неё (403).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/roles/roles.test.ts` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
 - [ ] Тест скрытия под ролью с `hidden`: описания, `GET /api/v1/deals/:id`, ответы контакта и организации и история сделки не содержат ни кода, ни названия, ни значения скрытого поля (проверка по строке ответа целиком).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/access.test.ts` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
 - [ ] Тест записи: поле группы `read` — 403; поле группы `hidden` — 422 тем же телом, что неизвестный код; после изменения другого поля значение скрытого поля в базе сохранилось.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/access.test.ts` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
 - [ ] Тест изоляции: права на группы проекта A не влияют на группы проекта B.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/access.test.ts apps/api/src/roles/roles.test.ts` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
+  - evidence: gate pass · `gate fast` exit 0 · windows - · c604ea4e2010ce1f47ba22839f560e41c2591f76
 
 ## Результат
 
