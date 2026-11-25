@@ -3,6 +3,7 @@ import { PIPELINE_CODE, type PipelineSummary, type StageSummary } from '@alpi/sh
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
+import { moveRulesOffStage } from '../fields/stage-rules.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint } from '../roles/roles.ts'
 import {
@@ -25,7 +26,8 @@ import type { StageDealsChecker } from './stage-deals.ts'
 // Код воронки уникален в проекте, «воронка допродаж» — не больше одной: это держит база
 // (migrations/0008_pipelines.ts). Каждое изменение пишется в журнал проекта той же транзакцией.
 // Ни один запрос не трогает сделки (ADR 0003): архив воронки и удаление этапа меняют только
-// отметку.
+// отметку; удаление этапа ещё переводит правила обязательности полей на следующий этап
+// (fields/stage-rules.ts).
 
 interface PipelineRow {
   id: string
@@ -385,6 +387,9 @@ async function deleteStage(c: Ctx, stageDeals: StageDealsChecker) {
   const stage = pipeline && (await lockStage(db, pipeline.id, c.req.param('stageId') ?? ''))
   if (!pipeline || !stage) return fail(c, 404, 'NOT_FOUND')
   if (await stageDeals.hasOpenDeals(db, stage.id)) return fail(c, 409, 'STAGE_HAS_OPEN_DEALS')
+  // Правила «обязательно с этапа» — на следующий этап до отметки: база не даёт удалить этап, на
+  // который ссылается правило (crm-fields/01).
+  const movedFieldRules = await moveRulesOffStage(db, pipeline.id, stage.id)
   // Мягкое удаление: закрытые сделки на этапе остаются, в канбане и списках этапа нет.
   await db
     .updateTable('stage')
@@ -394,7 +399,11 @@ async function deleteStage(c: Ctx, stageDeals: StageDealsChecker) {
   await recordInRequest(c, {
     action: 'stage.deleted',
     entity: { type: 'stage', id: stage.id },
-    details: { pipeline: pipeline.name, before: { name: stage.name } },
+    details: {
+      pipeline: pipeline.name,
+      before: { name: stage.name },
+      ...(movedFieldRules > 0 ? { movedFieldRules } : {}),
+    },
   })
   return c.body(null, 204)
 }

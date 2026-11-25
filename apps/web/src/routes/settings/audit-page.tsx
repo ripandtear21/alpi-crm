@@ -147,6 +147,26 @@ function useSummary() {
         return `${text(entry.details.group)}: ${t('summary.reordered')}`
       case 'project.preset_applied':
         return t('summary.presetApplied', { preset: text(entry.details.preset) })
+      // Тикет crm-fields/01: конструктор полей; в подробностях — название (и код) поля.
+      case 'field_group.reordered':
+      case 'field.reordered':
+        return t('summary.reordered')
+      case 'field_group.created':
+      case 'field_group.updated':
+      case 'field_group.deleted':
+      case 'field.created':
+      case 'field.updated':
+      case 'field.archived':
+      case 'field.restored':
+      case 'field.deleted':
+      case 'field.purge_requested':
+      case 'field.purged':
+      case 'field_option.created':
+      case 'field_option.updated':
+      case 'field_option.reordered': {
+        const code = text(entry.details.code)
+        return code === '' ? text(entry.details.name) : `${text(entry.details.name)} (${code})`
+      }
     }
   }
 }

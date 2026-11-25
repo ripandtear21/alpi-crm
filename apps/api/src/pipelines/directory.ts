@@ -67,7 +67,15 @@ export function isoOrNull(value: Date | string | null): string | null {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
 }
 
-type OrderedTable = 'pipeline' | 'stage' | 'lost_reason_group' | 'lost_reason'
+type OrderedTable =
+  | 'pipeline'
+  | 'stage'
+  | 'lost_reason_group'
+  | 'lost_reason'
+  // Конструктор полей (apps/api/src/fields).
+  | 'field_group'
+  | 'field_definition'
+  | 'field_option'
 
 /**
  * Переставляет записи `current` (id в нынешнем порядке, строки уже заблокированы) в порядок

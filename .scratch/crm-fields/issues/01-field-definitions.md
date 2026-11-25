@@ -1,7 +1,7 @@
 # Описания полей и групп: база, API, коды, варианты, архив
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T10:21Z
 Blocked by: —
 Source: .scratch/crm-build/issues/02-fields-epic-scope.md (Answer, волна 1); .scratch/crm-mvp/issues/06-custom-fields.md (Answer); .scratch/crm-mvp/spec.md, разделы 3.2 (`field_group`, `field_definition`, `field_option`), 3.3, 13.0.3 (пункты 1, 11, 36)
 
@@ -43,3 +43,21 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/fields
 - [ ] Тест архива: поле с данными при удалении уходит в архив, а не удаляется; окончательное удаление раньше 30 дней — 409; после — задача убирает ключ из `custom` всех записей, описание удалено, код снова свободен, запись в журнале опасных действий есть. Поле без данных удаляется сразу.
 - [ ] Тест: группу с полем удалить нельзя (409), пустую — можно.
 - [ ] `pnpm verify` зелёный.
+
+## Результат
+
+- Миграция `packages/db/migrations/0016_fields.ts`: таблицы `field_group`, `field_definition`, `field_option` и ещё две для ссылок с внешними ключами — `field_pipeline` (воронки, где видно поле сделки) и `field_required_stage` (правило «обязательно с этапа»: этап воронки или `null` — «выигрыш»). У всех `project_id`, политика `project_isolation`, составные внешние ключи `(project_id, id)`: группу, поле, воронку и этап другого проекта указать нельзя. Колонка `custom` у `deal`, `contact`, `organization` (см. ниже). Откат проверен тестом `project-isolation.test.ts` (вниз до пустой схемы и снова вверх); в цепочку отката `deals.test.ts` 0016 добавлена первой.
+- Правила в базе (на случай записи в обход API): формат кода, запрет кодов системных полей (снимок списка из `packages/shared`; тест сверяет снимок со списком), уникальность кода в проекте и сущности; триггер `field_definition_guard` — код не меняется после `first_value_at` и при отметке «часто фильтруют», тип не меняется после `first_value_at`, поле с данными удаляется не раньше 30 дней после архива; варианты — только у типов со списком, удалять варианты роли приложения нельзя (нет права `DELETE`); видимость и «с этапа» — только у полей сделки; правило — на видимой воронке и действующем этапе; удалить этап, на который ссылается правило, нельзя, пока правило не перенесено. Коды отказов базы `FD001`–`FD006`.
+- `packages/shared/src/fields/`: 15 типов, сущности, коды системных полей, `fieldCodeProblem`, `fieldCodeFromName` (транслитерация по таблице КМУ 2010: «Головний мотив» → `holovnyi_motyv`), `offeredOptions`, `fieldCodeEditable`, типы ответов и коды ошибок.
+- API (`apps/api/src/fields/`): `/api/v1/field-groups` — список `?entity=`, создать, изменить, `PUT /order`, удалить (группа с полями — 409 `FIELD_GROUP_NOT_EMPTY`); `/api/v1/fields` — список `?entity=` (архивные — с `includeArchived=true`), `GET /:id`, создать, изменить, `PUT /order` (по группе, среди неархивных), `POST /:id/archive`, `POST /:id/restore`, `DELETE /:id`; варианты — `POST /:id/options`, `PUT /:id/options/order`, `PUT /:id/options/:optionId` (название и `archived`). Чтение — с правом смотреть сущность, изменения — право `fields` (create / edit / delete). Каждое изменение пишется в журнал проекта (`field_group.*`, `field.*`, `field_option.*`).
+- Код по умолчанию — из украинского названия; занятый (или код системного поля) получает суффикс `_2`, `_3`… Код, заданный пользователем: не по формату — 422 `FIELD_CODE_INVALID`, системный — 422 `FIELD_CODE_RESERVED`, дубликат — 422 `FIELD_CODE_TAKEN`; смена после первого значения или при «часто фильтруют» — 409 `FIELD_CODE_LOCKED`. Смена типа поля с `first_value_at` — 409 `FIELD_TYPE_LOCKED`.
+- `DELETE /fields/:id`: без значений — удаляется сразу (204); со значениями — в архив (200); архивное со значениями — раньше 30 дней после архива 409 `FIELD_PURGE_TOO_EARLY` (с `availableAt`), позже — 202 и фоновая задача pg-boss `field-purge` (`apps/api/src/fields/purge.ts`, `apps/api/src/jobs/jobs.ts`): порциями по 500 записей, каждая в своей транзакции проекта, убирает ключ из `custom` (только `custom`, `updated_at` не трогает), потом удаляет описание и пишет `field.purged`; сам запрос пишет `field.purge_requested`. Пока удаление идёт, поле не меняется и не возвращается из архива (409 `FIELD_PURGE_PENDING`). Часы API подставляются (`AppDeps.fields.now`), тест проверяет срок без ожидания.
+- Удаление этапа (`apps/api/src/pipelines/pipelines.ts`) до отметки `deleted_at` переводит правила «с этапа» на следующий действующий этап воронки, с последнего — на «выигрыш»; число переведённых правил — в записи журнала `stage.deleted`.
+- Вне списка файлов тикета, но нужно для работы: `apps/api/src/index.ts` (очередь окончательного удаления подключена к API), `apps/api/src/pipelines/directory.ts` (общая перестановка порядка знает таблицы полей), `apps/web/src/routes/settings/audit-page.tsx` и `apps/web/src/locales/{uk,ru}/audit.json` (подписи новых кодов журнала — без них не проходит проверка типов клиента).
+
+Решено без владельца — подтвердить:
+
+- Колонка `custom jsonb not null default '{}'` с проверкой «объект JSON» у `deal`, `contact`, `organization` добавлена этим тикетом (без GIN-индекса и без проверки значений): окончательное удаление поля должно убирать ключ из `custom`. GIN-индекс `jsonb_path_ops` и проверку значений добавляет тикет 02.
+- Список кодов системных полей (`SYSTEM_FIELD_CODES`): общие для всех сущностей служебные (`id`, `custom`, `created_at`, `archived`…) и свои у каждой сущности (сделка: `title`, `stage`, `amount`, `currency`, `owner`, `status`…; контакт: `name`, `first_name`, `phone`, `email`, `language`…; организация: `name`, `address`, `website`…).
+- Тип поля с вариантами нельзя сменить на тип без вариантов (409 `FIELD_HAS_OPTIONS`), даже пока значений нет: варианты не удаляются. Такое поле без значений удаляется сразу и заводится заново.
+- Порядок полей в группе (`PUT /fields/order`) переставляет только неархивные поля; архивные хранят свою позицию.
