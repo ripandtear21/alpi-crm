@@ -146,7 +146,8 @@ export interface DealCardApi {
   upsell(
     projectId: string,
     dealId: string,
-    input: { pipelineId: string; title: string },
+    /** `custom` — обязательные поля новой сделки на первом этапе воронки (тикет crm-fields/04). */
+    input: { pipelineId: string; title: string; custom?: Record<string, unknown> },
   ): Promise<DealCard>
   addParticipant(
     projectId: string,

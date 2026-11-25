@@ -53,7 +53,7 @@ export interface FakeDealCardApi extends DealCardApi {
    * смена этапа или выигрыш отвечают 422 STAGE_REQUIREMENTS_MISSING, как API.
    */
   required: Record<string, string[]>
-  /** Значения `custom`, ушедшие со сменой этапа и выигрышем. */
+  /** Значения `custom`, ушедшие со сменой этапа, выигрышем и допродажей. */
   sentCustom: Record<string, unknown>[]
 }
 
@@ -323,6 +323,18 @@ export function fakeDealCardApi({
       openConflict(source.primaryContactId, input.pipelineId)
       api.calls.push('upsell')
       const pipeline = api.pipelineList.find((item) => item.id === input.pipelineId)
+      // Обязательные поля первого этапа новой сделки — как у API (тикет crm-fields/04).
+      if (input.custom) api.sentCustom.push(input.custom)
+      const missing = (api.required[pipeline?.stages[0]?.id ?? ''] ?? []).filter(
+        (code) => input.custom?.[code] === undefined,
+      )
+      if (missing.length > 0) {
+        throw new DealCardApiError(422, 'STAGE_REQUIREMENTS_MISSING', {
+          fields: missing,
+          names: missing.map((code) => ({ code, nameUk: code, nameRu: null })),
+          hiddenCount: 0,
+        })
+      }
       const created = sampleDeal({
         id: fakeId(),
         title: input.title,
@@ -333,6 +345,7 @@ export function fakeDealCardApi({
         participants: [],
         products: [],
         productsTotal: 0,
+        custom: input.custom ?? {},
       })
       api.deals.push(created)
       return structuredClone(created)

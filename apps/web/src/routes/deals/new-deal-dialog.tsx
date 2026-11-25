@@ -7,8 +7,10 @@ import {
   collectRequired,
   type RequiredFieldProblem,
   readRequiredFieldsMissing,
+  requiredAlways,
   requiredDrafts,
   requiredOnStage,
+  splitByAccess,
 } from '../../components/custom-fields/required-fields.ts'
 import {
   RequiredFieldInputs,
@@ -37,9 +39,10 @@ import {
 // и этап, название (предзаполнено «Ім'я Прізвище — »), сумма и валюта, ответственный (по
 // умолчанию я). «Чужой клиент» показывается текстом «клієнт уже в роботі у <менеджер>» без
 // его данных; «одна открытая сделка» — подсказкой со ссылкой на открытую сделку, если она видна.
-// Обязательные пользовательские поля (тикет crm-fields/04): поля «всегда» и обязательные на
-// выбранном этапе выбранной воронки — сразу в форме; без них запрос не уходит. Остальное (поля
-// «всегда» нового контакта, скрытые от роли) решает сервер: отказ 422 — текстом со списком.
+// Обязательные пользовательские поля (тикет crm-fields/04): поля сделки «всегда» и обязательные
+// на выбранном этапе выбранной воронки, а у нового контакта — его поля «всегда»; сразу в форме,
+// без них запрос не уходит. Поля групп «только чтение» — строкой, без правки и без отправки.
+// Остальное (поля скрытых от роли групп) решает сервер: отказ 422 — текстом со списком.
 
 const AMOUNT = /^\d{1,12}([.,]\d{1,2})?$/
 
@@ -102,10 +105,35 @@ export function NewDealDialog({
     queryFn: () => api.fields(projectId),
     retry: false,
   })
-  const required = pipeline ? requiredOnStage(fields.data ?? [], pipeline, stageId) : []
+  // Поля «всегда» нового контакта: описания грузятся сразу с формой, чтобы к нажатию «Новий
+  // контакт» они уже были.
+  const contactFields = useQuery({
+    queryKey: projectQueryKey(projectId, 'deals', 'contact-fields'),
+    queryFn: () => api.contactFields(projectId),
+    retry: false,
+  })
+  // Права роли: поля групп «только чтение» не заполняются (тот же ключ, что у карточек).
+  const access = useQuery({
+    queryKey: projectQueryKey(projectId, 'access'),
+    queryFn: () => api.access(projectId),
+    retry: false,
+  })
+  const permissions = access.data?.permissions ?? null
+  const { editable: required, readOnly } = splitByAccess(
+    pipeline ? requiredOnStage(fields.data ?? [], pipeline, stageId) : [],
+    permissions,
+  )
   const [edited, setEdited] = useState<Record<string, FieldDraft>>({})
   const drafts = { ...requiredDrafts(required), ...edited }
   const [problems, setProblems] = useState<Record<string, RequiredFieldProblem>>({})
+  const { editable: contactRequired, readOnly: contactReadOnly } = splitByAccess(
+    isNewContact ? requiredAlways(contactFields.data ?? []) : [],
+    permissions,
+  )
+  // Отдельно от полей сделки: коды полей уникальны только внутри сущности.
+  const [contactEdited, setContactEdited] = useState<Record<string, FieldDraft>>({})
+  const contactDrafts = { ...requiredDrafts(contactRequired), ...contactEdited }
+  const [contactProblems, setContactProblems] = useState<Record<string, RequiredFieldProblem>>({})
 
   const text = search.trim()
   const suggestions = useQuery({
@@ -125,6 +153,12 @@ export function NewDealDialog({
   const ownerOptions = owners.some((o) => o.id === userId)
     ? owners
     : [{ id: userId, name: '' }, ...owners]
+  // Варианты полей типа «користувач»: возможные ответственные.
+  const members = ownerOptions.map((o) => ({
+    userId: o.id,
+    name: o.name || t('newDeal.meOnly'),
+    disabled: false,
+  }))
 
   function errorFor(failure: unknown): FormError {
     if (!(failure instanceof DealsApiError)) return { text: t('errors.unknown') }
@@ -183,9 +217,13 @@ export function NewDealDialog({
       return
     }
     if (!pipeline) return
+    // Описания полей нового контакта ещё грузятся — его поля «всегда» неизвестны: ждём.
+    if (isNewContact && contactFields.isPending) return
     const collected = collectRequired(required, drafts)
     setProblems(collected.ok ? {} : collected.problems)
-    if (!collected.ok) {
+    const contactCollected = collectRequired(contactRequired, contactDrafts)
+    setContactProblems(contactCollected.ok ? {} : contactCollected.problems)
+    if (!collected.ok || !contactCollected.ok) {
       setError({ text: t('newDeal.requiredFields') })
       return
     }
@@ -202,6 +240,9 @@ export function NewDealDialog({
               firstName: firstName.trim(),
               lastName: lastName.trim() || null,
               phones: phone.trim() === '' ? [] : [phone.trim()],
+              ...(Object.keys(contactCollected.custom).length > 0
+                ? { custom: contactCollected.custom }
+                : {}),
             },
           }
         : { contactId: chosen?.id ?? '' }),
@@ -231,6 +272,21 @@ export function NewDealDialog({
         <Field label={t('newDeal.phone')}>
           <Input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
+        {contactRequired.length + contactReadOnly.length > 0 && (
+          <fieldset className="kanban-form__required">
+            <legend>{t('fill.contact')}</legend>
+            <RequiredFieldInputs
+              fields={contactRequired}
+              readOnly={contactReadOnly}
+              drafts={contactDrafts}
+              onDraft={(fieldCode, draft) =>
+                setContactEdited((current) => ({ ...current, [fieldCode]: draft }))
+              }
+              problems={contactProblems}
+              members={members}
+            />
+          </fieldset>
+        )}
         <Button variant="quiet" size="sm" onClick={() => setIsNewContact(false)}>
           {t('newDeal.existingContact')}
         </Button>
@@ -314,21 +370,18 @@ export function NewDealDialog({
             ))}
           </Select>
         </Field>
-        {required.length > 0 && (
+        {required.length + readOnly.length > 0 && (
           <fieldset className="kanban-form__required">
             <legend>{t('fill.create')}</legend>
             <RequiredFieldInputs
               fields={required}
+              readOnly={readOnly}
               drafts={drafts}
               onDraft={(fieldCode, draft) =>
                 setEdited((current) => ({ ...current, [fieldCode]: draft }))
               }
               problems={problems}
-              members={ownerOptions.map((o) => ({
-                userId: o.id,
-                name: o.name || t('newDeal.meOnly'),
-                disabled: false,
-              }))}
+              members={members}
             />
           </fieldset>
         )}

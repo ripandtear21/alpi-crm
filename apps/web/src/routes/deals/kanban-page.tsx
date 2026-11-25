@@ -269,6 +269,13 @@ function Board({
     enabled: pipeline !== undefined,
     retry: false,
   })
+  // Права роли: поля групп «только чтение» форма заполнения показывает без правки (тикет
+  // crm-fields/04). Тот же ключ, что у карточки сделки и списков: один запрос на проект.
+  const access = useQuery({
+    queryKey: projectQueryKey(projectId, 'access'),
+    queryFn: () => api.access(projectId),
+    retry: false,
+  })
   const customFields = liveFields(fields.data)
   const cardFields = (cardFieldIds.data?.fieldIds ?? []).flatMap((id) =>
     customFields.filter((f) => f.id === id),
@@ -594,6 +601,7 @@ function Board({
           missing={filling.missing}
           fields={customFields}
           values={filling.deal.custom ?? {}}
+          permissions={access.data?.permissions ?? null}
           members={(owners.data ?? []).map((o) => ({
             userId: o.id,
             name: o.name,

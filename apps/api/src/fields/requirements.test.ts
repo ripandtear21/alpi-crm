@@ -494,6 +494,59 @@ describe('обязательность пользовательских поле
       await json(await call('PUT', `/contacts/${contact.id}`, { lastName: 'Прізвище' }))
       await json(await call('PUT', `/contacts/${contact.id}`, { custom: { contact_note: 'інше' } }))
     })
+
+    it('очистка вместе с действием, которое сделку не двигает (тот же этап, повторный выигрыш, перенос на то же место), — 422, значения на месте', async () => {
+      const call = as(admin, project)
+      const [first, second] = pipeline.stages as [string, string]
+      const id = await seedDeal(project, pipeline.id, first, {
+        custom: { deal_always: 'є', deal_note: 'було' },
+      })
+      const clear = { deal_always: null, deal_note: 'інше' }
+      const expectKept = async () =>
+        expect(await stored(id)).toMatchObject({
+          pipeline_id: pipeline.id,
+          stage_id: first,
+          custom: { deal_always: 'є', deal_note: 'було' },
+        })
+
+      const sameStage = await refusal(
+        await call('POST', `/deals/${id}/stage`, { stageId: first, custom: clear }),
+      )
+      expect(sameStage.code).toBe('REQUIRED_FIELDS_MISSING')
+      expect(sameStage.details?.fields).toEqual(['deal_always'])
+      await expectKept()
+
+      const sameplace = await refusal(
+        await call('POST', `/deals/${id}/move`, {
+          pipelineId: pipeline.id,
+          stageId: first,
+          custom: clear,
+        }),
+      )
+      expect(sameplace.code).toBe('REQUIRED_FIELDS_MISSING')
+      await expectKept()
+
+      // Смена этапа с очисткой — тоже отказ (а не 422 этапа с другим списком).
+      const otherStage = await refusal(
+        await call('POST', `/deals/${id}/stage`, { stageId: second, custom: clear }),
+      )
+      expect(otherStage.code).toBe('REQUIRED_FIELDS_MISSING')
+      await expectKept()
+
+      expect((await json<DealView>(await call('POST', `/deals/${id}/win`))).status).toBe('won')
+      const wonAgain = await refusal(await call('POST', `/deals/${id}/win`, { custom: clear }))
+      expect(wonAgain.code).toBe('REQUIRED_FIELDS_MISSING')
+      expect(await stored(id)).toMatchObject({
+        status: 'won',
+        custom: { deal_always: 'є', deal_note: 'було' },
+      })
+
+      // Без очистки те же действия проходят и пишут значения.
+      const kept = await json<DealView>(
+        await call('POST', `/deals/${id}/win`, { custom: { deal_note: 'нове' } }),
+      )
+      expect(kept.custom).toEqual({ deal_always: 'є', deal_note: 'нове' })
+    })
   })
 
   describe('скрытое от роли', () => {

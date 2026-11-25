@@ -683,6 +683,13 @@ async function placeDeal(
   const changed = await changeDeal(ctx, id, async (row) => {
     const prepared = await prepareCustom(ctx, 'deal', row.custom, customInput ?? {})
     if (!prepared.ok) return prepared
+    // Поле «всегда» не очищается ни на одном пути, как в updateDeal: проверка до `place`, потому
+    // что `place` ничего не проверяет, когда сделка уже стоит там, куда её ставят (тот же этап,
+    // повторный выигрыш, перенос в ту же воронку на тот же этап), а значения всё равно пишутся.
+    const cleared = requiredFieldsOutcome(
+      await clearedRequired(ctx, 'deal', row.pipeline_id, prepared.value),
+    )
+    if (!cleared.ok) return cleared
     const set = await place(row, customAfter(row.custom, prepared.value))
     if (!set.ok) return set
     custom = prepared.value

@@ -189,6 +189,44 @@ describe('карточка сделки: статусы', () => {
     expect(api.deals[0]?.custom).toEqual({ budget: '700' })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
+
+  it('поле группы «только чтение» в форме заполнения — без правки, с пояснением, не отправляется', async () => {
+    const api = fakeDealCardApi()
+    api.required = { [STAGES.decision]: ['budget', 'contract'] }
+    const group = fieldGroup()
+    const locked = fieldGroup({ nameUk: 'Бухгалтерія', position: 2 })
+    api.me.permissions.fieldGroups[locked.id] = 'read'
+    const fields = fakeCustomFieldsApi({
+      groups: [group, locked],
+      fields: [
+        fieldDef({ groupId: group.id, code: 'budget', nameUk: 'Бюджет' }),
+        fieldDef({ groupId: locked.id, code: 'contract', nameUk: 'Договір' }),
+      ],
+    })
+    await renderCard({ api, fields })
+    const path = screen.getByRole('list', { name: 'Етапи воронки' })
+    fireEvent.click(within(path).getByRole('button', { name: 'Рішення' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Заповніть поля для етапу «Рішення»',
+    })
+    const readOnlyNote =
+      'Ваша роль може лише переглядати: Договір. Попросіть заповнити того, хто має право їх змінювати.'
+    expect(within(dialog).getByText(readOnlyNote)).toBeTruthy()
+    expect(within(dialog).queryByRole('textbox', { name: 'Договір' })).toBeNull()
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Бюджет' }), {
+      target: { value: '700' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Зберегти' }))
+    // Ушёл только бюджет; договор по-прежнему пуст — снова форма, в ней нечего заполнять.
+    await waitFor(() => expect(api.sentCustom).toEqual([{ budget: '700' }]))
+    const again = await screen.findByRole('dialog', {
+      name: 'Заповніть поля для етапу «Рішення»',
+    })
+    await waitFor(() => expect(within(again).queryByRole('textbox', { name: 'Бюджет' })).toBeNull())
+    expect(within(again).getByText(readOnlyNote)).toBeTruthy()
+    expect(within(again).queryByRole('button', { name: 'Зберегти' })).toBeNull()
+    expect(api.deals[0]?.stageId).toBe(STAGES.contact)
+  })
 })
 
 describe('карточка сделки: товары', () => {
@@ -432,6 +470,52 @@ describe('карточка сделки: допродажа', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Ірина Мельник — допродаж' }),
     ).toBeTruthy()
+  })
+
+  // Обязательные поля (тикет crm-fields/04): допродажа встаёт на первый этап выбранной воронки.
+  it('обязательные поля первого этапа воронки допродаж — в окне; без значения не уходит, со значением — уходит с допродажей', async () => {
+    const api = fakeDealCardApi({ deals: [sampleDeal({ status: 'won' })] })
+    api.required = { [STAGES.upsellFirst]: ['offer'] }
+    const group = fieldGroup()
+    const fields = fakeCustomFieldsApi({
+      groups: [group],
+      fields: [
+        fieldDef({
+          groupId: group.id,
+          code: 'offer',
+          nameUk: 'Що пропонуємо',
+          required: {
+            mode: 'stages',
+            stages: [{ pipelineId: UPSELL_PIPELINE_ID, stageId: STAGES.upsellFirst }],
+          },
+        }),
+        fieldDef({
+          groupId: group.id,
+          code: 'budget',
+          nameUk: 'Бюджет',
+          position: 2,
+          required: {
+            mode: 'stages',
+            stages: [{ pipelineId: PIPELINE_ID, stageId: STAGES.decision }],
+          },
+        }),
+      ],
+    })
+    await renderCard({ api, fields })
+    fireEvent.click(screen.getByRole('button', { name: 'Створити допродаж' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Нова угода-допродаж' })
+    const offer = await within(dialog).findByRole('textbox', { name: 'Що пропонуємо' })
+    expect(within(dialog).queryByRole('textbox', { name: 'Бюджет' })).toBeNull()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Створити' }))
+    expect(await within(dialog).findByText('Заповніть поле.')).toBeTruthy()
+    expect(api.calls).not.toContain('upsell')
+
+    fireEvent.change(offer, { target: { value: 'Курс 2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Створити' }))
+    await waitFor(() => expect(api.deals).toHaveLength(2))
+    expect(api.sentCustom).toEqual([{ offer: 'Курс 2' }])
+    expect(api.deals[1]?.custom).toEqual({ offer: 'Курс 2' })
   })
 })
 

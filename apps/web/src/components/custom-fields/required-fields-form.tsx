@@ -1,4 +1,9 @@
-import { type FieldDefinitionSummary, fieldName, type RequiredFieldsMissing } from '@alpi/shared'
+import {
+  type FieldDefinitionSummary,
+  fieldName,
+  type RequiredFieldsMissing,
+  type RolePermissions,
+} from '@alpi/shared'
 import { type FormEvent, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../ui/button.tsx'
@@ -7,7 +12,12 @@ import { Field } from '../../ui/field.tsx'
 import type { CustomValues } from './custom-fields-api.tsx'
 import { FieldEditor, type FieldMember, useFieldLocale } from './field-editor.tsx'
 import { type FieldDraft, problemKey } from './field-values.ts'
-import { collectRequired, type RequiredFieldProblem, requiredDrafts } from './required-fields.ts'
+import {
+  collectRequired,
+  type RequiredFieldProblem,
+  requiredDrafts,
+  splitByAccess,
+} from './required-fields.ts'
 import './custom-fields.css'
 
 // Форма заполнения обязательных полей (тикет crm-fields/04; spec.md MVP, раздел 5.1): канбан и
@@ -30,9 +40,14 @@ export function useMissingFieldsText(): (missing: RequiredFieldsMissing) => stri
     ].join(', ')
 }
 
-/** Поля ввода обязательных полей с подписью и текстом ошибки у каждого. */
+/**
+ * Поля ввода обязательных полей с подписью и текстом ошибки у каждого. Поля групп «только
+ * чтение» (`readOnly`) — без правки, строкой с их названиями: заполнить их может тот, у кого
+ * есть право их менять.
+ */
 export function RequiredFieldInputs({
   fields,
+  readOnly = [],
   drafts,
   onDraft,
   problems,
@@ -41,6 +56,7 @@ export function RequiredFieldInputs({
   autoFocus = false,
 }: {
   fields: readonly FieldDefinitionSummary[]
+  readOnly?: readonly FieldDefinitionSummary[]
   drafts: Readonly<Record<string, FieldDraft>>
   onDraft: (code: string, draft: FieldDraft) => void
   problems: Readonly<Record<string, RequiredFieldProblem>>
@@ -81,20 +97,29 @@ export function RequiredFieldInputs({
           </Field>
         )
       })}
+      {readOnly.length > 0 && (
+        <p className="ui-notice">
+          {t('fill.readOnly', {
+            fields: readOnly.map((field) => fieldName(field, locale)).join(', '),
+          })}
+        </p>
+      )}
     </>
   )
 }
 
 /**
  * Форма заполнения полей из ответа 422 (`missing`). `fields` — описания полей сущности, которые
- * пользователь видит: по ним — редакторы. Поле из ответа без описания (описания устарели) и
- * поля скрытых от роли групп заполнить здесь нельзя — о них только строка.
+ * пользователь видит: по ним — редакторы. Поле из ответа без описания (описания устарели), поля
+ * групп «только чтение» (по `permissions`) и поля скрытых от роли групп заполнить здесь нельзя —
+ * о них только строка; их значения форма не отправляет.
  */
 export function RequiredFieldsDialog({
   title,
   missing,
   fields,
   values = {},
+  permissions,
   members,
   busy,
   error,
@@ -105,6 +130,8 @@ export function RequiredFieldsDialog({
   missing: RequiredFieldsMissing
   fields: readonly FieldDefinitionSummary[]
   values?: CustomValues
+  /** Права роли в проекте: доступ к группам полей; null — ещё не загружены. */
+  permissions: RolePermissions | null
   members: readonly FieldMember[]
   busy?: boolean
   /** Отказ повторного запроса, кроме обязательных полей. */
@@ -115,8 +142,9 @@ export function RequiredFieldsDialog({
   const { t } = useTranslation('custom-fields')
   const locale = useFieldLocale()
   const formId = useId()
-  const shown = missing.fields.flatMap((code) => fields.filter((f) => f.code === code))
-  const unknown = missing.names.filter((name) => !shown.some((f) => f.code === name.code))
+  const described = missing.fields.flatMap((code) => fields.filter((f) => f.code === code))
+  const { editable: shown, readOnly } = splitByAccess(described, permissions)
+  const unknown = missing.names.filter((name) => !described.some((f) => f.code === name.code))
   // Описания полей могут прийти позже формы: черновика поля нет — он из значения записи.
   const [edited, setEdited] = useState<Record<string, FieldDraft>>({})
   const drafts = { ...requiredDrafts(shown, values), ...edited }
@@ -155,6 +183,7 @@ export function RequiredFieldsDialog({
         <p>{t('fill.intro')}</p>
         <RequiredFieldInputs
           fields={shown}
+          readOnly={readOnly}
           drafts={drafts}
           onDraft={(code, draft) => setEdited((current) => ({ ...current, [code]: draft }))}
           problems={problems}

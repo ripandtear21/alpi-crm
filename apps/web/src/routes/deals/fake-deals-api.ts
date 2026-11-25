@@ -1,8 +1,10 @@
-import type {
-  FieldDefinitionSummary,
-  FilterGroup,
-  LostReasonGroupSummary,
-  PipelineSummary,
+import {
+  type FieldDefinitionSummary,
+  type FilterGroup,
+  fullPermissions,
+  type LostReasonGroupSummary,
+  type PipelineSummary,
+  type ProjectAccess,
 } from '@alpi/shared'
 import {
   type BoardDeal,
@@ -43,6 +45,10 @@ export interface FakeDealsApi extends DealsApi {
   deals: BoardDeal[]
   /** Пользовательские поля сделки (тикет crm-fields/07). */
   customFields: FieldDefinitionSummary[]
+  /** Пользовательские поля контакта: «всегда» нового контакта формы «+ Угода» (тикет crm-fields/04). */
+  contactCustomFields: FieldDefinitionSummary[]
+  /** Права пользователя в проекте; по умолчанию — администратор (все группы «изменять»). */
+  me: ProjectAccess
   /** Поля карточки канбана по воронкам. */
   cardFieldIds: Record<string, string[]>
   calls: FakeDealsCall[]
@@ -167,6 +173,8 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
   const api: FakeDealsApi = {
     deals,
     customFields: [],
+    contactCustomFields: [],
+    me: { userId: FAKE_ME.id, permissions: fullPermissions() },
     cardFieldIds: {},
     calls: [],
     failNext: null,
@@ -190,6 +198,12 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
     },
     async fields() {
       return api.customFields.filter((f) => f.archivedAt === null)
+    },
+    async contactFields() {
+      return api.contactCustomFields.filter((f) => f.archivedAt === null)
+    },
+    async access() {
+      return structuredClone(api.me)
     },
     async cardFields(_projectId, pipelineId) {
       return { fieldIds: api.cardFieldIds[pipelineId] ?? [] }

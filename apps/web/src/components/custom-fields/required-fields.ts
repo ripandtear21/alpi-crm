@@ -1,9 +1,11 @@
-import type {
-  FieldDefinitionSummary,
-  FieldValueProblem,
-  PipelineSummary,
-  RequiredFieldName,
-  RequiredFieldsMissing,
+import {
+  type FieldDefinitionSummary,
+  type FieldValueProblem,
+  fieldGroupAccess,
+  type PipelineSummary,
+  type RequiredFieldName,
+  type RequiredFieldsMissing,
+  type RolePermissions,
 } from '@alpi/shared'
 import { visibleInPipeline } from './custom-field-groups.tsx'
 import type { CustomValues } from './custom-fields-api.tsx'
@@ -69,6 +71,26 @@ export function requiredAlways(
       field.purgeRequestedAt === null &&
       field.required.mode === 'always',
   )
+}
+
+/**
+ * Поля, которые роль заполняет сама (группа «изменять»), и поля групп «только чтение»: их
+ * значение сервер не примет (403 CUSTOM_FIELD_READ_ONLY), форма показывает их без правки и не
+ * отправляет. `permissions` ещё не загружены (null) — все поля заполняемые: решит сервер.
+ */
+export function splitByAccess(
+  fields: readonly FieldDefinitionSummary[],
+  permissions: RolePermissions | null,
+): { editable: FieldDefinitionSummary[]; readOnly: FieldDefinitionSummary[] } {
+  if (permissions === null) return { editable: [...fields], readOnly: [] }
+  const editable: FieldDefinitionSummary[] = []
+  const readOnly: FieldDefinitionSummary[] = []
+  for (const field of fields) {
+    const access = fieldGroupAccess(permissions, { id: field.groupId, entity: field.entity })
+    if (access === 'edit') editable.push(field)
+    else readOnly.push(field)
+  }
+  return { editable, readOnly }
 }
 
 /** Черновики полей формы: из значений записи (`values`) или пустые. */

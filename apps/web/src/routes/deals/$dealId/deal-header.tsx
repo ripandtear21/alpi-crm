@@ -171,6 +171,7 @@ export function DealHeader({ card }: { card: DealCardModel }) {
           missing={filling.missing}
           fields={(fields.data ?? []).filter((f) => f.archivedAt === null)}
           values={deal.custom}
+          permissions={card.permissions}
           members={card.members ?? []}
           busy={card.busy}
           onCancel={() => setFilling(null)}

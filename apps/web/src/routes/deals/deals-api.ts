@@ -4,6 +4,7 @@ import type {
   KanbanCardFields,
   LostReasonGroupSummary,
   PipelineSummary,
+  ProjectAccess,
 } from '@alpi/shared'
 import { projectHeaders } from '../../components/project-switcher/projects-api.ts'
 
@@ -80,6 +81,8 @@ export interface NewContactInput {
   firstName: string
   lastName: string | null
   phones: string[]
+  /** Значения пользовательских полей нового контакта: его поля «всегда» (тикет crm-fields/04). */
+  custom?: Record<string, unknown>
 }
 
 /** Новая сделка: существующий контакт (`contactId`) или новый (`contact`). */
@@ -117,6 +120,10 @@ export interface DealsApi {
   owners(projectId: string): Promise<DealOwner[]>
   /** Пользовательские поля сделки, видимые пользователю, без архивных. */
   fields(projectId: string): Promise<FieldDefinitionSummary[]>
+  /** Пользовательские поля контакта, видимые пользователю, без архивных: новый контакт «+ Угоди». */
+  contactFields(projectId: string): Promise<FieldDefinitionSummary[]>
+  /** Права пользователя в проекте (`GET /api/project/access`): доступ к группам полей. */
+  access(projectId: string): Promise<ProjectAccess>
   /** Поля карточки канбана воронки, видимые пользователю, по порядку. */
   cardFields(projectId: string, pipelineId: string): Promise<KanbanCardFields>
   stagePage(projectId: string, query: StagePageQuery): Promise<DealsPage>
@@ -149,10 +156,11 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     method: string,
     path: string,
     body?: unknown,
+    base = '/api/v1',
   ): Promise<T> {
     const headers = projectHeaders(projectId)
     if (body !== undefined) headers.set('content-type', 'application/json')
-    const res = await fetchImpl(`/api/v1${path}`, {
+    const res = await fetchImpl(`${base}${path}`, {
       method,
       headers,
       credentials: 'same-origin',
@@ -194,6 +202,8 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     lostReasons: (projectId) => send(projectId, 'GET', '/lost-reasons'),
     owners: (projectId) => send(projectId, 'GET', '/deals/owners'),
     fields: (projectId) => send(projectId, 'GET', '/fields?entity=deal'),
+    contactFields: (projectId) => send(projectId, 'GET', '/fields?entity=contact'),
+    access: (projectId) => send(projectId, 'GET', '/project/access', undefined, '/api'),
     cardFields: (projectId, pipelineId) =>
       send(projectId, 'GET', `/pipelines/${pipelineId}/card-fields`),
     stagePage: (projectId, { pipelineId, stageId, owner, filter, cursor }) =>
