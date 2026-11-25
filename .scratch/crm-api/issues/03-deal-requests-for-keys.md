@@ -1,7 +1,7 @@
 # Запросы сделок для ключей API
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T22:59Z
 Risk: high
 Blocked by: 01, 02
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Действия в MVP», волна 2); docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; .scratch/crm-mvp/spec.md, раздел 13.0.4 («обязательные поля с этапа одинаково действуют для менеджера и API»); .scratch/crm-deals/issues/05-deals.md; .scratch/crm-fields/issues/02-field-values.md, 03-field-group-permissions.md, 04-required-fields.md; .scratch/crm-api/spec.md
@@ -54,3 +54,27 @@ apps/api/src/deals/** (отметки «доступно ключу», схем�
 - [ ] Тест скрытых полей: ответ сделки для ключа с ролью, где группа скрыта, не содержит ни кода, ни значения поля.
 - [ ] Описание OpenAPI содержит все маршруты из списка с примерами, и только их из раздела сделок.
 - [ ] `pnpm verify` зелёный.
+
+## Результат
+
+Ветка `crm-api/03`. Маршруты сделок, открытые ключу, объявлены через `keyRoute` в `apps/api/src/deals/openapi.ts` (схема запроса, ответ, пример) и обслуживают и ключ, и сессию теми же функциями `deals.ts`. Тесты — `apps/api/src/deals/api-key.test.ts`; помощник «запрос по ключу» для тикета 04 — `apps/api/src/testing/api-key.ts` (`createRole`, `createApiKey` → `key.api(method, path, { body })`).
+
+Открыто ключу: `GET /deals`, `GET /deals/:id`, `POST /deals`, `PATCH /deals/:id`, `POST /deals/:id/{stage,owner,win,lose,reopen,archive,unarchive,move}`. Остальные маршруты сделок — 403 `API_KEY_NOT_ALLOWED`.
+
+Решено без владельца — подтвердить (взят рекомендованный вариант тикета):
+
+- Ключу не открыты удаление и восстановление, «взять в работу», допродажа, участники, строки товаров, «підставити суму», история и лента сделки.
+- Назначить, сменить или снять ответственного ключом — только с правом «передача сделок», в том числе на сделке общей очереди. Новая сделка ключа без `ownerId` встаёт в общую очередь и права «передача сделок» не требует: это никого не назначает.
+- Изменение полей ключом — новый `PATCH /api/v1/deals/:id` (название, сумма, валюта, ожидаемая дата закрытия, организация, `custom`). Прежний `PUT /api/v1/deals/:id` (все поля, в том числе ответственный и основной контакт) остаётся для `apps/web` и ключу закрыт. Смена ответственного — новый `POST /api/v1/deals/:id/owner` (`{ "ownerId": "…" | null }`), открыт и сессии.
+- Ошибка схемы запроса на маршрутах сделок отвечает так же, как разбор тела до тикета, — 400 `INVALID_DEAL` с `details.path` и `errors[].field`, а не общим `INVALID_INPUT` тикета 02: код читает клиент `apps/web`. Тело с `Content-Type` не JSON — 415, неразбираемый JSON — 400 `INVALID_INPUT` (раньше — 400 `INVALID_DEAL`); оба случая — по коду @hono/zod-openapi, тестом не проверены.
+
+Из max-review тикета 01 и тикета 05:
+
+- «Я» (`me`) в `filter=` у ключа — 400 `INVALID_DEAL` (`readFilterParam(…, { me: false })`, как `owner=me`); построитель фильтра на «я» без пользователя бросает ошибку вместо молчаливого NULL.
+- `entityReader` (`fields/common.ts`) и `contactContext` (`contacts/contacts.ts`) берут автора из `c.var.actor`: сделка с новым контактом по ключу пишет `contact.created` с автором-ключом (проверено настоящим HTTP-запросом).
+- Блокировка строки ключа при обновлении `last_used_at` не тронута: заметной не стала, а `middleware/project-context.ts` вне тикета.
+
+Заметки для тикета 04:
+
+- Списки контактов и организаций читают `filter=` без `{ me: false }`: по ключу «я» в фильтре дойдёт до построителя и даст 500 — передать `me: ctx.actorId !== null`, как `deals/board.ts`.
+- По коду: ключ с охватом контактов «свои» не создаст сделку с новым контактом — у такого контакта нет `created_by`, он вне охвата, ответ 404 `CONTACT_NOT_FOUND` (тестом не проверено).

@@ -9,6 +9,7 @@ import {
 } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, type Selectable, sql } from 'kysely'
+import { requestAuthor } from '../api-keys/actor.ts'
 import { audit } from '../audit/record.ts'
 import {
   type ChangeAuthor,
@@ -31,7 +32,7 @@ import {
   visibleCustom,
 } from '../fields/values.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
-import { PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
+import { API_KEY_VIEWER, PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
 import {
   type ContactDependents,
   type DependentRecord,
@@ -228,7 +229,6 @@ function parseInput(body: Record<string, unknown>, create: boolean): Result<Cont
 
 /** Запрос в контексте проекта: кто меняет, его охват, транзакция. */
 export interface ContactContext extends ChangeAuthor {
-  actorId: string
   ip: string | null
   scope: ResourceScope
   permissions: RolePermissions
@@ -238,15 +238,18 @@ export interface ContactContext extends ChangeAuthor {
 
 async function contactContext(c: Ctx, dependents: ContactDependents): Promise<ContactContext> {
   const db = c.get('db')
-  const userId = c.get('session').user.id
+  // Автор — участник или ключ API (тикет crm-api/03): сделка с новым контактом по ключу пишет
+  // contact.created и историю от имени ключа; сессии у такого запроса нет.
+  const actor = c.get('actor')
   return {
     db,
     projectId: c.get('projectId'),
-    actorId: userId,
+    ...requestAuthor(actor),
     ip: c.get('clientIp'),
     scope: c.get('access').permissions.scopes.contacts,
     permissions: c.get('access').permissions,
-    viewer: await resolveViewer(db, userId, PROJECT_TEAMS),
+    viewer:
+      actor.type === 'user' ? await resolveViewer(db, actor.userId, PROJECT_TEAMS) : API_KEY_VIEWER,
     dependents,
   }
 }

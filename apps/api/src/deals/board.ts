@@ -110,8 +110,8 @@ export interface DealOwner {
 /** Дополнительное условие на строку `deal` (фильтры списка, тикет 12). */
 export type DealCondition = (eb: ExpressionBuilder<Database, 'deal'>) => Expression<SqlBool>
 
-const STATUS_FILTERS = ['open', 'won', 'lost', 'any'] as const
-const ARCHIVED_FILTERS = ['false', 'true', 'any'] as const
+export const STATUS_FILTERS = ['open', 'won', 'lost', 'any'] as const
+export const ARCHIVED_FILTERS = ['false', 'true', 'any'] as const
 
 /** Фильтры выдачи и агрегатов из параметров запроса. */
 export interface DealFilters {
@@ -181,7 +181,10 @@ async function readFilters(c: Ctx, ctx: DealContext): Promise<Result<DealFilters
   const owner = c.req.query('owner')
   if (owner !== undefined && (owner === '' || owner.length > 100)) return invalid('owner')
   const custom = await dealCatalog(c, ctx)
-  const filter = readFilterParam('deals', c.req.query('filter'), custom)
+  // У ключа API (actorId null) «я» нет — ни в owner=, ни в filter= (тикет crm-api/03).
+  const filter = readFilterParam('deals', c.req.query('filter'), custom, {
+    me: ctx.actorId !== null,
+  })
   if (!filter.ok) {
     if (filter.unknownCustomField !== undefined) return unknownField(filter.unknownCustomField)
     return refuse(400, 'INVALID_DEAL', { path: filter.path, message: filter.message })

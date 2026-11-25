@@ -1,5 +1,6 @@
 import type { Database } from '@alpi/db'
 import { can, hasStandalone } from '@alpi/shared'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { Hono } from 'hono'
 import { sql, type UpdateObject } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
@@ -41,11 +42,25 @@ import {
   prepareCustom,
   readCustomInput,
 } from '../fields/values.ts'
-import { apiKeyRoute } from '../middleware/api-key.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { dealAggregates, dealOwners, listDeals } from './board.ts'
 import { addLine, productsTotalChange, removeLine, updateLine } from './lines.ts'
+import {
+  archiveRoute,
+  createDealRoute,
+  dealInputHook,
+  getDealRoute,
+  listDealsRoute,
+  loseRoute,
+  moveRoute,
+  ownerRoute,
+  patchDealRoute,
+  reopenRoute,
+  stageRoute,
+  unarchiveRoute,
+  winRoute,
+} from './openapi.ts'
 import { ownerAllowed } from './scope.ts'
 import {
   CUSTOM_FIELD_REQUIREMENTS,
@@ -53,6 +68,7 @@ import {
   type StageTarget,
 } from './stage-requirements.ts'
 import {
+  DATE,
   DEAL_CURRENCIES,
   DEFAULT_CURRENCY,
   type DealContext,
@@ -64,6 +80,8 @@ import {
   findDeal,
   guardedWrite,
   LOGGED_FIELDS,
+  MAX_AMOUNT,
+  MAX_TITLE_LENGTH,
   type OpenDealTarget,
   type Result,
   reloadDeal,
@@ -94,12 +112,12 @@ import {
 //   STAGE_REQUIREMENTS_MISSING. Очистка поля «всегда» — 422 REQUIRED_FIELDS_MISSING.
 //   Повторное открытие, проигрыш и архив обязательность не проверяют (решено без владельца,
 //   подтвердить).
+// - Ключ API (тикет crm-api/03) проходит только на маршруты из deals/openapi.ts: список и
+//   карточка, создание, `PATCH` полей, этап, ответственный, выигрыш, проигрыш, открыть заново,
+//   архив и перенос — теми же функциями, что сессия. У ключа нет «себя»: охват «свои» и
+//   «команда» дают только общую очередь, любое назначение ответственного — «передача сделок».
 
-const MAX_TITLE_LENGTH = 200
 const MAX_ROLE_LENGTH = 100
-/** numeric(14, 2): до триллиона без копейки. */
-const MAX_AMOUNT = 999_999_999_999.99
-const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /** Что меняет действие: столбцы сделки, значения или выражения SQL (now()). */
 type DealSet = UpdateObject<Database, 'deal'>
@@ -315,6 +333,9 @@ async function resolveOwner(
   current: string | null | undefined,
 ): Promise<Result<string | null>> {
   if (requested === current) return ok(requested)
+  // У ключа API (actorId null) «себя» нет: здесь совпадает только новая сделка без
+  // ответственного — сделка ключа по умолчанию встаёт в общую очередь, это никого не назначает.
+  // Любое назначение, смена или снятие ответственного ключом — через «передачу сделок».
   const takesForSelf = requested === ctx.actorId && (current === undefined || current === null)
   if (!takesForSelf) {
     if (!hasStandalone(ctx.permissions, 'transfer_deals')) return refuse(403, 'PERMISSION_DENIED')
@@ -599,10 +620,29 @@ async function createUpsell(
 
 // ---- Изменение полей ------------------------------------------------------------------------
 
-async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<DealView>> {
+/**
+ * Поля `PATCH /v1/deals/:id` (тикет crm-api/03): этап, статус, ответственного, основной контакт
+ * и архив он не меняет — у них свои действия (ADR 0003).
+ */
+const PATCH_KEYS = [
+  'title',
+  'amount',
+  'currency',
+  'expectedCloseDate',
+  'organizationId',
+  'custom',
+] as const
+
+/** Изменить поля сделки: только ключи `keys` тела (`PUT` — все поля, `PATCH` — PATCH_KEYS). */
+async function updateDeal(
+  c: Ctx,
+  ctx: DealContext,
+  id: string,
+  keys: readonly string[] = FIELD_KEYS,
+): Promise<Result<DealView>> {
   const body = await readBody(c)
   if (!body) return invalid('')
-  const extra = unknownKey(body, FIELD_KEYS)
+  const extra = unknownKey(body, keys)
   if (extra !== null) return invalid(extra)
   const fields = readFields(body)
   if (!fields.ok) return fields
@@ -824,6 +864,27 @@ function setArchived(ctx: DealContext, id: string, archived: boolean) {
   return changeDeal(ctx, id, async (row) => {
     if ((row.archived_at !== null) === archived) return ok(null)
     return ok({ archived_at: archived ? sql`now()` : null })
+  })
+}
+
+/**
+ * Сменить ответственного (тикет crm-api/03): `ownerId` — участник проекта или null (общая
+ * очередь). Правила — resolveOwner, как у `PUT`: себя на сделку очереди — без особого права,
+ * остальное — «передача сделок». Меняется только ответственный.
+ */
+async function assignOwner(c: Ctx, ctx: DealContext, id: string): Promise<Result<DealView>> {
+  const body = await readBody(c)
+  if (!body || body.ownerId === undefined) return invalid('ownerId')
+  const extra = unknownKey(body, ['ownerId'])
+  if (extra !== null) return invalid(extra)
+  const fields = readFields({ ownerId: body.ownerId })
+  if (!fields.ok) return fields
+  const requested = fields.value.ownerId ?? null
+  return changeDeal(ctx, id, async (row) => {
+    if (requested === row.owner_id) return ok(null)
+    const owner = await resolveOwner(ctx, requested, row.owner_id)
+    if (!owner.ok) return owner
+    return ok({ owner_id: owner.value })
   })
 }
 
@@ -1114,6 +1175,13 @@ const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
   outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome)
 
 /**
+ * Ответ маршрута `openapi()`: его форму описывает схема маршрута (deals/openapi.ts), а
+ * собирают — те же respond и fail, что у маршрутов сессии. Типы Hono RPC клиент сделок не
+ * использует (apps/web ходит своим fetch), поэтому ответ не сверяется с типом схемы.
+ */
+const typed = (res: Response) => res as never
+
+/**
  * Маршруты сделок: `/v1/deals`. `stageRequirements` — какие поля нужны, чтобы поставить сделку
  * на этап или выиграть (по умолчанию — обязательные пользовательские поля).
  */
@@ -1124,124 +1192,148 @@ export function dealsRoutes({
 } = {}) {
   const edit = requirePermission('deals', 'edit')
   const view = requirePermission('deals', 'view')
-  return (
-    new Hono<PermissionsEnv>()
-      // Канбан и списки (тикет 11): до `/:id`, иначе `owners` разберётся как id сделки.
-      // Доступно ключу API (тикет crm-api/01); остальные маршруты сделок открывает тикет 03.
-      .get('/', apiKeyRoute, view, async (c) =>
-        respond(c, await listDeals(c, await dealContext(c))),
-      )
-      .get('/owners', view, async (c) => respond(c, ok(await dealOwners(await dealContext(c)))))
-      .get('/:id', requirePermission('deals', 'view'), async (c) => {
-        const ctx = await dealContext(c)
-        const row = await visibleDeal(ctx, c.req.param('id'))
-        if (!row) return fail(c, refuse(404, 'DEAL_NOT_FOUND'))
-        return c.json<DealView>(await dealView(ctx, row))
-      })
-      .get('/:id/history', requirePermission('deals', 'view'), async (c) =>
-        respond(c, await dealHistory(c, await dealContext(c), c.req.param('id'))),
-      )
-      .post('/', requirePermission('deals', 'create'), async (c) =>
-        respond(c, await createDeal(c, await dealContext(c), stageRequirements), 201),
-      )
-      .put('/:id', edit, async (c) =>
-        respond(c, await updateDeal(c, await dealContext(c), c.req.param('id'))),
-      )
-      .post('/:id/stage', edit, async (c) =>
-        respond(
-          c,
-          await changeStage(c, await dealContext(c), c.req.param('id'), stageRequirements),
-        ),
-      )
-      .post('/:id/win', edit, async (c) =>
-        respond(c, await win(c, await dealContext(c), c.req.param('id'), stageRequirements)),
-      )
-      .post('/:id/lose', edit, async (c) =>
-        respond(c, await lose(c, await dealContext(c), c.req.param('id'))),
-      )
-      .post('/:id/reopen', edit, async (c) =>
-        respond(c, await reopen(await dealContext(c), c.req.param('id'))),
-      )
-      .post('/:id/archive', edit, async (c) =>
-        respond(c, await setArchived(await dealContext(c), c.req.param('id'), true)),
-      )
-      .post('/:id/unarchive', edit, async (c) =>
-        respond(c, await setArchived(await dealContext(c), c.req.param('id'), false)),
-      )
-      .post('/:id/move', edit, async (c) =>
-        respond(c, await moveDeal(c, await dealContext(c), c.req.param('id'), stageRequirements)),
-      )
-      .post('/:id/take', edit, async (c) =>
-        respond(c, await takeDeal(await dealContext(c), c.req.param('id'))),
-      )
-      .post('/:id/upsell', requirePermission('deals', 'create'), async (c) =>
-        respond(
-          c,
-          await createUpsell(c, await dealContext(c), c.req.param('id'), stageRequirements),
-          201,
-        ),
-      )
-      .delete('/:id', requirePermission('deals', 'delete'), async (c) => {
-        const outcome = await trashDeal(await dealContext(c), c.req.param('id'))
-        return outcome.ok ? c.body(null, 204) : fail(c, outcome)
-      })
-      .post('/:id/restore', requirePermission('trash', 'edit'), async (c) =>
-        respond(c, await restoreDeal(await dealContext(c), c.req.param('id'))),
-      )
-      .delete('/:id/permanent', requirePermission('trash', 'delete'), async (c) => {
-        const id = c.req.param('id')
-        const outcome = await purgeDeal(await dealContext(c), id)
-        if (!outcome.ok) return fail(c, outcome)
-        await recordInRequest(c, { action: 'deal.purged', entity: { type: 'deal', id } })
-        return c.body(null, 204)
-      })
-      .post('/:id/participants', edit, async (c) =>
-        respond(c, await addParticipant(c, await dealContext(c), c.req.param('id')), 201),
-      )
-      .put('/:id/participants/:contactId', edit, async (c) =>
-        respond(
-          c,
-          await updateParticipant(
-            c,
-            await dealContext(c),
-            c.req.param('id'),
-            c.req.param('contactId'),
-          ),
-        ),
-      )
-      .delete('/:id/participants/:contactId', edit, async (c) => {
-        const outcome = await removeParticipant(
-          await dealContext(c),
-          c.req.param('id'),
-          c.req.param('contactId'),
-        )
-        return outcome.ok ? c.body(null, 204) : fail(c, outcome)
-      })
-      .post('/:id/products', edit, async (c) =>
-        respond(c, await addLine(c, await dealContext(c), c.req.param('id')), 201),
-      )
-      .put('/:id/products/:lineId', edit, async (c) =>
-        respond(
-          c,
-          await updateLine(c, await dealContext(c), c.req.param('id'), c.req.param('lineId')),
-        ),
-      )
-      .delete('/:id/products/:lineId', edit, async (c) => {
-        const outcome = await removeLine(
-          await dealContext(c),
-          c.req.param('id'),
-          c.req.param('lineId'),
-        )
-        return outcome.ok ? c.body(null, 204) : fail(c, outcome)
-      })
-      .post('/:id/apply-products-total', edit, async (c) => {
-        const ctx = await dealContext(c)
-        return respond(
-          c,
-          await changeDeal(ctx, c.req.param('id'), (row) => productsTotalChange(ctx, row)),
-        )
-      })
+  // Маршруты, открытые ключу API (тикет crm-api/03), — `openapi()` с keyRoute (deals/openapi.ts):
+  // отметка «доступно ключу», схема запроса и описание OpenAPI. Их же вызывает сессия
+  // пользователя. Остальные — только по сессии: ключ получает 403 API_KEY_NOT_ALLOWED.
+  // Порядок регистрации — порядок разбора: `owners` — до `/:id`.
+  const id = (c: Ctx) => c.req.param('id') ?? ''
+  const app = new OpenAPIHono<PermissionsEnv>()
+  // Канбан и списки (тикет 11).
+  app.openapi(
+    listDealsRoute,
+    async (c) => typed(respond(c, await listDeals(c, await dealContext(c)))),
+    dealInputHook,
   )
+  app.get('/owners', view, async (c) => respond(c, ok(await dealOwners(await dealContext(c)))))
+  app.openapi(
+    getDealRoute,
+    async (c) => {
+      const ctx = await dealContext(c)
+      const row = await visibleDeal(ctx, id(c))
+      if (!row) return typed(fail(c, refuse(404, 'DEAL_NOT_FOUND')))
+      return typed(c.json<DealView>(await dealView(ctx, row)))
+    },
+    dealInputHook,
+  )
+  app.get('/:id/history', requirePermission('deals', 'view'), async (c) =>
+    respond(c, await dealHistory(c, await dealContext(c), c.req.param('id'))),
+  )
+  app.openapi(
+    createDealRoute,
+    async (c) =>
+      typed(respond(c, await createDeal(c, await dealContext(c), stageRequirements), 201)),
+    dealInputHook,
+  )
+  // Все поля, в том числе ответственный и основной контакт, — для карточки сделки apps/web.
+  app.put('/:id', edit, async (c) =>
+    respond(c, await updateDeal(c, await dealContext(c), c.req.param('id'))),
+  )
+  app.openapi(
+    patchDealRoute,
+    async (c) => typed(respond(c, await updateDeal(c, await dealContext(c), id(c), PATCH_KEYS))),
+    dealInputHook,
+  )
+  app.openapi(
+    stageRoute,
+    async (c) =>
+      typed(respond(c, await changeStage(c, await dealContext(c), id(c), stageRequirements))),
+    dealInputHook,
+  )
+  app.openapi(
+    ownerRoute,
+    async (c) => typed(respond(c, await assignOwner(c, await dealContext(c), id(c)))),
+    dealInputHook,
+  )
+  app.openapi(
+    winRoute,
+    async (c) => typed(respond(c, await win(c, await dealContext(c), id(c), stageRequirements))),
+    dealInputHook,
+  )
+  app.openapi(
+    loseRoute,
+    async (c) => typed(respond(c, await lose(c, await dealContext(c), id(c)))),
+    dealInputHook,
+  )
+  app.openapi(
+    reopenRoute,
+    async (c) => typed(respond(c, await reopen(await dealContext(c), id(c)))),
+    dealInputHook,
+  )
+  app.openapi(
+    archiveRoute,
+    async (c) => typed(respond(c, await setArchived(await dealContext(c), id(c), true))),
+    dealInputHook,
+  )
+  app.openapi(
+    unarchiveRoute,
+    async (c) => typed(respond(c, await setArchived(await dealContext(c), id(c), false))),
+    dealInputHook,
+  )
+  app.openapi(
+    moveRoute,
+    async (c) =>
+      typed(respond(c, await moveDeal(c, await dealContext(c), id(c), stageRequirements))),
+    dealInputHook,
+  )
+  app.post('/:id/take', edit, async (c) =>
+    respond(c, await takeDeal(await dealContext(c), c.req.param('id'))),
+  )
+  app.post('/:id/upsell', requirePermission('deals', 'create'), async (c) =>
+    respond(
+      c,
+      await createUpsell(c, await dealContext(c), c.req.param('id'), stageRequirements),
+      201,
+    ),
+  )
+  app.delete('/:id', requirePermission('deals', 'delete'), async (c) => {
+    const outcome = await trashDeal(await dealContext(c), c.req.param('id'))
+    return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+  })
+  app.post('/:id/restore', requirePermission('trash', 'edit'), async (c) =>
+    respond(c, await restoreDeal(await dealContext(c), c.req.param('id'))),
+  )
+  app.delete('/:id/permanent', requirePermission('trash', 'delete'), async (c) => {
+    const id = c.req.param('id')
+    const outcome = await purgeDeal(await dealContext(c), id)
+    if (!outcome.ok) return fail(c, outcome)
+    await recordInRequest(c, { action: 'deal.purged', entity: { type: 'deal', id } })
+    return c.body(null, 204)
+  })
+  app.post('/:id/participants', edit, async (c) =>
+    respond(c, await addParticipant(c, await dealContext(c), c.req.param('id')), 201),
+  )
+  app.put('/:id/participants/:contactId', edit, async (c) =>
+    respond(
+      c,
+      await updateParticipant(c, await dealContext(c), c.req.param('id'), c.req.param('contactId')),
+    ),
+  )
+  app.delete('/:id/participants/:contactId', edit, async (c) => {
+    const outcome = await removeParticipant(
+      await dealContext(c),
+      c.req.param('id'),
+      c.req.param('contactId'),
+    )
+    return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+  })
+  app.post('/:id/products', edit, async (c) =>
+    respond(c, await addLine(c, await dealContext(c), c.req.param('id')), 201),
+  )
+  app.put('/:id/products/:lineId', edit, async (c) =>
+    respond(c, await updateLine(c, await dealContext(c), c.req.param('id'), c.req.param('lineId'))),
+  )
+  app.delete('/:id/products/:lineId', edit, async (c) => {
+    const outcome = await removeLine(await dealContext(c), c.req.param('id'), c.req.param('lineId'))
+    return outcome.ok ? c.body(null, 204) : fail(c, outcome)
+  })
+  app.post('/:id/apply-products-total', edit, async (c) => {
+    const ctx = await dealContext(c)
+    return respond(
+      c,
+      await changeDeal(ctx, c.req.param('id'), (row) => productsTotalChange(ctx, row)),
+    )
+  })
+  return app
 }
 
 /** Агрегаты колонок канбана: `/v1/pipelines/:id/aggregates` (монтируется рядом с воронками). */
