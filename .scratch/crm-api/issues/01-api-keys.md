@@ -52,13 +52,23 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (в составе pnpm verify) · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест изоляции: ключи проекта A не видны в контексте B без фильтра в коде; ключ проекта A с `X-Project-Id` проекта B — 403, и ни одна строка B не прочитана.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — изоляция проектов · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест прав на управление: без `integrations` или без `users_roles: edit` создание, перевыпуск и отзыв — 403; список без `integrations: view` — 403.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — права на управление ключами · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест секрета: ответ на создание содержит секрет, повторное чтение списка — нет; в базе, журнале и логах сервера секрета нет (поиск по строке секрета).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — секрет · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест запроса по ключу: роль без права «сделки: смотреть» — 403 на `GET /api/v1/deals`; с правом — 200, и видны только сделки своего проекта; роль с охватом «свои» видит только сделки общей очереди; смена прав роли действует на следующий запрос.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — запрос по ключу · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест 401: неизвестный, отозванный, истёкший ключ и старый секрет после перевыпуска получают одинаковый ответ 401.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — 401 одинаковый · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест: ключ с ролью администратора получает 403 `API_KEY_NOT_ALLOWED` на маршрутах ключей, ролей, участников и журнала.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — маршруты без отметки · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест журнала: изменение по ключу пишет автора-ключ в `change_log` и `audit_log`; создание, перевыпуск и отзыв ключа — в журнале опасных действий; ограничение «не пользователь и ключ сразу» отклоняет такую строку.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — журнал · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Тест: роль с действующим ключом удалить нельзя (409).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/api-keys/api-keys.test.ts` exit 0 — роль с ключом · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
 - [ ] Экран: создание ключа показывает секрет один раз; отзыв и перевыпуск с подтверждением; тексты uk и ru; работает на 375 px.
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 2fcb146e05829b72802579c9edf7a3178526d3f9
