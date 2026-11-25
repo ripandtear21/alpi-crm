@@ -31,8 +31,9 @@ export function stackInfo(): StackInfo {
   return JSON.parse(raw) as StackInfo
 }
 
-export function seedUser(email: string): SeedUser {
-  const file = JSON.parse(readFileSync(stackInfo().credentialsFile, 'utf8')) as {
+/** Пользователь тестовых данных стенда `stack` (по умолчанию — общего, из global-setup). */
+export function seedUser(email: string, stack: StackInfo = stackInfo()): SeedUser {
+  const file = JSON.parse(readFileSync(stack.credentialsFile, 'utf8')) as {
     users: SeedUser[]
   }
   const user = file.users.find((u) => u.email === email)
