@@ -12,6 +12,7 @@ import {
   type FieldIndexMessage,
   pendingFieldIndexes,
 } from './field-index.ts'
+import { purgeIdempotencyRecords } from './idempotency-purge.ts'
 
 // Фоновые задачи на pg-boss (тикет crm-deals/04). Обработчик работает в процессе API (решено без
 // владельца, подтвердить; отдельный процесс — эпик эксплуатации) и ходит в базу той же ролью
@@ -24,6 +25,8 @@ import {
 //   проекты по одному, каждый в своём withProject;
 // - failed-sign-in-purge — ежедневно: записи о неудачных входах старше 90 дней (служебная
 //   функция базы, packages/db/src/audit.ts);
+// - idempotency-purge — ежедневно: ответы для повтора по Idempotency-Key старше 24 часов
+//   (idempotency-purge.ts, тикет crm-api/02), проекты по одному, каждый в своём withProject;
 // - field-purge — окончательное удаление пользовательского поля по запросу администратора
 //   (fields/purge.ts): ключ поля уходит из `custom` записей порциями, потом описание;
 // - field-retype — смена типа поля с данными по запросу администратора (fields/retype.ts):
@@ -31,8 +34,8 @@ import {
 // - field-index — копия значений поля с отметкой «часто фильтруют» для быстрого фильтра
 //   (field-index.ts, тикет crm-fields/07). При старте задача ставится заново всем полям, у
 //   которых копия строится (отмеченные служебными скриптами, потерявшие задачу).
-// Задачи по расписанию трогают только корзину и журнал входов и никогда не меняют сделки
-// (ADR 0003).
+// Задачи по расписанию трогают только корзину, журнал входов и ответы Idempotency-Key и никогда
+// не меняют сделки (ADR 0003).
 
 /** Схема таблиц pg-boss; та же константа — в packages/db/migrations/0007_jobs_bulk.ts. */
 export const PGBOSS_SCHEMA = 'pgboss'
@@ -47,6 +50,7 @@ export const QUEUES = {
   bulkDead: 'bulk-job-dead',
   trashPurge: 'trash-purge',
   signInPurge: 'failed-sign-in-purge',
+  idempotencyPurge: 'idempotency-purge',
   fieldPurge: 'field-purge',
   fieldRetype: 'field-retype',
   fieldIndex: 'field-index',
@@ -56,6 +60,7 @@ export const QUEUES = {
 const TIMEZONE = 'Europe/Kyiv'
 const TRASH_PURGE_CRON = '0 3 * * *'
 const SIGN_IN_PURGE_CRON = '30 3 * * *'
+const IDEMPOTENCY_PURGE_CRON = '45 3 * * *'
 
 /** Повторов массовой операции после сбоя: каждая продолжает с первой необработанной записи. */
 const BULK_RETRY_LIMIT = 5
@@ -133,6 +138,7 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   })
   await boss.createQueue(QUEUES.trashPurge, { retryLimit: 3, retryDelay: 15 * 60 })
   await boss.createQueue(QUEUES.signInPurge, { retryLimit: 3, retryDelay: 15 * 60 })
+  await boss.createQueue(QUEUES.idempotencyPurge, { retryLimit: 3, retryDelay: 15 * 60 })
   await boss.createQueue(QUEUES.fieldPurge, { retryLimit: 5, retryDelay: 60, retryBackoff: true })
   await boss.createQueue(QUEUES.fieldRetype, { retryLimit: 5, retryDelay: 60, retryBackoff: true })
   // Ошибку построения задача пишет полю сама (failed) и не повторяется.
@@ -158,6 +164,9 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   })
   await boss.work(QUEUES.signInPurge, polling, async () => {
     await purgeExpiredFailedSignIns(options.db)
+  })
+  await boss.work(QUEUES.idempotencyPurge, polling, async () => {
+    await purgeIdempotencyRecords(options.db)
   })
   await boss.work<FieldPurgeMessage>(QUEUES.fieldPurge, polling, async (batch) => {
     for (const job of batch) {
@@ -188,6 +197,7 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   if (schedule) {
     await boss.schedule(QUEUES.trashPurge, TRASH_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.signInPurge, SIGN_IN_PURGE_CRON, null, { tz: TIMEZONE })
+    await boss.schedule(QUEUES.idempotencyPurge, IDEMPOTENCY_PURGE_CRON, null, { tz: TIMEZONE })
   }
 
   return {

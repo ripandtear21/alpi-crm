@@ -142,19 +142,19 @@ export async function exportDeals(c: Ctx, rootDb: Kysely<Database>): Promise<Res
           sort,
           ...(cursor ? { cursor } : {}),
         })
-        const values = page.items.map((deal) => deal.custom)
+        const values = page.data.map((deal) => deal.custom)
         return { page, customNames: await loadCustomNames(trx, customFields, values) }
       })
       const custom = { fields: customFields, names: customNames }
-      if (page.items.length > 0) {
-        yield page.items
+      if (page.data.length > 0) {
+        yield page.data
           .map((deal) =>
             csvRow(columns.map((column) => dealCell(deal, column, names, language, custom))),
           )
           .join('')
       }
-      if (page.nextCursor === null) return
-      cursor = decodeCursor(page.nextCursor, sort, catalog)
+      if (page.next_cursor === null) return
+      cursor = decodeCursor(page.next_cursor, sort, catalog)
       if (!cursor) throw new Error('выгрузка: курсор своей же страницы не разобрался')
     }
   }

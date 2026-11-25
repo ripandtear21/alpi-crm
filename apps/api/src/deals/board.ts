@@ -1,5 +1,5 @@
 import type { Database } from '@alpi/db'
-import { type FilterGroup, type ListCount, type ListSort, parseSort } from '@alpi/shared'
+import { type FilterGroup, type ListCount, type ListSort, type Page, parseSort } from '@alpi/shared'
 import { type Expression, type ExpressionBuilder, type SqlBool, sql } from 'kysely'
 import type { ContactsErrorCode } from '../contacts/contacts.ts'
 import { type Ctx, type Outcome, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
@@ -33,7 +33,7 @@ import type { DealContext, DealCurrency, DealStatus, DealsErrorCode } from './st
 //   status=open|won|lost|any   по умолчанию open;
 //   archived=false|true|any    по умолчанию false;
 //   limit=1…200        по умолчанию 50;
-//   cursor=<строка>    nextCursor предыдущей страницы, как есть;
+//   cursor=<строка>    next_cursor предыдущей страницы, как есть;
 //   filter=<JSON>      дерево условий фильтра (packages/shared/src/filters, тикет 12) — то же
 //                      для списка, канбана, агрегатов, счётчика, выгрузки и массовых действий;
 //                      без условия на архив архивные скрыты, если archived=any;
@@ -44,7 +44,7 @@ import type { DealContext, DealCurrency, DealStatus, DealsErrorCode } from './st
 //                      этой воронки (pipelines/card-fields.ts, тикет crm-fields/07).
 // Условие, сортировка или колонка по пользовательскому полю, которого пользователь не видит
 // (скрытая группа, архив, неизвестный код), — 422 CUSTOM_FIELD_UNKNOWN (filters/custom.ts).
-// Ответ — { items: BoardDeal[], nextCursor: string | null }; null — страниц больше нет.
+// Ответ — { data: BoardDeal[], next_cursor: string | null } (тикет crm-api/02); null — конец.
 // Порядок — (stage_changed_at desc, id desc); курсор — непрозрачная строка base64url с
 // временем смены этапа (до микросекунд) и id последней сделки страницы: следующая страница
 // начинается строго после неё, поэтому сделки с одинаковым временем не повторяются и не
@@ -87,10 +87,8 @@ export interface BoardDeal {
   custom: CustomValues
 }
 
-export interface DealsPage {
-  items: BoardDeal[]
-  nextCursor: string | null
-}
+/** Страница выдачи `/api/v1` (packages/shared, Page). */
+export type DealsPage = Page<BoardDeal>
 
 /** Колонка канбана: число сделок и суммы по валютам (только валюты, где сделки есть). */
 export interface StageAggregate {
@@ -440,7 +438,7 @@ export async function listDealsPage(
   )
 
   return {
-    items: page.map((row, index) => ({
+    data: page.map((row, index) => ({
       id: row.id,
       title: row.title,
       pipelineId: row.pipeline_id,
@@ -463,7 +461,7 @@ export async function listDealsPage(
       archivedAt: isoOrNull(row.archived_at),
       custom: custom[index] ?? {},
     })),
-    nextCursor,
+    next_cursor: nextCursor,
   }
 }
 

@@ -15,6 +15,7 @@ import type { DealView } from '../deals/store.ts'
 import { type Jobs, startJobs } from '../jobs/jobs.ts'
 import type { OrganizationView } from '../organizations/organizations.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemFields } from '../testing/problem.ts'
 import { NO_TRASH_PURGERS } from '../trash/purge.ts'
 import type { FieldRetypeMessage } from './retype.ts'
 
@@ -84,7 +85,10 @@ describe('значения пользовательских полей', () => {
   }
 
   async function refusal(res: Response, status: number) {
-    return json<{ code: string; details?: Record<string, unknown> }>(res, status)
+    return problemFields(await json(res, status), status) as {
+      code: string
+      details?: Record<string, unknown>
+    }
   }
 
   async function createPipeline(project: string): Promise<string> {
@@ -356,7 +360,7 @@ describe('значения пользовательских полей', () => {
       const dealField = await createField('boolean')
       const deal = await createDeal({ [dealField.code]: true })
       const page = await json<DealsPage>(await callA('GET', `/deals?pipeline=${pipelineA}`))
-      expect(page.items.find((d) => d.id === deal.id)?.custom).toEqual({ [dealField.code]: true })
+      expect(page.data.find((d) => d.id === deal.id)?.custom).toEqual({ [dealField.code]: true })
 
       const contactField = await createField('email', {}, { entity: 'contact' })
       const contact = await json<ContactView>(
@@ -384,10 +388,10 @@ describe('значения пользовательских полей', () => {
           custom: { [contactField.code]: 'o@alpi.ua' },
         }),
       )
-      const contactList = await json<{ items: { id: string; custom: unknown }[] }>(
+      const contactList = await json<{ data: { id: string; custom: unknown }[] }>(
         await callA('GET', '/contacts/list'),
       )
-      expect(contactList.items.find((c) => c.id === contact.id)?.custom).toEqual({
+      expect(contactList.data.find((c) => c.id === contact.id)?.custom).toEqual({
         [contactField.code]: 'o@alpi.ua',
       })
       expect(
@@ -430,10 +434,10 @@ describe('значения пользовательских полей', () => {
         }),
       )
       expect(orgUpdated.custom).toEqual({ [orgField.code]: 'http://alpi.ua/new' })
-      const orgList = await json<{ items: { id: string; custom: unknown }[] }>(
+      const orgList = await json<{ data: { id: string; custom: unknown }[] }>(
         await callA('GET', '/organizations/list'),
       )
-      expect(orgList.items.find((o) => o.id === org.id)?.custom).toEqual({
+      expect(orgList.data.find((o) => o.id === org.id)?.custom).toEqual({
         [orgField.code]: 'http://alpi.ua/new',
       })
       expect(
@@ -546,7 +550,10 @@ describe('значения пользовательских полей', () => {
 
       // Задача ещё не прошла: поле только для чтения, второй смены типа нет.
       const busy = await refusal(await putDeal(deals[3]?.id ?? '', { [field.code]: 4 }), 409)
-      expect(busy).toEqual({ code: 'CUSTOM_FIELD_CONVERTING', details: { field: field.code } })
+      expect(busy).toEqual({
+        code: 'CUSTOM_FIELD_CONVERTING',
+        details: { field: field.code },
+      })
       const created = (await createDeal({ [field.code]: 5 }, projectA, 409)) as unknown
       expect(created).toMatchObject({ code: 'CUSTOM_FIELD_CONVERTING' })
       expect(
@@ -687,7 +694,10 @@ describe('значения пользовательских полей', () => {
       const fieldA = await createField('text', { code: 'tilky_a' })
       const dealB = await createDeal(undefined, projectB)
       const unknown = await refusal(await putDeal(dealB.id, { [fieldA.code]: 'x' }, projectB), 422)
-      expect(unknown).toEqual({ code: 'CUSTOM_FIELD_UNKNOWN', details: { field: fieldA.code } })
+      expect(unknown).toEqual({
+        code: 'CUSTOM_FIELD_UNKNOWN',
+        details: { field: fieldA.code },
+      })
       expect(
         (
           await refusal(

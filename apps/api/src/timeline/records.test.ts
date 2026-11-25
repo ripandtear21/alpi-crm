@@ -15,6 +15,7 @@ import {
   startApiHarness,
   type Target,
 } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import type { TimelineItem, TimelinePage } from './timeline.ts'
 
 // Заметки, файлы и лента сделки, контакта и организации (тикет crm-deals/07): изоляция проектов,
@@ -157,12 +158,12 @@ describe('заметки, файлы и лента', () => {
       ]) {
         const res = await call(admin, 'GET', url, projectB)
         expect(res.status, url).toBe(404)
-        expect(await res.json()).toEqual({ code: 'DEAL_NOT_FOUND' })
+        expect(await problemOf(res)).toEqual({ code: 'DEAL_NOT_FOUND' })
       }
       // Своя запись B и id файла A: файла нет.
       const foreign = await call(admin, 'GET', `/v1/deals/${b.deal}/files/${file.id}`, projectB)
       expect(foreign.status).toBe(404)
-      expect(await foreign.json()).toEqual({ code: 'FILE_NOT_FOUND' })
+      expect(await problemOf(foreign)).toEqual({ code: 'FILE_NOT_FOUND' })
       expect(
         (await call(admin, 'DELETE', `/v1/deals/${b.deal}/files/${file.id}`, projectB)).status,
       ).toBe(404)
@@ -221,7 +222,7 @@ describe('заметки, файлы и лента', () => {
       const url = `/v1/deals/${deal}/notes/${note.id}`
       const edit = await call(manager1, 'PUT', url, projectA, { text: 'Підміна' })
       expect(edit.status).toBe(403)
-      expect(await edit.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(edit)).toEqual({ code: 'PERMISSION_DENIED' })
       expect((await call(manager1, 'DELETE', url, projectA)).status).toBe(403)
       // Руководитель с правом «удалять» тоже не меняет чужую заметку.
       expect((await call(head, 'PUT', url, projectA, { text: 'Підміна' })).status).toBe(403)
@@ -281,7 +282,7 @@ describe('заметки, файлы и лента', () => {
         const page = (await (
           await call(manager1, 'GET', `${url}/timeline`, projectA)
         ).json()) as TimelinePage
-        expect(page.items.map((i) => i.kind).sort()).toEqual(['file', 'note'])
+        expect(page.data.map((i) => i.kind).sort()).toEqual(['file', 'note'])
       }
       // Контакт чужой сделки и не созданный им — не «свой» для второго менеджера.
       expect((await call(manager2, 'GET', `/v1/contacts/${contact}/notes`, projectA)).status).toBe(
@@ -314,7 +315,7 @@ describe('заметки, файлы и лента', () => {
       // Без Content-Length: отказ по счёту байт потока.
       const streamed = await upload(manager1, url, projectA, over)
       expect(streamed.status).toBe(413)
-      expect(await streamed.json()).toEqual({
+      expect(await problemOf(streamed)).toEqual({
         code: 'FILE_TOO_LARGE',
         details: { maxBytes: MAX_FILE_BYTES },
       })
@@ -337,7 +338,7 @@ describe('заметки, файлы и лента', () => {
         text('<!DOCTYPE html><html><body><script>alert(1)</script></body></html>'),
       )
       expect(html.status).toBe(415)
-      expect(await html.json()).toEqual({ code: 'UNSUPPORTED_FILE_TYPE' })
+      expect(await problemOf(html)).toEqual({ code: 'UNSUPPORTED_FILE_TYPE' })
       const svg = await upload(
         manager1,
         `/v1/deals/${deal}/files?name=logo.png`,
@@ -454,10 +455,10 @@ describe('заметки, файлы и лента', () => {
         return (await res.json()) as TimelinePage
       }
       const full = await page('')
-      expect(full.nextCursor).toBe(null)
-      const times = full.items.map((i) => Date.parse(i.occurredAt))
+      expect(full.next_cursor).toBe(null)
+      const times = full.data.map((i) => Date.parse(i.occurredAt))
       expect(times).toEqual([...times].sort((a, b) => b - a))
-      expect(full.items.map((i) => i.kind)).toEqual([
+      expect(full.data.map((i) => i.kind)).toEqual([
         'change',
         // Файл загружен после заметки.
         'file',
@@ -467,25 +468,25 @@ describe('заметки, файлы и лента', () => {
         'change',
         'change',
       ])
-      expect(full.items[0]).toMatchObject({
+      expect(full.data[0]).toMatchObject({
         kind: 'change',
         actorId: manager1.id,
         change: { field: 'ownerId', before: 'було', after: 'стало' },
       })
-      expect(full.items.find((i) => i.kind === 'note')).toMatchObject({
+      expect(full.data.find((i) => i.kind === 'note')).toMatchObject({
         id: note.id,
         note: { text: 'Нотатка' },
       })
-      expect(full.items.find((i) => i.kind === 'file')).toMatchObject({
+      expect(full.data.find((i) => i.kind === 'file')).toMatchObject({
         id: file.id,
         file: { name: 'a.txt', contentType: 'text/plain', size: 1 },
       })
 
       const notesOnly = await page('?type=note')
-      expect(notesOnly.items.map((i) => i.id)).toEqual([note.id])
+      expect(notesOnly.data.map((i) => i.id)).toEqual([note.id])
       const changesAndFiles = await page('?type=change,file')
-      expect(new Set(changesAndFiles.items.map((i) => i.kind))).toEqual(new Set(['change', 'file']))
-      expect(changesAndFiles.items).toHaveLength(6)
+      expect(new Set(changesAndFiles.data.map((i) => i.kind))).toEqual(new Set(['change', 'file']))
+      expect(changesAndFiles.data).toHaveLength(6)
 
       // По две строки: курсор проходит и через три строки с одним временем.
       const seen: TimelineItem[] = []
@@ -494,11 +495,11 @@ describe('заметки, файлы и лента', () => {
         const next: TimelinePage = await page(
           `?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
         )
-        expect(next.items.length).toBeLessThanOrEqual(2)
-        seen.push(...next.items)
-        cursor = next.nextCursor
+        expect(next.data.length).toBeLessThanOrEqual(2)
+        seen.push(...next.data)
+        cursor = next.next_cursor
       } while (cursor)
-      expect(seen.map((i) => i.id)).toEqual(full.items.map((i) => i.id))
+      expect(seen.map((i) => i.id)).toEqual(full.data.map((i) => i.id))
 
       for (const bad of ['?type=task', '?cursor=abc', '?limit=0']) {
         expect(

@@ -9,6 +9,13 @@ import { type Kysely, sql } from 'kysely'
 import { hashApiKeySecret } from '../api-keys/secret.ts'
 import { normalizeIp } from '../audit/record.ts'
 import type { Auth } from '../auth/auth.ts'
+import { problem } from '../http/problem.ts'
+import {
+  createRateLimiter,
+  type RateLimiter,
+  rateLimited,
+  rateLimitHeaders,
+} from '../http/rate-limit.ts'
 
 // Запрос по ключу API (тикет crm-api/01; .scratch/crm-api/spec.md, «Общие правила»).
 //
@@ -66,16 +73,21 @@ function routeOpenToApiKey(c: Context): boolean {
 export function apiKeyError(c: Context, code: ApiKeyRequestErrorCode) {
   if (code === 'API_KEY_INVALID') {
     c.header('WWW-Authenticate', 'Bearer')
-    return c.json({ code }, 401)
+    return problem(c, 401, code)
   }
-  return c.json({ code }, 403)
+  return problem(c, 403, code)
 }
 
 /**
- * Первый промежуточный слой после ограничения тела: узнаёт запрос ключа и проверяет ключ и
- * маршрут. Для запроса по сессии ничего не делает.
+ * Первый промежуточный слой после ограничения тела: узнаёт запрос ключа и проверяет ключ,
+ * лимит запросов ключа (http/rate-limit.ts, тикет crm-api/02) и маршрут. Для запроса по сессии
+ * ничего не делает.
  */
-export function apiKeyAuth(db: Kysely<Database>, auth: Auth) {
+export function apiKeyAuth(
+  db: Kysely<Database>,
+  auth: Auth,
+  limiter: RateLimiter = createRateLimiter(),
+) {
   return createMiddleware<ApiKeyEnv & { Variables: { clientIp: string | null } }>(
     async (c, next) => {
       const secret = bearerSecret(c)
@@ -89,11 +101,21 @@ export function apiKeyAuth(db: Kysely<Database>, auth: Auth) {
           ).rows[0]
         : undefined
       if (!key) return apiKeyError(c, 'API_KEY_INVALID')
+
+      // Лимит считает каждый запрос действующего ключа; заголовки — в каждом ответе ключу.
+      const limit = limiter.hit(key.id)
+      const headers = rateLimitHeaders(limit)
+      for (const [name, value] of Object.entries(headers)) c.header(name, value)
+      if (!limit.allowed) return rateLimited(c, limit)
       if (!routeOpenToApiKey(c)) return apiKeyError(c, 'API_KEY_NOT_ALLOWED')
 
       c.set('apiKey', { id: key.id, projectId: key.project_id })
       c.set('clientIp', normalizeIp(getIP(c.req.raw, auth.options)))
-      return next()
+      await next()
+      // Ответ, собранный не через контекст (new Response), заголовков контекста не несёт.
+      for (const [name, value] of Object.entries(headers)) {
+        if (!c.res.headers.has(name)) c.res.headers.set(name, value)
+      }
     },
   )
 }

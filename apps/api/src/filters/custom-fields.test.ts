@@ -22,6 +22,7 @@ import { buildFieldIndex } from '../jobs/field-index.ts'
 import { loadMemberAccess } from '../roles/access.ts'
 import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemFields } from '../testing/problem.ts'
 import { compileFilter } from './compile.ts'
 import { loadFilterCatalog } from './custom.ts'
 
@@ -143,8 +144,8 @@ describe('пользовательские поля в списках и фил�
     do {
       const url: string = `/deals?status=any&${params}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
       const page: DealsPage = await json(await api(user, project)('GET', url))
-      out.push(...page.items.map((item) => item.id))
-      cursor = page.nextCursor
+      out.push(...page.data.map((item) => item.id))
+      cursor = page.next_cursor
     } while (cursor)
     return out
   }
@@ -535,7 +536,7 @@ describe('пользовательские поля в списках и фил�
         '/deals?sort=custom.secret:asc',
         '/deals/export.csv?columns=title,custom.secret',
       ]) {
-        expect(await json(await call('GET', path), 422), path).toEqual({
+        expect(problemFields(await json(await call('GET', path), 422), 422), path).toEqual({
           code: 'CUSTOM_FIELD_UNKNOWN',
           details: { field: expect.stringMatching(/^custom\./) },
         })
@@ -581,7 +582,7 @@ describe('пользовательские поля в списках и фил�
       const adminCard = await json<DealsPage>(
         await api(admin)('GET', `/deals?status=any&pipeline=${pipeline}&view=kanban`),
       )
-      const first = adminCard.items.find((item) => item.id === D(1)[0])
+      const first = adminCard.data.find((item) => item.id === D(1)[0])
       expect(first?.custom).toEqual({ secret: 'таємниця-1', num: 5 })
     })
   })
@@ -604,7 +605,7 @@ describe('пользовательские поля в списках и фил�
       const page = await json<DealsPage>(
         await api(limited)('GET', `/deals?status=any&pipeline=${pipeline}&view=kanban`),
       )
-      const byId = new Map(page.items.map((item) => [item.id, item.custom]))
+      const byId = new Map(page.data.map((item) => [item.id, item.custom]))
       expect(byId.get(D(1)[0] ?? '')).toEqual({ flag: true, txt: 'Київ центр' })
       // Пустое поле карточки в ответе не приходит.
       expect(byId.get(D(3)[0] ?? '')).toEqual({ txt: 'Одеса' })
@@ -613,7 +614,7 @@ describe('пользовательские поля в списках и фил�
       const list = await json<DealsPage>(
         await api(admin)('GET', `/deals?status=any&pipeline=${pipeline}`),
       )
-      expect(Object.keys(list.items.find((i) => i.id === D(1)[0])?.custom ?? {}).length).toBe(13)
+      expect(Object.keys(list.data.find((i) => i.id === D(1)[0])?.custom ?? {}).length).toBe(13)
       // view=kanban без воронки — 400; менеджер настройки не меняет — 403.
       expect((await api(manager)('GET', '/deals?view=kanban')).status).toBe(400)
       expect(
@@ -773,20 +774,20 @@ describe('пользовательские поля в списках и фил�
         .returning('id')
         .execute()
 
-      const contactPage = await json<{ items: { id: string }[] }>(
+      const contactPage = await json<{ data: { id: string }[] }>(
         await api(admin)(
           'GET',
           `/contacts/list?filter=${q({ and: [{ field: 'custom.age', op: 'gt', value: 25 }] })}&sort=custom.age:desc`,
         ),
       )
-      expect(contactPage.items.map((i) => i.id)).toEqual([contacts[1]?.id, contacts[2]?.id])
-      const orgPage = await json<{ items: { id: string }[] }>(
+      expect(contactPage.data.map((i) => i.id)).toEqual([contacts[1]?.id, contacts[2]?.id])
+      const orgPage = await json<{ data: { id: string }[] }>(
         await api(admin)(
           'GET',
           `/organizations/list?filter=${q({ and: [{ field: `custom.${size.id}`, op: 'in', value: [big] }] })}`,
         ),
       )
-      expect(orgPage.items.map((i) => i.id)).toEqual([orgs[1]?.id])
+      expect(orgPage.data.map((i) => i.id)).toEqual([orgs[1]?.id])
       const csv = await (
         await api(admin)('GET', `/organizations/export.csv?columns=name,custom.size&sort=name:asc`)
       ).text()
@@ -1061,9 +1062,9 @@ describe('пользовательские поля в списках и фил�
       for (const [filter, problem] of cases) {
         for (const [action, params] of launches) {
           const res = await start(initiator, { action, params, selection: { filter } })
-          expect({ action, body: await json(res, 400) }).toEqual({
+          expect({ action, body: problemFields(await json(res, 400), 400) }).toEqual({
             action,
-            body: { code: 'INVALID_PARAMS', problem },
+            body: { code: 'INVALID_PARAMS', detail: problem },
           })
         }
       }
@@ -1088,8 +1089,11 @@ describe('пользовательские поля в списках и фил�
       expect(unknownCode).toEqual({
         status: 400,
         body: JSON.stringify({
+          type: 'about:blank',
+          title: 'Bad Request',
+          status: 400,
           code: 'INVALID_PARAMS',
-          problem: 'фильтр: .and.0.field — неизвестное поле',
+          detail: 'фильтр: .and.0.field — неизвестное поле',
         }),
       })
       expect(await answer(initiator, 'custom.secret')).toEqual(unknownCode)
@@ -1332,7 +1336,7 @@ describe('пользовательские поля в списках и фил�
           `/deals?filter=${q({ and: [{ field: 'custom.score', op: 'eq', value: 4242 }] })}`,
         ),
       )
-      expect(found.items.length).toBe(1)
+      expect(found.data.length).toBe(1)
 
       const off = await json<FieldDefinitionSummary>(
         await api(admin, projectC)('PUT', `/fields/${numC}`, { isFrequentlyFiltered: false }),

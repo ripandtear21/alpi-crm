@@ -32,6 +32,7 @@ const migrationNames = [
   '0017_field_values',
   '0018_field_filters',
   '0019_api_keys',
+  '0020_idempotency',
 ]
 
 const tablesOfMigration = [
@@ -88,6 +89,8 @@ const tablesOfMigration = [
   'pipeline_card_field',
   // 0019_api_keys
   'api_key',
+  // 0020_idempotency
+  'idempotency_record',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -348,6 +351,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'field_pipeline', rls: true, policies: 1 },
         { table: 'field_required_stage', rls: true, policies: 1 },
         { table: 'file', rls: true, policies: 1 },
+        { table: 'idempotency_record', rls: true, policies: 1 },
         { table: 'lost_reason', rls: true, policies: 1 },
         { table: 'lost_reason_group', rls: true, policies: 1 },
         { table: 'note', rls: true, policies: 1 },

@@ -1,6 +1,7 @@
 import { getIP } from 'better-auth/api'
 import { createMiddleware } from 'hono/factory'
 import { normalizeIp } from '../audit/record.ts'
+import { problem } from '../http/problem.ts'
 import { AUTH_BASE_PATH, type Auth } from './auth.ts'
 
 export type AuthSession = Auth['$Infer']['Session']
@@ -61,20 +62,20 @@ export function accessGuard(auth: Auth) {
 
     const session = await auth.api.getSession({ headers: c.req.raw.headers })
     if (!session) {
-      return c.json({ code: 'UNAUTHORIZED' }, 401)
+      return problem(c, 401, 'UNAUTHORIZED')
     }
     if (session.user.twoFactorEnabled && session.session.twoFactorVerified !== true) {
-      return c.json({ code: 'SECOND_FACTOR_REQUIRED' }, 401)
+      return problem(c, 401, 'SECOND_FACTOR_REQUIRED')
     }
     if (session.user.mustChangePassword === true) {
       if (authPath !== PASSWORD_CHANGE_PATH) {
-        return c.json({ code: 'PASSWORD_CHANGE_REQUIRED' }, 403)
+        return problem(c, 403, 'PASSWORD_CHANGE_REQUIRED')
       }
     } else if (
       !session.user.twoFactorEnabled &&
       !(authPath && TWO_FACTOR_SETUP_PATHS.has(authPath))
     ) {
-      return c.json({ code: 'TWO_FACTOR_SETUP_REQUIRED' }, 403)
+      return problem(c, 403, 'TWO_FACTOR_SETUP_REQUIRED')
     }
     c.set('session', session)
     return next()

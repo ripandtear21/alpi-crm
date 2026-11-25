@@ -5,11 +5,13 @@ import type {
   FilterGroup,
   ListCount,
   LostReasonGroupSummary,
+  Page,
   PipelineSummary,
   ProjectAccess,
   SavedFilterSummary,
   SavedFilterVisibility,
 } from '@alpi/shared'
+import { readPage } from '@alpi/shared'
 import { projectHeaders } from '../../../components/project-switcher/projects-api.ts'
 import type { CustomValues } from './custom-values.ts'
 
@@ -259,16 +261,19 @@ export function createListsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     owners: (projectId) => json(projectId, 'GET', '/deals/owners'),
     lostReasons: (projectId) => json(projectId, 'GET', '/lost-reasons'),
     fields: (projectId, entity) => json(projectId, 'GET', `/fields?${search({ entity })}`),
-    page: (projectId, entity, { filter, sort, cursor }) =>
-      json(
-        projectId,
-        'GET',
-        `${PAGE_PATH[entity]}?${search({
-          ...listParams(entity, filter),
-          sort,
-          limit: String(LIST_PAGE_SIZE),
-          cursor,
-        })}`,
+    // Страница `/api/v1` — `{ data, next_cursor }` (тикет crm-api/02); экраны держат её как ListPage.
+    page: async (projectId, entity, { filter, sort, cursor }) =>
+      readPage(
+        await json<Page<ListRows[typeof entity]>>(
+          projectId,
+          'GET',
+          `${PAGE_PATH[entity]}?${search({
+            ...listParams(entity, filter),
+            sort,
+            limit: String(LIST_PAGE_SIZE),
+            cursor,
+          })}`,
+        ),
       ),
     count: (projectId, entity, filter) =>
       json(projectId, 'GET', `${COUNT_PATH[entity]}?${search(listParams(entity, filter))}`),
@@ -293,8 +298,14 @@ export function createListsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     },
     startBulk: (projectId, input) => json(projectId, 'POST', '/bulk-jobs', input),
     bulkJob: (projectId, id) => json(projectId, 'GET', `/bulk-jobs/${id}`),
-    trash: (projectId, type, cursor) =>
-      json(projectId, 'GET', `/trash?${search({ type, cursor, limit: String(LIST_PAGE_SIZE) })}`),
+    trash: async (projectId, type, cursor) =>
+      readPage(
+        await json<Page<TrashItem>>(
+          projectId,
+          'GET',
+          `/trash?${search({ type, cursor, limit: String(LIST_PAGE_SIZE) })}`,
+        ),
+      ),
     restore: async (projectId, type, id) => {
       await request(projectId, 'POST', `${TRASH_PATH[type]}/${id}/restore`, {})
     },

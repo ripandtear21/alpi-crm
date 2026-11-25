@@ -14,6 +14,7 @@ import { type AccessEnv, accessGuard } from '../auth/access-guard.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { projectContext } from '../middleware/project-context.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import { PROJECT_TEAMS, resolveViewer, scopePredicate, type Viewer } from './scope.ts'
 
 // Роли проекта, защиты администратора, проверка прав и охват — на настоящем PostgreSQL,
@@ -191,7 +192,7 @@ describe('роли и права проекта', () => {
       // статус владельца системы его не добавляет.
       const denied = await assign(second.id, 'manager')
       expect(denied.status).toBe(403)
-      expect(await denied.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(denied)).toEqual({ code: 'PERMISSION_DENIED' })
 
       const self = await second.api('PUT', `/members/${second.id}/role`, {
         project: projectId,
@@ -284,7 +285,7 @@ describe('роли и права проекта', () => {
           ...(body === undefined ? {} : { body }),
         })
         expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 })
-        expect(await res.json()).toEqual({ code: 'PERMISSION_DENIED' })
+        expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
       }
       // Ничего не изменилось: роль менеджера осталась, «керівник» на месте.
       const member = await h.owner
@@ -345,7 +346,7 @@ describe('роли и права проекта', () => {
       expect((await call('GET', '/deals')).status).toBe(200)
       const del = await call('DELETE', '/deals')
       expect(del.status).toBe(403)
-      expect(await del.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(del)).toEqual({ code: 'PERMISSION_DENIED' })
       const access = (await (await call('GET', '/access')).json()) as { isAdmin: boolean }
       expect(access.isAdmin).toBe(false)
     })
@@ -865,7 +866,7 @@ describe('роли и права проекта', () => {
       const big = { name: 'X', permissions: {}, padding: 'x'.repeat(MAX_BODY_BYTES + 1) }
       const res = await systemOwner.api('POST', '/roles', { project: project.id, body: big })
       expect(res.status).toBe(413)
-      expect(await res.json()).toEqual({ code: 'PAYLOAD_TOO_LARGE' })
+      expect(await problemOf(res)).toEqual({ code: 'PAYLOAD_TOO_LARGE' })
       const anonymous = await h.request('POST', '/auth/sign-in/email', big)
       expect(anonymous.status).toBe(413)
       // Тело в пределах нормы проходит дальше, до проверки формы.

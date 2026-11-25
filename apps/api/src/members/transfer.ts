@@ -5,6 +5,7 @@ import { recordInRequest } from '../audit/record.ts'
 import { type BulkDeps, type BulkJobSummary, COLUMNS, summary } from '../bulk/routes.ts'
 import { ownerAllowed } from '../deals/scope.ts'
 import { openDealsOf, readTransferParams, TRANSFER_DEALS_ACTION } from '../deals/transfer.ts'
+import { problem } from '../http/problem.ts'
 import { type PermissionsEnv, requireStandalone } from '../middleware/permissions.ts'
 import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
 import type { MemberErrorCode } from './service.ts'
@@ -30,8 +31,8 @@ export function memberTransferRoutes({ actions, enqueue }: BulkDeps) {
     '/:userId/transfer-deals',
     requireStandalone('transfer_deals'),
     async (c) => {
-      const fail = (status: Status, code: MemberErrorCode, details?: unknown) =>
-        c.json(details === undefined ? { code } : { code, details }, status)
+      const fail = (status: Status, code: MemberErrorCode, details?: Record<string, unknown>) =>
+        problem(c, status, code, { details })
       const { permissions } = c.var.access
       if (!can(permissions, 'deals', 'edit')) return fail(403, 'PERMISSION_DENIED')
       if (!actions.has(TRANSFER_DEALS_ACTION)) {

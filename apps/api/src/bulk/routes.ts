@@ -3,6 +3,7 @@ import { hasStandalone } from '@alpi/shared'
 import { Hono } from 'hono'
 import type { Transaction } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
+import { problem } from '../http/problem.ts'
 import type { PermissionsEnv } from '../middleware/permissions.ts'
 import type { ProjectEnv } from '../middleware/project-context.ts'
 import { loadMemberAccess } from '../roles/access.ts'
@@ -171,7 +172,7 @@ export function bulkRoutes({ actions, enqueue }: BulkDeps) {
     })
     .get('/:id', async (c) => {
       const id = c.req.param('id')
-      const notFound = () => c.json({ code: 'BULK_JOB_NOT_FOUND' satisfies BulkErrorCode }, 404)
+      const notFound = () => problem(c, 404, 'BULK_JOB_NOT_FOUND' satisfies BulkErrorCode)
       if (!UUID.test(id)) return notFound()
       const row = await c.var.db
         .selectFrom('bulk_job')
@@ -200,7 +201,7 @@ export function bulkRoutes({ actions, enqueue }: BulkDeps) {
       })
     })
     .post('/', async (c) => {
-      const fail = (status: 400 | 403, code: BulkErrorCode) => c.json({ code }, status)
+      const fail = (status: 400 | 403, code: BulkErrorCode) => problem(c, status, code)
       // Какое отдельное право нужно, зависит от действия: роль читаем здесь, а не в middleware.
       const access = await loadMemberAccess(c.var.db, c.var.session.user.id)
       if (!access) return fail(403, 'PERMISSION_DENIED')
@@ -223,13 +224,16 @@ export function bulkRoutes({ actions, enqueue }: BulkDeps) {
       const params = body.params === undefined ? {} : body.params
       if (!isObject(params)) return fail(400, 'INVALID_PARAMS')
       const db = c.var.db
-      const problem = await action.validate?.({
+      const invalidParams = await action.validate?.({
         params,
         ...('filter' in selection ? { filter: selection.filter } : {}),
         db,
         permissions,
       })
-      if (problem) return c.json({ code: 'INVALID_PARAMS' satisfies BulkErrorCode, problem }, 400)
+      if (invalidParams) {
+        // Текст проверки действия — в `detail` ответа (RFC 9457).
+        return problem(c, 400, 'INVALID_PARAMS' satisfies BulkErrorCode, { detail: invalidParams })
+      }
 
       const row = await db
         .insertInto('bulk_job')

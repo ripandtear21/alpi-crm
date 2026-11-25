@@ -174,11 +174,11 @@ describe('списки и фильтры', () => {
     do {
       const sep = path.includes('?') ? '&' : '?'
       const url: string = cursor ? `${path}${sep}cursor=${encodeURIComponent(cursor)}` : path
-      const page: { items: { id: string }[]; nextCursor: string | null } = await json(
+      const page: { data: { id: string }[]; next_cursor: string | null } = await json(
         await user.api('GET', url, { project }),
       )
-      ids.push(...page.items.map((item) => item.id))
-      cursor = page.nextCursor
+      ids.push(...page.data.map((item) => item.id))
+      cursor = page.next_cursor
     } while (cursor)
     return ids
   }
@@ -379,7 +379,7 @@ describe('списки и фильтры', () => {
         `/v1/deals?status=any&filter=${q({ and: [{ field: 'title', op: 'contains', value: injected }] })}`,
         { project: projectA },
       )
-      expect((await json<DealsPage>(res)).items).toEqual([])
+      expect((await json<DealsPage>(res)).data).toEqual([])
       const table = await sql<{ n: number }>`select count(*)::int as n from deal`.execute(h.owner)
       expect(table.rows[0]?.n).toBeGreaterThan(0)
     })
@@ -417,7 +417,7 @@ describe('списки и фильтры', () => {
       )
       const wrong = await admin.api(
         'GET',
-        `/v1/deals?status=any&limit=2&sort=title:asc&cursor=${first.nextCursor ?? ''}`,
+        `/v1/deals?status=any&limit=2&sort=title:asc&cursor=${first.next_cursor ?? ''}`,
         { project: projectA },
       )
       expect(wrong.status).toBe(400)
@@ -579,8 +579,8 @@ describe('списки и фильтры', () => {
       const asManager = await json<ContactListPage>(
         await manager.api('GET', `/v1/contacts/list?filter=${filter}`, { project: projectA }),
       )
-      expect(asManager.items.map((c) => c.id)).toEqual([own.id])
-      expect(asManager.items[0]?.phone).toBe('+380671112233')
+      expect(asManager.data.map((c) => c.id)).toEqual([own.id])
+      expect(asManager.data[0]?.phone).toBe('+380671112233')
       const asAdmin = await allPages(
         admin,
         `/v1/contacts/list?limit=1&sort=name:asc&filter=${filter}`,
@@ -600,7 +600,7 @@ describe('списки и фильтры', () => {
           project: projectA,
         }),
       )
-      const names = page.items.map((o) => o.name)
+      const names = page.data.map((o) => o.name)
       expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
     })
   })

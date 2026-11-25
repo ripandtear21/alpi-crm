@@ -1,3 +1,4 @@
+import { type Page, readPage } from '@alpi/shared'
 import { projectHeaders } from '../project-switcher/projects-api.ts'
 
 // Лента записи (тикет crm-deals/07, экран — тикет 13): `/api/v1/{deals|contacts|organizations}/
@@ -113,7 +114,8 @@ export function createTimelineApi(
       if (query.cursor) params.set('cursor', query.cursor)
       const search = params.size > 0 ? `?${params}` : ''
       const res = await send(projectId, 'GET', `${base(entity, id)}/timeline${search}`)
-      return (await res.json()) as TimelinePage
+      // Страница `/api/v1` — `{ data, next_cursor }` (тикет crm-api/02).
+      return readPage((await res.json()) as Page<TimelineItem>)
     },
     async addNote(projectId, entity, id, text) {
       await send(projectId, 'POST', `${base(entity, id)}/notes`, { json: { text } })

@@ -17,6 +17,7 @@ import {
   type SignedInUser,
   startApiHarness,
 } from '../testing/api-harness.ts'
+import { pathError, problemOf } from '../testing/problem.ts'
 import type { DealHistoryEntry } from './deals.ts'
 import type { DealView } from './store.ts'
 
@@ -265,7 +266,7 @@ describe('сделки', () => {
   /** 404 «сделки нет» — и в теле только код, без данных сделки. */
   async function expectDealNotFound(res: Response) {
     await expectStatus(res, 404)
-    expect(await res.json()).toEqual({ code: 'DEAL_NOT_FOUND' })
+    expect(await problemOf(res)).toEqual({ code: 'DEAL_NOT_FOUND' })
   }
 
   async function createContact(
@@ -397,7 +398,7 @@ describe('сделки', () => {
       ] as const) {
         const res = await call(admin, 'POST', '/v1/deals', { ...base, ...patch })
         expect(res.status).toBe(400)
-        expect(await res.json()).toEqual({ code: 'INVALID_DEAL', details: { path } })
+        expect(await problemOf(res)).toEqual(pathError('INVALID_DEAL', path))
       }
     })
 
@@ -432,7 +433,7 @@ describe('сделки', () => {
         contactId: (await createContact(admin, 'Третій')).id,
       })
       expect(res.status).toBe(422)
-      expect(await res.json()).toEqual({ code: 'PIPELINE_ARCHIVED' })
+      expect(await problemOf(res)).toEqual({ code: 'PIPELINE_ARCHIVED' })
     })
   })
 
@@ -460,7 +461,7 @@ describe('сделки', () => {
       // Воронка B для сделки A, контакт B для сделки A — как несуществующие.
       const moved = await act(admin, deal.id, 'move', { pipelineId: dirB.main.id })
       expect(moved.status).toBe(404)
-      expect(await moved.json()).toEqual({ code: 'PIPELINE_NOT_FOUND' })
+      expect(await problemOf(moved)).toEqual({ code: 'PIPELINE_NOT_FOUND' })
       const contactB = await createContact(admin, 'Чужий', projectB)
       await expectStatus(
         await call(admin, 'POST', '/v1/deals', {
@@ -628,14 +629,14 @@ describe('сделки', () => {
       expect(transferred.ownerId).toBe(managerA2.id)
       const outsider = await call(head, 'PUT', `/v1/deals/${deal.id}`, { ownerId: 'no-such-user' })
       expect(outsider.status).toBe(422)
-      expect(await outsider.json()).toEqual({ code: 'OWNER_NOT_MEMBER' })
+      expect(await problemOf(outsider)).toEqual({ code: 'OWNER_NOT_MEMBER' })
     })
   })
 
   describe('«одна открытая сделка у человека в воронке»', () => {
     async function conflictOf(res: Response) {
       expect(res.status, JSON.stringify(await res.clone().json())).toBe(409)
-      return json<{ code: string; details?: Record<string, unknown> }>(res)
+      return problemOf(res)
     }
 
     it('создание: вторая открытая — 409 с id первой; в другой воронке — можно; архивная не мешает', async () => {
@@ -932,7 +933,7 @@ describe('сделки', () => {
       expect(statuses).toEqual([200, 409])
       const winner = first?.status === 200 ? managerA1 : managerA2
       const loser = first?.status === 200 ? second : first
-      expect(await loser?.json()).toEqual({ code: 'DEAL_ALREADY_TAKEN' })
+      expect(await problemOf(loser as Response)).toEqual({ code: 'DEAL_ALREADY_TAKEN' })
       const row = await h.owner
         .selectFrom('deal')
         .select('owner_id')
@@ -1130,7 +1131,7 @@ describe('сделки', () => {
       })
       const notWon = await act(admin, source.id, 'upsell')
       expect(notWon.status).toBe(409)
-      expect(await notWon.json()).toEqual({ code: 'DEAL_NOT_WON' })
+      expect(await problemOf(notWon)).toEqual({ code: 'DEAL_NOT_WON' })
 
       const won = await json<DealView>(await act(admin, source.id, 'win'))
       // Чужую выигранную сделку менеджер не видит — и допродажу из неё не создаст.
@@ -1170,11 +1171,11 @@ describe('сделки', () => {
       // Видит все сделки, меняет только свои: чужую выигранную видит, но допродать не может.
       const readOnly = await act(readAll, won.id, 'upsell')
       expect(readOnly.status).toBe(403)
-      expect(await readOnly.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(readOnly)).toEqual({ code: 'PERMISSION_DENIED' })
       // Сделки — все, контакты — свои: контакт сделки коллеги вне охвата контактов.
       const outOfScope = await act(dealsAll, won.id, 'upsell')
       expect(outOfScope.status).toBe(404)
-      expect(await outOfScope.json()).toEqual({ code: 'CONTACT_NOT_FOUND' })
+      expect(await problemOf(outOfScope)).toEqual({ code: 'CONTACT_NOT_FOUND' })
 
       const deals = await h.owner
         .selectFrom('deal')
@@ -1196,7 +1197,7 @@ describe('сделки', () => {
         contactId: foreign.id,
       })
       expect(create.status).toBe(403)
-      expect(await create.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(create)).toEqual({ code: 'PERMISSION_DENIED' })
 
       const deal = await createDeal(contactsReadAll, {
         pipelineId: dirA.main.id,
@@ -1261,7 +1262,7 @@ describe('сделки', () => {
         contactId: contact.id,
       })
       expect(primary.status).toBe(409)
-      expect(await primary.json()).toEqual({ code: 'CONTACT_IS_PRIMARY' })
+      expect(await problemOf(primary)).toEqual({ code: 'CONTACT_IS_PRIMARY' })
 
       const added = await json<DealView>(
         await expectStatus(
@@ -1326,7 +1327,7 @@ describe('сделки', () => {
         phones: [phone],
       })
       expect(res.status).toBe(409)
-      expect(await res.json()).toEqual({
+      expect(await problemOf(res)).toEqual({
         code: 'CONTACT_OUT_OF_SCOPE',
         details: { managerName: 'Ганна Вигадана' },
       })
@@ -1344,7 +1345,7 @@ describe('сделки', () => {
 
       const ask = await call(admin, 'DELETE', `/v1/contacts/${contact.id}`)
       expect(ask.status).toBe(409)
-      expect(await ask.json()).toEqual({
+      expect(await problemOf(ask)).toEqual({
         code: 'CONTACT_HAS_DEALS',
         details: {
           deals: [
@@ -1376,7 +1377,7 @@ describe('сделки', () => {
       // Сделку не восстановить, пока её контакт в корзине.
       const blocked = await act(admin, d1.id, 'restore')
       expect(blocked.status).toBe(409)
-      expect(await blocked.json()).toEqual({ code: 'CONTACT_IN_TRASH' })
+      expect(await problemOf(blocked)).toEqual({ code: 'CONTACT_IN_TRASH' })
 
       await expectStatus(await call(head, 'POST', `/v1/contacts/${contact.id}/restore`), 200)
       await expectStatus(await call(admin, 'GET', `/v1/deals/${d1.id}`), 200)
@@ -1438,10 +1439,10 @@ describe('сделки', () => {
       // Контакты и корзина — все, сделки — только свои: сделку менеджера не тронуть.
       const restore = await call(trashKeeper, 'POST', `/v1/contacts/${contact.id}/restore`)
       expect(restore.status).toBe(403)
-      expect(await restore.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(restore)).toEqual({ code: 'PERMISSION_DENIED' })
       const purge = await call(trashKeeper, 'DELETE', `/v1/contacts/${contact.id}/permanent`)
       expect(purge.status).toBe(403)
-      expect(await purge.json()).toEqual({ code: 'PERMISSION_DENIED' })
+      expect(await problemOf(purge)).toEqual({ code: 'PERMISSION_DENIED' })
       expect(await trashedAt('contact', contact.id)).not.toBeNull()
       expect(await trashedAt('deal', deal.id)).not.toBeNull()
       expect((await history(deal.id)).map((e) => e.field)).toEqual(['deletedAt'])
@@ -1531,7 +1532,7 @@ describe('сделки', () => {
       const stagePath = `/v1/pipelines/${pipeline.id}/stages/${deal.stageId}`
       const refused = await call(admin, 'DELETE', stagePath)
       expect(refused.status).toBe(409)
-      expect(await refused.json()).toEqual({ code: 'STAGE_HAS_OPEN_DEALS' })
+      expect(await problemOf(refused)).toEqual({ code: 'STAGE_HAS_OPEN_DEALS' })
 
       // Архивная открытая сделка тоже стоит на этапе.
       await expectStatus(await act(admin, deal.id, 'archive'), 200)
@@ -1541,7 +1542,7 @@ describe('сделки', () => {
       await expectStatus(await call(admin, 'DELETE', stagePath), 204)
       const reopen = await act(admin, deal.id, 'reopen')
       expect(reopen.status).toBe(409)
-      expect(await reopen.json()).toEqual({ code: 'STAGE_DELETED' })
+      expect(await problemOf(reopen)).toEqual({ code: 'STAGE_DELETED' })
       // Сначала — на действующий этап, потом открыть.
       await expectStatus(await act(admin, deal.id, 'stage', { stageId: pipeline.stages[1] }), 200)
       await expectStatus(await act(admin, deal.id, 'reopen'), 200)
@@ -1556,7 +1557,7 @@ describe('сделки', () => {
       await expectStatus(await call(admin, 'DELETE', `/v1/deals/${deal.id}`), 204)
       const refused = await call(admin, 'DELETE', stagePath)
       expect(refused.status).toBe(409)
-      expect(await refused.json()).toEqual({ code: 'STAGE_HAS_OPEN_DEALS' })
+      expect(await problemOf(refused)).toEqual({ code: 'STAGE_HAS_OPEN_DEALS' })
       await expectStatus(await act(admin, deal.id, 'restore'), 200)
 
       // Удалённая вместе с контактом — так же.

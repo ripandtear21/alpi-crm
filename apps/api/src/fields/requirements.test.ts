@@ -16,6 +16,7 @@ import { DEAL_BULK_REGISTRY } from '../deals/bulk.ts'
 import type { DealView } from '../deals/store.ts'
 import type { OrganizationView } from '../organizations/organizations.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemFields, requiredErrors } from '../testing/problem.ts'
 
 // Обязательность пользовательских полей «всегда» и «с этапа X» (тикет crm-fields/04) — на
 // настоящем PostgreSQL, API ходит ролью приложения. Каждая группа проверок — в своём проекте:
@@ -70,7 +71,8 @@ describe('обязательность пользовательских поле
     return (text === '' ? null : JSON.parse(text)) as T
   }
 
-  const refusal = (res: Response, status = 422) => json<Refusal>(res, status)
+  const refusal = async (res: Response, status = 422) =>
+    problemFields(await json(res, status), status) as unknown as Refusal
 
   async function createPipeline(project: string, stages: string[]) {
     counter += 1
@@ -220,6 +222,7 @@ describe('обязательность пользовательских поле
             names: [{ code: 'budget', nameUk: 'Поле budget', nameRu: null }],
             hiddenCount: 0,
           },
+          errors: requiredErrors('budget'),
         })
         expect((await stored(id)).stage_id).toBe(main.stages[0])
       }
@@ -415,6 +418,7 @@ describe('обязательность пользовательских поле
           names: [{ code: 'contact_always', nameUk: 'Поле contact_always', nameRu: null }],
           hiddenCount: 0,
         },
+        errors: requiredErrors('contact_always'),
       })
       const contact = await createContact(project, { contact_always: 'є' })
       const cleared = await refusal(
@@ -589,6 +593,7 @@ describe('обязательность пользовательских поле
           names: [{ code: 'open_budget', nameUk: 'Поле open_budget', nameRu: null }],
           hiddenCount: 1,
         },
+        errors: requiredErrors('open_budget'),
       })
       expect(text).not.toContain('secret')
 

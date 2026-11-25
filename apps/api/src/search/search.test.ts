@@ -2,6 +2,7 @@ import { withProject } from '@alpi/db'
 import { sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { pathError, problemOf } from '../testing/problem.ts'
 import { contactsQuery, parseQuery, type SearchResponse } from './search.ts'
 
 // Быстрый поиск (тикет crm-deals/08): телефон в любом формате, email, имя с опечаткой,
@@ -286,7 +287,7 @@ describe('быстрый поиск', () => {
     expect(await search(admin, '  ')).toEqual(nothing)
     const res = await admin.api('GET', `/v1/search?q=${'а'.repeat(201)}`, { project: projectA })
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ code: 'INVALID_SEARCH', details: { path: 'q' } })
+    expect(await problemOf(res)).toEqual(pathError('INVALID_SEARCH', 'q'))
   })
 
   it('без права «смотреть» группа пустая', async () => {

@@ -1,8 +1,10 @@
+import type { Page } from '@alpi/shared'
 import { Hono } from 'hono'
 import { sql } from 'kysely'
-import { type Ctx, fail, type Outcome, ok, readLimit, refuse, UUID } from '../contacts/http.ts'
+import { type Ctx, fail, type Outcome, ok, readLimit, refuse } from '../contacts/http.ts'
 import { CUSTOM_HISTORY_PREFIX, visibleHistoryFields } from '../fields/access.ts'
 import { filesRoutes } from '../files/files.ts'
+import { decodePageCursor, encodePageCursor } from '../filters/page.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { notesRoutes } from '../notes/notes.ts'
 import type { FileStorage } from '../storage/storage.ts'
@@ -17,7 +19,7 @@ import {
 // Лента записи (тикет crm-deals/07; spec.md MVP, раздел 5.2): `/v1/{deals|contacts|
 // organizations}/:id/timeline` — изменения полей (change_log), заметки и файлы одним списком,
 // новые сверху. `?type=change,note,file` — только эти виды; `?limit=` — 1…200, по умолчанию 50;
-// `?cursor=` — из nextCursor прошлой страницы. Регистрации, задачи, платежи и звонки добавят их
+// `?cursor=` — из next_cursor прошлой страницы. Регистрации, задачи, платежи и звонки добавят их
 // эпики — новой веткой в timelineRows. Экраны ленты — тикеты 13 и 14.
 //
 // Порядок — (время, id) по убыванию; курсор — эта пара у последней строки страницы, время с
@@ -42,11 +44,8 @@ export interface TimelineItem {
   file?: { name: string; contentType: string; size: number }
 }
 
-export interface TimelinePage {
-  items: TimelineItem[]
-  /** Курсор следующей страницы; null — страниц больше нет. */
-  nextCursor: string | null
-}
+/** Страница выдачи `/api/v1` (packages/shared, Page). */
+export type TimelinePage = Page<TimelineItem>
 
 interface TimelineRow {
   kind: TimelineKind
@@ -66,29 +65,11 @@ interface TimelineRow {
   size: string | null
 }
 
-const CURSOR_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/
-
-interface Cursor {
-  at: string
-  id: string
-}
-
-function encodeCursor(cursor: Cursor): string {
-  return Buffer.from(JSON.stringify([cursor.at, cursor.id])).toString('base64url')
-}
-
-function decodeCursor(raw: string): Cursor | undefined {
-  try {
-    const value = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown
-    if (!Array.isArray(value) || value.length !== 2) return undefined
-    const [at, id] = value as unknown[]
-    if (typeof at !== 'string' || !CURSOR_TIME.test(at)) return undefined
-    if (typeof id !== 'string' || !UUID.test(id)) return undefined
-    return { at, id }
-  } catch {
-    return undefined
-  }
-}
+/**
+ * Сортировка ленты в курсоре: общий формат курсора выдачи `/api/v1` (filters/page.ts) —
+ * сортировка, значение и id последней строки, base64url.
+ */
+const TIMELINE_SORT = 'occurredAt:desc'
 
 function readKinds(raw: string | undefined): TimelineKind[] | undefined {
   if (raw === undefined || raw.trim() === '') return [...TIMELINE_KINDS]
@@ -163,13 +144,14 @@ async function timeline(
   const kinds = readKinds(c.req.query('type'))
   if (!kinds) return refuse(400, 'INVALID_TIMELINE', { path: 'type' })
   const rawCursor = c.req.query('cursor')
-  const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor)
+  const cursor =
+    rawCursor === undefined ? undefined : decodePageCursor(rawCursor, TIMELINE_SORT, 'timestamptz')
   if (rawCursor !== undefined && !cursor) return refuse(400, 'INVALID_TIMELINE', { path: 'cursor' })
   const entity = await entityFor(c, type, c.req.param('id') ?? '', 'read')
   if (!entity.ok) return entity
 
   const after = cursor
-    ? sql`(t.occurred_at, t.id) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)`
+    ? sql`(t.occurred_at, t.id) < (${cursor.v}::timestamptz, ${cursor.id}::uuid)`
     : sql`true`
   const customFields = kinds.includes('change')
     ? await visibleHistoryFields(
@@ -192,9 +174,11 @@ async function timeline(
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   return ok({
-    items: page.map(item),
-    nextCursor:
-      rows.length > limit && last ? encodeCursor({ at: last.cursor_at, id: last.id }) : null,
+    data: page.map(item),
+    next_cursor:
+      rows.length > limit && last
+        ? encodePageCursor(TIMELINE_SORT, { v: last.cursor_at, id: last.id })
+        : null,
   })
 }
 

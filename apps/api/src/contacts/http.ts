@@ -1,4 +1,5 @@
 import type { Context } from 'hono'
+import { problem } from '../http/problem.ts'
 import type { PermissionsEnv } from '../middleware/permissions.ts'
 
 // Общее для маршрутов контактов и организаций: разбор тела, ответ «результат или отказ».
@@ -27,9 +28,10 @@ export function refuse<Code extends string>(
   return details === undefined ? { ok: false, status, code } : { ok: false, status, code, details }
 }
 
+/** Ответ отказом в формате RFC 9457 (http/problem.ts). */
 export function fail<Code extends string>(c: Ctx, refusal: Refusal<Code>) {
   const { status, code, details } = refusal
-  return c.json(details === undefined ? { code } : { code, details }, status)
+  return problem(c, status, code, { details })
 }
 
 /** Тело запроса — объект JSON, иначе null. */

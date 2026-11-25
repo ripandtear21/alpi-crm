@@ -14,11 +14,13 @@ import { totp } from './totp.ts'
 
 export const ORIGIN = 'http://localhost:3000'
 
-export type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
+export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface RequestOptions {
   project?: string
   body?: unknown
+  /** Свои заголовки запроса (например Idempotency-Key). */
+  headers?: Record<string, string>
 }
 
 /** Приложение Hono, которому тест шлёт запросы. */
@@ -101,6 +103,7 @@ export async function startApiHarness(appUser: string): Promise<ApiHarness> {
       }
       if (options.project !== undefined) headers.set(PROJECT_HEADER, options.project)
       if (options.body !== undefined) headers.set('content-type', 'application/json')
+      for (const [name, value] of Object.entries(options.headers ?? {})) headers.set(name, value)
       const res = await target.request(`${ORIGIN}${path}`, {
         method,
         headers,

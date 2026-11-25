@@ -5,6 +5,7 @@ import { createApp } from '../app.ts'
 import type { BulkJobDetails, BulkJobSummary } from '../bulk/routes.ts'
 import { type Jobs, startJobs } from '../jobs/jobs.ts'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
+import { problemOf } from '../testing/problem.ts'
 import { NO_TRASH_PURGERS } from '../trash/purge.ts'
 import { TRANSFER_DEALS_ACTION, transferDeals } from './transfer.ts'
 
@@ -164,6 +165,11 @@ describe('передача сделок участника', () => {
 
   async function reply(res: Response) {
     return { status: res.status, body: (await res.json()) as unknown }
+  }
+
+  /** Отказ маршрута /api/v1 (RFC 9457): статус и тело без общей части (type, title, status). */
+  async function refusal(res: Response) {
+    return { status: res.status, body: await problemOf(res) }
   }
 
   async function waitFinished(user: SignedInUser, projectId: string, id: string) {
@@ -349,7 +355,7 @@ describe('передача сделок участника', () => {
       await h.addMember(projectA, manager.id, 'manager')
       const from = await member(projectA)
       const deals = await insertDeals(projectA, from, 1)
-      expect(await reply(await transfer(manager, projectA, from, { toUserId: null }))).toEqual({
+      expect(await refusal(await transfer(manager, projectA, from, { toUserId: null }))).toEqual({
         status: 403,
         body: { code: 'PERMISSION_DENIED' },
       })
@@ -367,11 +373,11 @@ describe('передача сделок участника', () => {
     it('тимлид не передаёт сделки участнику другой команды и не трогает сделки вне охвата', async () => {
       const own = await insertDeals(projectA, mate, 1)
       const foreign = await insertDeals(projectA, outsider, 1)
-      expect(await reply(await transfer(lead, projectA, mate, { toUserId: outsider }))).toEqual({
+      expect(await refusal(await transfer(lead, projectA, mate, { toUserId: outsider }))).toEqual({
         status: 403,
         body: { code: 'PERMISSION_DENIED' },
       })
-      expect(await reply(await transfer(lead, projectA, outsider, { toUserId: mate }))).toEqual({
+      expect(await refusal(await transfer(lead, projectA, outsider, { toUserId: mate }))).toEqual({
         status: 403,
         body: { code: 'PERMISSION_DENIED' },
       })
@@ -426,13 +432,15 @@ describe('передача сделок участника', () => {
       const from = await member(projectA)
       const deals = await insertDeals(projectA, from, 1)
       const elsewhere = await member(projectB)
-      expect(await reply(await transfer(admin, projectA, from, { toUserId: elsewhere }))).toEqual({
-        status: 422,
-        body: { code: 'OWNER_NOT_MEMBER' },
-      })
+      expect(await refusal(await transfer(admin, projectA, from, { toUserId: elsewhere }))).toEqual(
+        {
+          status: 422,
+          body: { code: 'OWNER_NOT_MEMBER' },
+        },
+      )
       const gone = await member(projectA)
       expect((await disable(admin, projectA, gone)).status).toBe(200)
-      expect(await reply(await transfer(admin, projectA, from, { toUserId: gone }))).toEqual({
+      expect(await refusal(await transfer(admin, projectA, from, { toUserId: gone }))).toEqual({
         status: 422,
         body: { code: 'OWNER_NOT_MEMBER' },
       })
@@ -445,10 +453,12 @@ describe('передача сделок участника', () => {
       expect((await transfer(admin, projectA, from, { toUserId: 5 })).status).toBe(400)
       expect((await transfer(admin, projectA, from, { toUserId: from })).status).toBe(400)
       const elsewhere = await member(projectB)
-      expect(await reply(await transfer(admin, projectA, elsewhere, { toUserId: null }))).toEqual({
-        status: 404,
-        body: { code: 'MEMBER_NOT_FOUND' },
-      })
+      expect(await refusal(await transfer(admin, projectA, elsewhere, { toUserId: null }))).toEqual(
+        {
+          status: 404,
+          body: { code: 'MEMBER_NOT_FOUND' },
+        },
+      )
     })
   })
 

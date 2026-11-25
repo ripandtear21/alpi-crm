@@ -3,6 +3,7 @@ import { KANBAN_CARD_FIELDS_LIMIT, type KanbanCardFields } from '@alpi/shared'
 import { type Kysely, sql } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
 import { fieldVisible } from '../fields/access.ts'
+import { problem } from '../http/problem.ts'
 import { type Ctx, fail, invalid, readBody, UUID } from './directory.ts'
 
 // Поля на карточке канбана (тикет crm-fields/07): до 3 полей сделки на воронку, выбирает
@@ -85,10 +86,9 @@ export async function putCardFields(c: Ctx) {
   const ids = raw.map((id) => id.toLowerCase())
   if (new Set(ids).size !== ids.length) return invalid(c, 'fieldIds')
   if (ids.length > KANBAN_CARD_FIELDS_LIMIT) {
-    return c.json(
-      { code: 'TOO_MANY_CARD_FIELDS', details: { limit: KANBAN_CARD_FIELDS_LIMIT } },
-      422,
-    )
+    return problem(c, 422, 'TOO_MANY_CARD_FIELDS', {
+      details: { limit: KANBAN_CARD_FIELDS_LIMIT },
+    })
   }
   const pipeline = await findPipeline(c, true)
   if (!pipeline) return fail(c, 404, 'NOT_FOUND')
@@ -122,7 +122,7 @@ export async function putCardFields(c: Ctx) {
   for (const id of ids) {
     const field = fields.find((f) => f.id === id)
     if (!field || !fieldVisible(permissions, { groupId: field.group_id, entity: 'deal' })) {
-      return c.json({ code: 'CUSTOM_FIELD_UNKNOWN', details: { field: id } }, 422)
+      return problem(c, 422, 'CUSTOM_FIELD_UNKNOWN', { details: { field: id } })
     }
   }
 
