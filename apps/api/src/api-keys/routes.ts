@@ -20,6 +20,7 @@ import {
   UUID,
 } from '../contacts/http.ts'
 import { loadFieldGroupRefs } from '../fields/access.ts'
+import { omitFromIdempotentReplay } from '../http/idempotency.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { effectivePermissions, type MemberAccess } from '../roles/access.ts'
 import { grantsBeyondOwn } from '../roles/guard.ts'
@@ -265,12 +266,15 @@ export function apiKeysRoutes() {
         .execute()
       return c.json<ApiKeySummary[]>(rows.map(keySummary))
     })
-    .post('/', requirePermission('integrations', 'create'), grantRole, async (c) =>
-      respond(c, await createKey(c), 201),
-    )
-    .post('/:id/reissue', requirePermission('integrations', 'edit'), grantRole, async (c) =>
-      respond(c, await reissueKey(c, c.req.param('id'))),
-    )
+    // Секрет показывается один раз: повтор с тем же Idempotency-Key отдаёт ответ без него.
+    .post('/', requirePermission('integrations', 'create'), grantRole, async (c) => {
+      omitFromIdempotentReplay(c, ['secret'])
+      return respond(c, await createKey(c), 201)
+    })
+    .post('/:id/reissue', requirePermission('integrations', 'edit'), grantRole, async (c) => {
+      omitFromIdempotentReplay(c, ['secret'])
+      return respond(c, await reissueKey(c, c.req.param('id')))
+    })
     .post('/:id/revoke', requirePermission('integrations', 'delete'), grantRole, async (c) =>
       respond(c, await revokeKey(c, c.req.param('id'))),
     )

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readApiEnv } from './config.ts'
@@ -84,5 +85,19 @@ describe('readApiEnv', () => {
     expect(() => readApiEnv({ ...BASE, WEBHOOK_ALLOW_INSECURE_URLS: 'yes' })).toThrow(
       /WEBHOOK_ALLOW_INSECURE_URLS: ожидается 1 или 0/,
     )
+  })
+})
+
+describe('docker-compose.yml', () => {
+  it('сервис api получает WEBHOOK_SECRET_KEY из .env и не получает WEBHOOK_ALLOW_INSECURE_URLS', () => {
+    const compose = readFileSync(
+      path.resolve(import.meta.dirname, '../../../docker-compose.yml'),
+      'utf8',
+    ).replaceAll('\r\n', '\n')
+    // Блок сервиса api: от «  api:» до следующего сервиса верхнего уровня.
+    const api = /\n {2}api:\n((?: {4}.*\n|\s*\n)+)/.exec(compose)?.[1] ?? ''
+    expect(api).toMatch(/\n {6}DATABASE_URL: /)
+    expect(api).toContain('\n      WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:-}\n')
+    expect(api).not.toMatch(/^\s*WEBHOOK_ALLOW_INSECURE_URLS\s*:/m)
   })
 })

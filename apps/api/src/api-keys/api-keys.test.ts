@@ -356,6 +356,60 @@ describe('ключи API', () => {
       expect(stored.rows[0]?.secret_hash).toBe(createHash('sha256').update(second).digest('hex'))
     })
 
+    it('с Idempotency-Key секрет не сохраняется для повтора: повтор создания и перевыпуска — тот же ответ без секрета', async () => {
+      const roleId = await templateRole(projectA, 'head')
+      const post = (path: string, idempotencyKey: string, body?: unknown) =>
+        admin.api('POST', path, {
+          project: projectA,
+          ...(body === undefined ? {} : { body }),
+          headers: { 'Idempotency-Key': idempotencyKey },
+        })
+      /** Строки idempotency_record целиком, текстом: секрета не должно быть ни в одном поле. */
+      async function recordsWith(secret: string): Promise<number> {
+        const { rows } = await sql<{ n: number }>`
+          select count(*)::int as n from idempotency_record r where r::text like ${`%${secret}%`}
+        `.execute(h.owner)
+        return rows[0]?.n ?? -1
+      }
+
+      const createRequestKey = `create-${++counter}-${Date.now()}`
+      const body = { name: `Повтор ${createRequestKey}`, roleId }
+      const first = await post('/v1/api-keys', createRequestKey, body)
+      expect(first.status).toBe(201)
+      const created = (await first.json()) as ApiKeyWithSecret
+      expect(created.secret).toMatch(API_KEY_SECRET_PATTERN)
+      expect(await recordsWith(created.secret)).toBe(0)
+
+      const again = await post('/v1/api-keys', createRequestKey, body)
+      expect(again.status).toBe(201)
+      expect(again.headers.get('Idempotent-Replayed')).toBe('true')
+      const replayed = (await again.json()) as Record<string, unknown>
+      expect(replayed).not.toHaveProperty('secret')
+      expect(replayed.key).toEqual(JSON.parse(JSON.stringify(created.key)))
+      const same = await h.owner
+        .selectFrom('api_key')
+        .select('id')
+        .where('name', '=', body.name)
+        .execute()
+      expect(same).toHaveLength(1)
+
+      const reissueRequestKey = `reissue-${++counter}-${Date.now()}`
+      const reissuePath = `/v1/api-keys/${created.key.id}/reissue`
+      const reissued = await post(reissuePath, reissueRequestKey)
+      expect(reissued.status).toBe(200)
+      const { secret } = (await reissued.json()) as ApiKeyWithSecret
+      expect(await recordsWith(secret)).toBe(0)
+
+      const reissuedAgain = await post(reissuePath, reissueRequestKey)
+      expect(reissuedAgain.status).toBe(200)
+      expect(reissuedAgain.headers.get('Idempotent-Replayed')).toBe('true')
+      const text = await reissuedAgain.text()
+      expect(text).not.toContain(secret)
+      expect(JSON.parse(text)).not.toHaveProperty('secret')
+      // Повтор не перевыпустил ключ второй раз: действует секрет первого перевыпуска.
+      expect((await keyRequest(secret, 'GET', '/v1/deals')).status).toBe(200)
+    })
+
     it('роль приложения не читает отпечаток секрета', async () => {
       await expect(
         withProject(h.appDb, projectA, (trx) => sql`select secret_hash from api_key`.execute(trx)),

@@ -39,6 +39,7 @@ import { enqueueDeliveries } from '../events/queue.ts'
 import { encryptWebhookSecret, generateWebhookSecret } from '../events/secret.ts'
 import { checkWebhookUrl, type UrlProblem } from '../events/ssrf.ts'
 import { decodePageCursor, encodePageCursor } from '../filters/page.ts'
+import { omitFromIdempotentReplay } from '../http/idempotency.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 
 // Адреса автоматизации и журнал доставок (тикет crm-api/06): `/v1/webhook-endpoints` (снаружи —
@@ -579,9 +580,11 @@ export function webhookEndpointsRoutes(deps: WebhookDeliveryOptions = NO_WEBHOOK
           .execute()
         return c.json<WebhookEndpointSummary[]>(rows.map(summary))
       })
-      .post('/', requirePermission('integrations', 'create'), async (c) =>
-        respond(c, await createEndpoint(c, deps), 201),
-      )
+      // Секрет показывается один раз: повтор с тем же Idempotency-Key отдаёт ответ без него.
+      .post('/', requirePermission('integrations', 'create'), async (c) => {
+        omitFromIdempotentReplay(c, ['secret'])
+        return respond(c, await createEndpoint(c, deps), 201)
+      })
       .get('/:id', view, async (c) => {
         const id = c.req.param('id')
         const row = UUID.test(id)
@@ -602,9 +605,10 @@ export function webhookEndpointsRoutes(deps: WebhookDeliveryOptions = NO_WEBHOOK
       .post('/:id/disable', edit, async (c) =>
         respond(c, await disableByUser(c, c.req.param('id'))),
       )
-      .post('/:id/rotate-secret', edit, async (c) =>
-        respond(c, await rotateSecret(c, c.req.param('id'), deps)),
-      )
+      .post('/:id/rotate-secret', edit, async (c) => {
+        omitFromIdempotentReplay(c, ['secret'])
+        return respond(c, await rotateSecret(c, c.req.param('id'), deps))
+      })
       .get('/:id/deliveries', view, async (c) =>
         respond(c, await listDeliveries(c, c.req.param('id'))),
       )

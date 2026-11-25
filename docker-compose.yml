@@ -47,6 +47,9 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # Ключ шифрования секретов адресов событий (тикет crm-api/06); пусто — адреса событий
+      # недоступны. WEBHOOK_ALLOW_INSECURE_URLS сюда не передаётся: она только для тестов.
+      WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:-}
       # Файлы пользователей — на своём томе: переживают пересборку образа.
       STORAGE_DIR: /data/files
     volumes:

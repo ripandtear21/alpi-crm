@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { withProject } from '@alpi/db'
 import {
   type ApiKeyWithSecret,
@@ -315,6 +315,73 @@ describe('адреса событий', () => {
         description: 'Тестовий приймач',
         eventTypes: ['deal.created', 'deal.won'],
       })
+    })
+
+    it('с Idempotency-Key секрет не сохраняется для повтора: повтор создания и смены секрета — тот же ответ без секрета', async () => {
+      const post = (path: string, idempotencyKey: string, body?: unknown) =>
+        admin.call(strictApp, 'POST', path, {
+          project: projectA,
+          ...(body === undefined ? {} : { body }),
+          headers: { 'Idempotency-Key': idempotencyKey },
+        })
+      /** Строки idempotency_record целиком, текстом: секрета не должно быть ни в одном поле. */
+      async function recordsWith(raw: string): Promise<number> {
+        const { rows } = await sql<{ n: number }>`
+          select count(*)::int as n from idempotency_record r where r::text like ${`%${raw}%`}
+        `.execute(h.owner)
+        return rows[0]?.n ?? -1
+      }
+
+      const createRequestKey = randomUUID()
+      const description = `Повтор ${createRequestKey}`
+      const body = { url: 'https://hooks.example.test/crm', description, eventTypes: ['deal.won'] }
+      const first = await post('/v1/webhook-endpoints', createRequestKey, body)
+      expect(first.status).toBe(201)
+      const created = (await first.json()) as WebhookEndpointWithSecret
+      expect(created.secret).toMatch(/^whsec_/)
+      expect(await recordsWith(created.secret.slice('whsec_'.length))).toBe(0)
+
+      const again = await post('/v1/webhook-endpoints', createRequestKey, body)
+      expect(again.status).toBe(201)
+      expect(again.headers.get('Idempotent-Replayed')).toBe('true')
+      const replayed = (await again.json()) as Record<string, unknown>
+      expect(replayed).not.toHaveProperty('secret')
+      expect(replayed.endpoint).toEqual(JSON.parse(JSON.stringify(created.endpoint)))
+      const same = await h.owner
+        .selectFrom('webhook_endpoint')
+        .select('id')
+        .where('description', '=', description)
+        .execute()
+      expect(same).toHaveLength(1)
+
+      const rotateRequestKey = randomUUID()
+      const rotatePath = `/v1/webhook-endpoints/${created.endpoint.id}/rotate-secret`
+      const rotated = await post(rotatePath, rotateRequestKey)
+      expect(rotated.status).toBe(200)
+      const { secret } = (await rotated.json()) as WebhookEndpointWithSecret
+      expect(secret).toMatch(/^whsec_/)
+      expect(await recordsWith(secret.slice('whsec_'.length))).toBe(0)
+      const encrypted = await h.owner
+        .selectFrom('webhook_endpoint')
+        .select('secret_encrypted')
+        .where('id', '=', created.endpoint.id)
+        .executeTakeFirstOrThrow()
+
+      const rotatedAgain = await post(rotatePath, rotateRequestKey)
+      expect(rotatedAgain.status).toBe(200)
+      expect(rotatedAgain.headers.get('Idempotent-Replayed')).toBe('true')
+      const text = await rotatedAgain.text()
+      expect(text).not.toContain(secret.slice('whsec_'.length))
+      const replayedRotation = JSON.parse(text) as Record<string, unknown>
+      expect(replayedRotation).not.toHaveProperty('secret')
+      expect(replayedRotation.endpoint).toMatchObject({ id: created.endpoint.id })
+      // Повтор не сменил секрет второй раз.
+      const after = await h.owner
+        .selectFrom('webhook_endpoint')
+        .select('secret_encrypted')
+        .where('id', '=', created.endpoint.id)
+        .executeTakeFirstOrThrow()
+      expect(after.secret_encrypted).toBe(encrypted.secret_encrypted)
     })
 
     it('без ключа шифрования адрес не создаётся (500), открытый секрет не сохраняется', async () => {
