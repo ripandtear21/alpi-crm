@@ -162,3 +162,9 @@
     text-align: left;
   }
 }
+
+/* Форма заполнения обязательных полей (тикет crm-fields/04). */
+.custom-fields__fill {
+  display: grid;
+  gap: var(--s-4);
+}

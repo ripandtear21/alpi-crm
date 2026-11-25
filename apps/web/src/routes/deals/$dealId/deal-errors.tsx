@@ -1,5 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { readRequiredFieldsMissing } from '../../../components/custom-fields/required-fields.ts'
+import { useMissingFieldsText } from '../../../components/custom-fields/required-fields-form.tsx'
 import { useProjectCode } from '../../../components/project-switcher/current-project.tsx'
 import { DealCardApiError } from './deal-card-api.ts'
 
@@ -7,11 +9,23 @@ import { DealCardApiError } from './deal-card-api.ts'
 // OPEN_DEAL_EXISTS) — подсказка со ссылкой на мешающую сделку, если она видна пользователю,
 // иначе имя менеджера, у которого клиент в работе (apps/api/src/deals/store.ts).
 
-/** Текст отказа по коду; неизвестный код — общий текст. */
+/**
+ * Текст отказа по коду; неизвестный код — общий текст. Незаполненные обязательные поля
+ * (тикет crm-fields/04) — со списком названий.
+ */
 export function useCardErrorText() {
   const { t } = useTranslation('deal-card')
+  const missingText = useMissingFieldsText()
   return (error: unknown): string => {
     const code = error instanceof DealCardApiError ? error.code : ''
+    const missing =
+      error instanceof DealCardApiError ? readRequiredFieldsMissing(code, error.details) : null
+    if (missing) {
+      return t(`errors.${code}`, {
+        fields: missingText(missing),
+        defaultValue: t('errors.unknown'),
+      })
+    }
     return t(`errors.${code}`, { defaultValue: t('errors.unknown') })
   }
 }

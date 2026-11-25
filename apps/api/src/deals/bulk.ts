@@ -8,6 +8,7 @@ import {
   BulkSelectionError,
 } from '../bulk/registry.ts'
 import { type FieldChange, recordChanges } from '../change-log/record.ts'
+import { anyMissing, missingRequired } from '../fields/requirements.ts'
 import { catalogFor, loadFilterCatalog } from '../filters/custom.ts'
 import { dealsWhere } from './board.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
@@ -114,6 +115,7 @@ async function lockDeal(trx: Transaction<Database>, id: string) {
       'primary_contact_id',
       'archived_at',
       'deleted_at',
+      'custom',
     ])
     .where('id', '=', id)
     .forUpdate()
@@ -296,6 +298,22 @@ export const changeDealsStage: BulkAction = {
     // действие карточки.
     if (stage.pipeline_id !== deal.pipeline_id) {
       throw new BulkRecordError('STAGE_NOT_IN_PIPELINE', 'этап другой воронки')
+    }
+    // Обязательные поля этапа (тикет crm-fields/04) — та же проверка, что у смены этапа в API:
+    // сделка с незаполненным полем не меняется, а попадает в журнал ошибок операции. Поля
+    // скрытых от инициатора групп — только числом.
+    const missing = await missingRequired(
+      { db: trx, permissions: ctx.access.permissions },
+      { entity: 'deal', pipelineId: deal.pipeline_id, stageId },
+      deal.custom,
+    )
+    if (anyMissing(missing)) {
+      const named = missing.fields.map((f) => f.code).join(', ')
+      const hidden = missing.hiddenCount > 0 ? `скрытых полей: ${missing.hiddenCount}` : ''
+      throw new BulkRecordError(
+        'STAGE_REQUIREMENTS_MISSING',
+        `не заполнены обязательные поля этапа: ${[named, hidden].filter(Boolean).join('; ')}`,
+      )
     }
     try {
       await trx

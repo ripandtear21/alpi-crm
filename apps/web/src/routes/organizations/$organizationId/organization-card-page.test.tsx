@@ -167,6 +167,37 @@ describe('карточка организации: контакты и сдел�
     })
     expect(await screen.findByRole('link', { name: 'Марта' })).toBeTruthy()
   })
+
+  // Обязательность «всегда» (тикет crm-fields/04): поле — сразу в форме нового контакта.
+  it('новый контакт: поле «всегда» в форме; без значения запрос не уходит', async () => {
+    const group = fieldGroup({ entity: 'contact' })
+    const fields = fakeCustomFieldsApi({
+      groups: [group],
+      fields: [
+        fieldDef({
+          groupId: group.id,
+          entity: 'contact',
+          code: 'source',
+          nameUk: 'Джерело',
+          required: { mode: 'always' },
+        }),
+        fieldDef({ groupId: group.id, entity: 'contact', code: 'note', nameUk: 'Нотатка' }),
+      ],
+    })
+    const { api } = await renderCard({ fields })
+    fireEvent.click(screen.getByRole('button', { name: '+ Новий контакт' }))
+    const form = await screen.findByRole('form', { name: 'Новий контакт' })
+    const dialog = screen.getByRole('dialog', { name: 'Новий контакт' })
+    fireEvent.change(within(form).getByLabelText("Ім'я"), { target: { value: 'Марта' } })
+    const source = await within(form).findByRole('textbox', { name: 'Джерело' })
+    expect(within(form).queryByRole('textbox', { name: 'Нотатка' })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Зберегти' }))
+    expect(await within(form).findByText('Заповніть поле.')).toBeTruthy()
+    expect(api.calls).toEqual([])
+    fireEvent.change(source, { target: { value: 'Instagram' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Зберегти' }))
+    await waitFor(() => expect(api.calls).toEqual(['createContact']))
+  })
 })
 
 describe('карточка организации: удаление', () => {

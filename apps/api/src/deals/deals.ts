@@ -24,6 +24,13 @@ import {
 import { contactScopePredicate } from '../contacts/scope.ts'
 import { CUSTOM_HISTORY_PREFIX, visibleHistoryFields } from '../fields/access.ts'
 import {
+  anyMissing,
+  clearedRequired,
+  customAfter,
+  missingDetails,
+  requiredFieldsOutcome,
+} from '../fields/requirements.ts'
+import {
   type CustomValues,
   type CustomWrite,
   changesCustom,
@@ -38,7 +45,11 @@ import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { dealAggregates, dealOwners, listDeals } from './board.ts'
 import { addLine, productsTotalChange, removeLine, updateLine } from './lines.ts'
 import { ownerAllowed } from './scope.ts'
-import { NO_STAGE_REQUIREMENTS, type StageRequirements } from './stage-requirements.ts'
+import {
+  CUSTOM_FIELD_REQUIREMENTS,
+  type StageRequirements,
+  type StageTarget,
+} from './stage-requirements.ts'
 import {
   DEAL_CURRENCIES,
   DEFAULT_CURRENCY,
@@ -73,6 +84,12 @@ import {
 // - «Одна открытая сделка у человека в воронке» держит база (частичный уникальный индекс):
 //   любой путь, дающий вторую, получает 409 OPEN_DEAL_EXISTS — store.ts, guardedWrite.
 // - Каждое изменение полей и участников пишется в change_log той же транзакцией.
+// - Обязательные пользовательские поля (тикет crm-fields/04): создание, смена этапа, выигрыш и
+//   перенос спрашивают требования этапа (stage-requirements.ts) со значениями после изменения —
+//   `custom` того же запроса учитывается и записывается вместе с действием; не заполнены — 422
+//   STAGE_REQUIREMENTS_MISSING. Очистка поля «всегда» — 422 REQUIRED_FIELDS_MISSING.
+//   Повторное открытие, проигрыш и архив обязательность не проверяют (решено без владельца,
+//   подтвердить).
 
 const MAX_TITLE_LENGTH = 200
 const MAX_ROLE_LENGTH = 100
@@ -373,11 +390,22 @@ interface NewDeal {
   custom: CustomValues
 }
 
-async function insertDeal(ctx: DealContext, deal: NewDeal): Promise<Result<DealView>> {
+async function insertDeal(
+  ctx: DealContext,
+  deal: NewDeal,
+  requirements: StageRequirements,
+): Promise<Result<DealView>> {
   const custom = await prepareCustom(ctx, 'deal', {}, deal.custom)
   if (!custom.ok) return custom
   const place = await placement(ctx, deal.pipelineId, deal.stageId)
   if (!place.ok) return place
+  const required = await checkRequirements(
+    ctx,
+    requirements,
+    place.value,
+    customAfter({}, custom.value),
+  )
+  if (!required.ok) return required
   const contact = await liveContact(ctx, deal.contactId, 'bind')
   if (!contact.ok) return contact
   if (deal.organizationId !== null && !(await organizationExists(ctx, deal.organizationId))) {
@@ -421,7 +449,11 @@ const CREATE_KEYS = [...FIELD_KEYS, 'pipelineId', 'stageId', 'contactId', 'conta
  * `POST /v1/contacts`, нужно право «контакты: создавать»). Ответственный по умолчанию — сам
  * пользователь. Отказ откатывает и созданный для сделки контакт.
  */
-async function createDeal(c: Ctx, ctx: DealContext): Promise<Result<DealView>> {
+async function createDeal(
+  c: Ctx,
+  ctx: DealContext,
+  requirements: StageRequirements,
+): Promise<Result<DealView>> {
   const body = await readBody(c)
   if (!body) return invalid('')
   const extra = unknownKey(body, CREATE_KEYS)
@@ -459,18 +491,22 @@ async function createDeal(c: Ctx, ctx: DealContext): Promise<Result<DealView>> {
       if (!created.ok) return created
       id = created.value.id
     }
-    return insertDeal(ctx, {
-      title,
-      pipelineId,
-      stageId,
-      contactId: id,
-      organizationId: fields.value.organizationId ?? null,
-      amount: fields.value.amount ?? 0,
-      currency: fields.value.currency ?? DEFAULT_CURRENCY,
-      ownerId: fields.value.ownerId === undefined ? ctx.actorId : fields.value.ownerId,
-      expectedCloseDate: fields.value.expectedCloseDate ?? null,
-      custom: custom ?? {},
-    })
+    return insertDeal(
+      ctx,
+      {
+        title,
+        pipelineId,
+        stageId,
+        contactId: id,
+        organizationId: fields.value.organizationId ?? null,
+        amount: fields.value.amount ?? 0,
+        currency: fields.value.currency ?? DEFAULT_CURRENCY,
+        ownerId: fields.value.ownerId === undefined ? ctx.actorId : fields.value.ownerId,
+        expectedCloseDate: fields.value.expectedCloseDate ?? null,
+        custom: custom ?? {},
+      },
+      requirements,
+    )
   })
 }
 
@@ -494,9 +530,14 @@ async function rollbackOnRefusal<T>(
  * выбранном); название по умолчанию «Ім'я Прізвище — допродаж» (решено без владельца —
  * подтвердить). Исходная сделка не меняется.
  */
-async function createUpsell(c: Ctx, ctx: DealContext, id: string): Promise<Result<DealView>> {
+async function createUpsell(
+  c: Ctx,
+  ctx: DealContext,
+  id: string,
+  requirements: StageRequirements,
+): Promise<Result<DealView>> {
   const body = (await readBody(c)) ?? {}
-  const extra = unknownKey(body, ['pipelineId', 'stageId', 'title'])
+  const extra = unknownKey(body, ['pipelineId', 'stageId', 'title', 'custom'])
   if (extra !== null) return invalid(extra)
   const pipelineId = body.pipelineId === undefined ? undefined : readUuid(body.pipelineId)
   if (body.pipelineId !== undefined && pipelineId === undefined) return invalid('pipelineId')
@@ -504,6 +545,9 @@ async function createUpsell(c: Ctx, ctx: DealContext, id: string): Promise<Resul
   if (body.stageId !== undefined && stageId === undefined) return invalid('stageId')
   const title = body.title === undefined ? undefined : requiredText(body.title, MAX_TITLE_LENGTH)
   if (body.title !== undefined && title === undefined) return invalid('title')
+  // Обязательные поля новой сделки (тикет crm-fields/04) заполняются тем же запросом.
+  const custom = readCustomInput(body.custom)
+  if (custom === null) return invalid('custom')
 
   // Исходная сделка — в охвате изменения (вне охвата чтения — 404, как несуществующая):
   // допродажа ставит её контакт в новую сделку пользователя, а с ней — в его охват контактов.
@@ -527,18 +571,22 @@ async function createUpsell(c: Ctx, ctx: DealContext, id: string): Promise<Resul
   const contact = await liveContact(ctx, source.primary_contact_id, 'any')
   if (!contact.ok) return contact
   const name = [contact.value.firstName, contact.value.lastName].filter(Boolean).join(' ')
-  return insertDeal(ctx, {
-    title: title ?? `${name} — допродаж`.slice(0, MAX_TITLE_LENGTH),
-    pipelineId: target,
-    stageId,
-    contactId: source.primary_contact_id,
-    organizationId: source.organization_id,
-    amount: 0,
-    currency: DEFAULT_CURRENCY,
-    ownerId: ctx.actorId,
-    expectedCloseDate: null,
-    custom: {},
-  })
+  return insertDeal(
+    ctx,
+    {
+      title: title ?? `${name} — допродаж`.slice(0, MAX_TITLE_LENGTH),
+      pipelineId: target,
+      stageId,
+      contactId: source.primary_contact_id,
+      organizationId: source.organization_id,
+      amount: 0,
+      currency: DEFAULT_CURRENCY,
+      ownerId: ctx.actorId,
+      expectedCloseDate: null,
+      custom: custom ?? {},
+    },
+    requirements,
+  )
 }
 
 // ---- Изменение полей ------------------------------------------------------------------------
@@ -559,6 +607,11 @@ async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<
     const set: DealSet = {}
     const prepared = await prepareCustom(ctx, 'deal', row.custom, customInput ?? {})
     if (!prepared.ok) return prepared
+    // Поле «всегда» не очищается; правка других полей старой сделки с пустым полем проходит.
+    const cleared = requiredFieldsOutcome(
+      await clearedRequired(ctx, 'deal', row.pipeline_id, prepared.value),
+    )
+    if (!cleared.ok) return cleared
     custom = prepared.value
     if (changesCustom(custom)) set.custom = customUpdate(custom)
     if (input.title !== undefined) set.title = input.title
@@ -600,9 +653,68 @@ async function updateDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<
 // ---- Этап, статус, архив, перенос -----------------------------------------------------------
 
 /**
+ * Требования этапа (`requirements`) к сделке со значениями `custom`, которую ставят в `target`:
+ * не заполнены — 422 STAGE_REQUIREMENTS_MISSING со списком, сделка остаётся на месте.
+ */
+async function checkRequirements(
+  ctx: DealContext,
+  requirements: StageRequirements,
+  target: StageTarget,
+  custom: CustomValues,
+): Promise<Result<null>> {
+  const missing = await requirements.missingFields(ctx, target, custom)
+  return anyMissing(missing)
+    ? refuse(422, 'STAGE_REQUIREMENTS_MISSING', { ...missingDetails(missing) })
+    : ok(null)
+}
+
+/**
+ * Действие, которое ставит сделку на этап или выигрывает её, вместе со значениями
+ * пользовательских полей из того же запроса (`customInput`): `place` получает сделку и её
+ * значения после записи и решает, что поменять; значения пишутся той же записью, с историей.
+ */
+async function placeDeal(
+  ctx: DealContext,
+  id: string,
+  customInput: CustomValues | undefined,
+  place: (row: DealRow, custom: CustomValues) => Promise<Result<DealSet | null>>,
+): Promise<Result<DealView>> {
+  let custom: CustomWrite | undefined
+  const changed = await changeDeal(ctx, id, async (row) => {
+    const prepared = await prepareCustom(ctx, 'deal', row.custom, customInput ?? {})
+    if (!prepared.ok) return prepared
+    const set = await place(row, customAfter(row.custom, prepared.value))
+    if (!set.ok) return set
+    custom = prepared.value
+    const all: DealSet = {
+      ...(set.value ?? {}),
+      ...(changesCustom(custom) ? { custom: customUpdate(custom) } : {}),
+    }
+    return ok(Object.keys(all).length === 0 ? null : all)
+  })
+  if (changed.ok && custom) {
+    await finishCustom(ctx, { type: 'deal', id: changed.value.id }, custom, { history: true })
+  }
+  return changed
+}
+
+/** Тело действия: только ключи `keys` и `custom` (значения пользовательских полей). */
+async function actionBody(
+  c: Ctx,
+  keys: readonly string[],
+): Promise<Result<{ body: Record<string, unknown>; custom: CustomValues | undefined }>> {
+  const body = (await readBody(c)) ?? {}
+  const extra = unknownKey(body, [...keys, 'custom'])
+  if (extra !== null) return invalid(extra)
+  const custom = readCustomInput(body.custom)
+  if (custom === null) return invalid('custom')
+  return ok({ body, custom })
+}
+
+/**
  * Смена этапа в своей воронке: только этап и время смены этапа, статус и сумма — нет. Этап
  * может требовать заполненных полей (`requirements`): не заполнены — 422 со списком, сделка
- * остаётся на месте.
+ * остаётся на месте. `custom` того же запроса учитывается и записывается вместе со сменой.
  */
 async function changeStage(
   c: Ctx,
@@ -610,32 +722,39 @@ async function changeStage(
   id: string,
   requirements: StageRequirements,
 ): Promise<Result<DealView>> {
-  const body = await readBody(c)
-  const stageId = readUuid(body?.stageId)
-  if (!body || stageId === undefined || unknownKey(body, ['stageId']) !== null) {
-    return invalid('stageId')
-  }
-  return changeDeal(ctx, id, async (row) => {
+  const parsed = await actionBody(c, ['stageId'])
+  if (!parsed.ok) return parsed
+  const stageId = readUuid(parsed.value.body.stageId)
+  if (stageId === undefined) return invalid('stageId')
+  return placeDeal(ctx, id, parsed.value.custom, async (row, custom) => {
     if (row.stage_id === stageId) return ok(null)
     const stage = await liveStage(ctx, row.pipeline_id, stageId)
     if (!stage.ok) return stage
-    const missing = await requirements.missingFields(ctx.db, row, stageId)
-    if (missing.length > 0) {
-      return refuse(422, 'STAGE_REQUIREMENTS_MISSING', { fields: missing })
-    }
+    const required = await checkRequirements(ctx, requirements, stage.value, custom)
+    if (!required.ok) return required
     return ok({ stage_id: stageId, stage_changed_at: sql`now()` })
   })
 }
 
-/** Выиграть: статус, won_at; причина и lost_at снимаются. Этап не меняется. */
-function win(ctx: DealContext, id: string) {
-  return changeDeal(ctx, id, async (row) =>
-    ok(
-      row.status === 'won'
-        ? null
-        : { status: 'won', won_at: sql`now()`, lost_at: null, lost_reason_id: null },
-    ),
-  )
+/**
+ * Выиграть: статус, won_at; причина и lost_at снимаются. Этап не меняется. Обязательные поля
+ * воронки — все правила «с этапа» (и «с выигрыша») и «всегда»; `custom` — как у смены этапа.
+ */
+async function win(
+  c: Ctx,
+  ctx: DealContext,
+  id: string,
+  requirements: StageRequirements,
+): Promise<Result<DealView>> {
+  const parsed = await actionBody(c, [])
+  if (!parsed.ok) return parsed
+  return placeDeal(ctx, id, parsed.value.custom, async (row, custom) => {
+    if (row.status === 'won') return ok(null)
+    const target = { pipelineId: row.pipeline_id, won: true } as const
+    const required = await checkRequirements(ctx, requirements, target, custom)
+    if (!required.ok) return required
+    return ok({ status: 'won', won_at: sql`now()`, lost_at: null, lost_reason_id: null })
+  })
 }
 
 /**
@@ -693,22 +812,31 @@ function setArchived(ctx: DealContext, id: string, archived: boolean) {
   })
 }
 
-/** Перенос в другую воронку своего проекта: выбранный этап новой воронки или её первый. */
-async function moveDeal(c: Ctx, ctx: DealContext, id: string): Promise<Result<DealView>> {
-  const body = await readBody(c)
-  if (!body) return invalid('')
-  const extra = unknownKey(body, ['pipelineId', 'stageId'])
-  if (extra !== null) return invalid(extra)
+/**
+ * Перенос в другую воронку своего проекта: выбранный этап новой воронки или её первый.
+ * Требования — этапа новой воронки, по полям, видимым в ней; `custom` — как у смены этапа.
+ */
+async function moveDeal(
+  c: Ctx,
+  ctx: DealContext,
+  id: string,
+  requirements: StageRequirements,
+): Promise<Result<DealView>> {
+  const parsed = await actionBody(c, ['pipelineId', 'stageId'])
+  if (!parsed.ok) return parsed
+  const { body } = parsed.value
   const pipelineId = readUuid(body.pipelineId)
   if (pipelineId === undefined) return invalid('pipelineId')
   const stageId = body.stageId === undefined ? undefined : readUuid(body.stageId)
   if (body.stageId !== undefined && stageId === undefined) return invalid('stageId')
-  return changeDeal(ctx, id, async (row) => {
+  return placeDeal(ctx, id, parsed.value.custom, async (row, custom) => {
     const place = await placement(ctx, pipelineId, stageId)
     if (!place.ok) return place
     if (place.value.pipelineId === row.pipeline_id && place.value.stageId === row.stage_id) {
       return ok(null)
     }
+    const required = await checkRequirements(ctx, requirements, place.value, custom)
+    if (!required.ok) return required
     return ok({
       pipeline_id: place.value.pipelineId,
       stage_id: place.value.stageId,
@@ -969,11 +1097,11 @@ const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
   outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome)
 
 /**
- * Маршруты сделок: `/v1/deals`. `stageRequirements` — какие поля требует этап при смене этапа
- * (по умолчанию — никаких).
+ * Маршруты сделок: `/v1/deals`. `stageRequirements` — какие поля нужны, чтобы поставить сделку
+ * на этап или выиграть (по умолчанию — обязательные пользовательские поля).
  */
 export function dealsRoutes({
-  stageRequirements = NO_STAGE_REQUIREMENTS,
+  stageRequirements = CUSTOM_FIELD_REQUIREMENTS,
 }: {
   stageRequirements?: StageRequirements
 } = {}) {
@@ -994,7 +1122,7 @@ export function dealsRoutes({
         respond(c, await dealHistory(c, await dealContext(c), c.req.param('id'))),
       )
       .post('/', requirePermission('deals', 'create'), async (c) =>
-        respond(c, await createDeal(c, await dealContext(c)), 201),
+        respond(c, await createDeal(c, await dealContext(c), stageRequirements), 201),
       )
       .put('/:id', edit, async (c) =>
         respond(c, await updateDeal(c, await dealContext(c), c.req.param('id'))),
@@ -1006,7 +1134,7 @@ export function dealsRoutes({
         ),
       )
       .post('/:id/win', edit, async (c) =>
-        respond(c, await win(await dealContext(c), c.req.param('id'))),
+        respond(c, await win(c, await dealContext(c), c.req.param('id'), stageRequirements)),
       )
       .post('/:id/lose', edit, async (c) =>
         respond(c, await lose(c, await dealContext(c), c.req.param('id'))),
@@ -1021,13 +1149,17 @@ export function dealsRoutes({
         respond(c, await setArchived(await dealContext(c), c.req.param('id'), false)),
       )
       .post('/:id/move', edit, async (c) =>
-        respond(c, await moveDeal(c, await dealContext(c), c.req.param('id'))),
+        respond(c, await moveDeal(c, await dealContext(c), c.req.param('id'), stageRequirements)),
       )
       .post('/:id/take', edit, async (c) =>
         respond(c, await takeDeal(await dealContext(c), c.req.param('id'))),
       )
       .post('/:id/upsell', requirePermission('deals', 'create'), async (c) =>
-        respond(c, await createUpsell(c, await dealContext(c), c.req.param('id')), 201),
+        respond(
+          c,
+          await createUpsell(c, await dealContext(c), c.req.param('id'), stageRequirements),
+          201,
+        ),
       )
       .delete('/:id', requirePermission('deals', 'delete'), async (c) => {
         const outcome = await trashDeal(await dealContext(c), c.req.param('id'))

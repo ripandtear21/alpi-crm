@@ -219,6 +219,12 @@
     "PRODUCTS_TOTAL_TOO_LARGE": "Сумма по товарам слишком велика для сделки.",
     "INVALID_PHONE": "Телефон не подходит.",
     "INVALID_EMAIL": "Email не подходит.",
-    "INVALID_CONTACT": "Данные контакта не подходят."
+    "INVALID_CONTACT": "Данные контакта не подходят.",
+    "STAGE_REQUIREMENTS_MISSING": "Этап требует заполнить: {{fields}}.",
+    "REQUIRED_FIELDS_MISSING": "Заполните обязательные поля: {{fields}}."
+  },
+  "fill": {
+    "stage": "Заполните поля для этапа «{{stage}}»",
+    "win": "Заполните поля, чтобы выиграть сделку"
   }
 }

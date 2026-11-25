@@ -92,6 +92,8 @@ export interface NewDealInput {
   ownerId: string
   contactId?: string
   contact?: NewContactInput
+  /** Значения пользовательских полей: обязательные на выбранном этапе (тикет crm-fields/04). */
+  custom?: Record<string, unknown>
 }
 
 export class DealsApiError extends Error {
@@ -124,8 +126,17 @@ export interface DealsApi {
     owner: OwnerFilter | undefined,
     filter?: FilterGroup,
   ): Promise<PipelineAggregates>
-  changeStage(projectId: string, dealId: string, stageId: string): Promise<void>
-  win(projectId: string, dealId: string): Promise<void>
+  /**
+   * Смена этапа; `custom` — значения обязательных полей из формы заполнения (тикет
+   * crm-fields/04), уходят тем же запросом.
+   */
+  changeStage(
+    projectId: string,
+    dealId: string,
+    stageId: string,
+    custom?: Record<string, unknown>,
+  ): Promise<void>
+  win(projectId: string, dealId: string, custom?: Record<string, unknown>): Promise<void>
   lose(projectId: string, dealId: string, lostReasonId: string): Promise<void>
   take(projectId: string, dealId: string): Promise<void>
   create(projectId: string, input: NewDealInput): Promise<{ id: string }>
@@ -197,8 +208,9 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
         'GET',
         `/pipelines/${pipelineId}/aggregates?${query({ owner, filter: filterParam(filter) })}`,
       ),
-    changeStage: (projectId, dealId, stageId) => action(projectId, dealId, 'stage', { stageId }),
-    win: (projectId, dealId) => action(projectId, dealId, 'win'),
+    changeStage: (projectId, dealId, stageId, custom) =>
+      action(projectId, dealId, 'stage', custom ? { stageId, custom } : { stageId }),
+    win: (projectId, dealId, custom) => action(projectId, dealId, 'win', custom ? { custom } : {}),
     lose: (projectId, dealId, lostReasonId) => action(projectId, dealId, 'lose', { lostReasonId }),
     take: (projectId, dealId) => action(projectId, dealId, 'take'),
     create: (projectId, input) => send(projectId, 'POST', '/deals', input),

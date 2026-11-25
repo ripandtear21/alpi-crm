@@ -48,6 +48,13 @@ export interface FakeDealCardApi extends DealCardApi {
   memberList: MemberSummary[] | null
   me: ProjectAccess
   calls: string[]
+  /**
+   * Обязательные поля (тикет crm-fields/04): id этапа или 'win' → коды полей, без которых
+   * смена этапа или выигрыш отвечают 422 STAGE_REQUIREMENTS_MISSING, как API.
+   */
+  required: Record<string, string[]>
+  /** Значения `custom`, ушедшие со сменой этапа и выигрышем. */
+  sentCustom: Record<string, unknown>[]
 }
 
 let counter = 0
@@ -115,6 +122,21 @@ export function fakeDealCardApi({
     // Чужая (вне охвата), удалённая и несуществующая — одинаковый 404 без данных.
     if (!found) throw new DealCardApiError(404, 'DEAL_NOT_FOUND')
     return found
+  }
+  /** Как API: незаполненные обязательные поля — 422; переданные значения пишутся в сделку. */
+  function requireFilled(id: string, target: string, custom?: Record<string, unknown>) {
+    const found = deal(id)
+    if (custom) api.sentCustom.push(custom)
+    const values = { ...found.custom, ...custom }
+    const missing = (api.required[target] ?? []).filter((code) => values[code] === undefined)
+    if (missing.length > 0) {
+      throw new DealCardApiError(422, 'STAGE_REQUIREMENTS_MISSING', {
+        fields: missing,
+        names: missing.map((code) => ({ code, nameUk: code, nameRu: null })),
+        hiddenCount: 0,
+      })
+    }
+    found.custom = values
   }
   function change(id: string, name: string, apply: (found: DealCard) => void): DealCard {
     const found = deal(id)
@@ -221,6 +243,8 @@ export function fakeDealCardApi({
     memberList: null,
     me: accessOf(role),
     calls: [],
+    required: {},
+    sentCustom: [],
 
     async access() {
       return structuredClone(api.me)
@@ -231,7 +255,8 @@ export function fakeDealCardApi({
     async update(_projectId, id, fields) {
       return change(id, 'update', (found) => Object.assign(found, fields))
     },
-    async changeStage(_projectId, id, stageId) {
+    async changeStage(_projectId, id, stageId, custom) {
+      requireFilled(id, stageId, custom)
       return change(id, 'stage', (found) => {
         found.stageId = stageId
         found.stageChangedAt = new Date().toISOString()
@@ -244,7 +269,8 @@ export function fakeDealCardApi({
         found.stageId = stageId ?? pipeline?.stages[0]?.id ?? found.stageId
       })
     },
-    async win(_projectId, id) {
+    async win(_projectId, id, custom) {
+      requireFilled(id, 'win', custom)
       return change(id, 'win', (found) => {
         found.status = 'won'
         found.wonAt = new Date().toISOString()

@@ -3,6 +3,7 @@ import {
   type FieldDefinitionSummary,
   type FilterGroup,
   type PipelineSummary,
+  type RequiredFieldsMissing,
   type StageSummary,
 } from '@alpi/shared'
 import {
@@ -15,6 +16,12 @@ import {
 } from '@tanstack/react-query'
 import { type DragEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { CustomValues } from '../../components/custom-fields/custom-fields-api.tsx'
+import { readRequiredFieldsMissing } from '../../components/custom-fields/required-fields.ts'
+import {
+  RequiredFieldsDialog,
+  useMissingFieldsText,
+} from '../../components/custom-fields/required-fields-form.tsx'
 import { DealCard, formatMoney } from '../../components/deal-card/deal-card.tsx'
 import {
   projectHref,
@@ -61,6 +68,9 @@ import './kanban.css'
 // - Телефон (≤ 768 px): одна колонка, этапы — вкладками с числом сделок, без перетаскивания;
 //   этап, выигрыш и проигрыш — в меню карточки (оно есть и на широком экране — для клавиатуры).
 // - Экран меняет сделку только действием пользователя (ADR 0003).
+// - Обязательные поля (тикет crm-fields/04): отказ 422 смены этапа или выигрыша возвращает
+//   карточку на место и открывает форму заполнения незаполненных полей; «Зберегти» повторяет
+//   действие вместе со значениями, отмена оставляет карточку на месте.
 
 /** Сколько карточек колонка подгружает прокруткой; дальше — список с фильтром этапа. */
 export const COLUMN_LIMIT = 500
@@ -68,6 +78,14 @@ const PHONE_QUERY = '(max-width: 768px)'
 const PIPELINE_STORAGE_KEY = 'alpi.kanban.pipeline'
 
 type Notice = { kind: 'status' | 'alert'; text: string } | null
+
+/** Открытая форма заполнения: отказ API и повтор действия со значениями. */
+interface Filling {
+  title: string
+  deal: BoardDeal
+  missing: RequiredFieldsMissing
+  retry: (custom: CustomValues) => void
+}
 
 function readStoredPipeline(projectId: string): string | null {
   try {
@@ -201,6 +219,8 @@ function Board({
   const [creating, setCreating] = useState(false)
   const [losing, setLosing] = useState<BoardDeal | null>(null)
   const [dragged, setDragged] = useState<BoardDeal | null>(null)
+  const [filling, setFilling] = useState<Filling | null>(null)
+  const missingText = useMissingFieldsText()
   // Фильтр канбана — тот же формат и та же выдача API, что у списка сделок (тикет crm-deals/12).
   const [filter, setFilter] = useState<FilterGroup>(EMPTY_FILTER)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -373,11 +393,11 @@ function Board({
 
   function errorText(error: unknown): string {
     if (!(error instanceof DealsApiError)) return t('errors.unknown')
-    if (error.code === 'STAGE_REQUIREMENTS_MISSING') {
-      const fields = Array.isArray(error.details.fields) ? error.details.fields : []
-      return t('errors.STAGE_REQUIREMENTS_MISSING', {
-        fields: fields.map((field) => t(`fields.${String(field)}`, String(field))).join(', '),
-      })
+    const missing = readRequiredFieldsMissing(error.code, error.details)
+    if (missing) {
+      return error.code === 'STAGE_REQUIREMENTS_MISSING'
+        ? t('errors.STAGE_REQUIREMENTS_MISSING', { fields: missingText(missing) })
+        : t('errors.REQUIRED_FIELDS_MISSING', { fields: missingText(missing) })
     }
     return t(`errors.${error.code}`, { defaultValue: t('errors.unknown') })
   }
@@ -400,7 +420,16 @@ function Board({
     items: page.items.filter((d) => d.id !== dealId),
   })
 
-  async function perform(change: () => Promise<void>, optimistic: () => void, done: string) {
+  /**
+   * Действие с карточкой: `onMissing` — что делать с отказом о незаполненных обязательных
+   * полях (открыть форму заполнения); без него отказ — сообщением.
+   */
+  async function perform(
+    change: () => Promise<void>,
+    optimistic: () => void,
+    done: string,
+    onMissing?: (missing: RequiredFieldsMissing) => void,
+  ) {
     setNotice(null)
     await queryClient.cancelQueries({ queryKey: columnsKey })
     const snapshot = queryClient.getQueriesData<InfiniteData<DealsPage>>({ queryKey: columnsKey })
@@ -410,17 +439,20 @@ function Board({
       setNotice({ kind: 'status', text: done })
     } catch (error) {
       for (const [key, data] of snapshot) queryClient.setQueryData(key, data)
-      setNotice({ kind: 'alert', text: errorText(error) })
+      const missing =
+        error instanceof DealsApiError ? readRequiredFieldsMissing(error.code, error.details) : null
+      if (missing && onMissing) onMissing(missing)
+      else setNotice({ kind: 'alert', text: errorText(error) })
     } finally {
       void queryClient.invalidateQueries({ queryKey: boardKey(projectId) })
     }
   }
 
-  function moveDeal(deal: BoardDeal, stage: StageSummary) {
+  function moveDeal(deal: BoardDeal, stage: StageSummary, custom?: CustomValues) {
     if (deal.stageId === stage.id) return
     const moved = { ...deal, stageId: stage.id }
     void perform(
-      () => api.changeStage(projectId, deal.id, stage.id),
+      () => api.changeStage(projectId, deal.id, stage.id, custom),
       () => {
         const remove = withoutDeal(deal.id)
         editColumns((page, stageId, index) => {
@@ -431,14 +463,28 @@ function Board({
         })
       },
       t('kanban.moved', { title: deal.title, stage: stage.name }),
+      (missing) =>
+        setFilling({
+          title: t('fill.stage', { stage: stage.name }),
+          deal,
+          missing,
+          retry: (values) => moveDeal(deal, stage, values),
+        }),
     )
   }
 
-  function winDeal(deal: BoardDeal) {
+  function winDeal(deal: BoardDeal, custom?: CustomValues) {
     void perform(
-      () => api.win(projectId, deal.id),
+      () => api.win(projectId, deal.id, custom),
       () => editColumns(withoutDeal(deal.id)),
       t('kanban.won', { title: deal.title }),
+      (missing) =>
+        setFilling({
+          title: t('fill.win'),
+          deal,
+          missing,
+          retry: (values) => winDeal(deal, values),
+        }),
     )
   }
 
@@ -537,6 +583,26 @@ function Board({
           onLose={() => {
             setLosing(dragged)
             setDragged(null)
+          }}
+        />
+      )}
+      {filling && (
+        <RequiredFieldsDialog
+          // Новый отказ — новая форма: черновики берутся из нового списка полей.
+          key={JSON.stringify(filling.missing)}
+          title={filling.title}
+          missing={filling.missing}
+          fields={customFields}
+          values={filling.deal.custom ?? {}}
+          members={(owners.data ?? []).map((o) => ({
+            userId: o.id,
+            name: o.name,
+            disabled: false,
+          }))}
+          onCancel={() => setFilling(null)}
+          onSubmit={(custom) => {
+            setFilling(null)
+            filling.retry(custom)
           }}
         />
       )}

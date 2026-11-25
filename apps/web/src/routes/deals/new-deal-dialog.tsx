@@ -2,6 +2,18 @@ import type { PipelineSummary } from '@alpi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, type ReactNode, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { FieldDraft } from '../../components/custom-fields/field-values.ts'
+import {
+  collectRequired,
+  type RequiredFieldProblem,
+  readRequiredFieldsMissing,
+  requiredDrafts,
+  requiredOnStage,
+} from '../../components/custom-fields/required-fields.ts'
+import {
+  RequiredFieldInputs,
+  useMissingFieldsText,
+} from '../../components/custom-fields/required-fields-form.tsx'
 import {
   projectHref,
   projectQueryKey,
@@ -25,6 +37,9 @@ import {
 // и этап, название (предзаполнено «Ім'я Прізвище — »), сумма и валюта, ответственный (по
 // умолчанию я). «Чужой клиент» показывается текстом «клієнт уже в роботі у <менеджер>» без
 // его данных; «одна открытая сделка» — подсказкой со ссылкой на открытую сделку, если она видна.
+// Обязательные пользовательские поля (тикет crm-fields/04): поля «всегда» и обязательные на
+// выбранном этапе выбранной воронки — сразу в форме; без них запрос не уходит. Остальное (поля
+// «всегда» нового контакта, скрытые от роли) решает сервер: отказ 422 — текстом со списком.
 
 const AMOUNT = /^\d{1,12}([.,]\d{1,2})?$/
 
@@ -80,6 +95,17 @@ export function NewDealDialog({
   const [ownerId, setOwnerId] = useState(userId)
   const [error, setError] = useState<FormError | null>(null)
   const [sending, setSending] = useState(false)
+  const missingText = useMissingFieldsText()
+  // Тот же ключ, что у описаний полей канбана (kanban-page.tsx, boardKey): один запрос.
+  const fields = useQuery({
+    queryKey: projectQueryKey(projectId, 'deals', 'board', 'fields'),
+    queryFn: () => api.fields(projectId),
+    retry: false,
+  })
+  const required = pipeline ? requiredOnStage(fields.data ?? [], pipeline, stageId) : []
+  const [edited, setEdited] = useState<Record<string, FieldDraft>>({})
+  const drafts = { ...requiredDrafts(required), ...edited }
+  const [problems, setProblems] = useState<Record<string, RequiredFieldProblem>>({})
 
   const text = search.trim()
   const suggestions = useQuery({
@@ -104,6 +130,16 @@ export function NewDealDialog({
     if (!(failure instanceof DealsApiError)) return { text: t('errors.unknown') }
     const manager =
       typeof failure.details.managerName === 'string' ? failure.details.managerName : null
+    const missing = readRequiredFieldsMissing(failure.code, failure.details)
+    if (missing) {
+      const fields = missingText(missing)
+      return {
+        text:
+          failure.code === 'STAGE_REQUIREMENTS_MISSING'
+            ? t('errors.STAGE_REQUIREMENTS_MISSING', { fields })
+            : t('errors.REQUIRED_FIELDS_MISSING', { fields }),
+      }
+    }
     switch (failure.code) {
       case 'OPEN_DEAL_EXISTS':
         if (typeof failure.details.dealId === 'string') {
@@ -147,6 +183,12 @@ export function NewDealDialog({
       return
     }
     if (!pipeline) return
+    const collected = collectRequired(required, drafts)
+    setProblems(collected.ok ? {} : collected.problems)
+    if (!collected.ok) {
+      setError({ text: t('newDeal.requiredFields') })
+      return
+    }
     const input: NewDealInput = {
       title: titleValue.trim(),
       pipelineId: pipeline.id,
@@ -163,6 +205,7 @@ export function NewDealDialog({
             },
           }
         : { contactId: chosen?.id ?? '' }),
+      ...(Object.keys(collected.custom).length > 0 ? { custom: collected.custom } : {}),
     }
     setSending(true)
     try {
@@ -271,6 +314,24 @@ export function NewDealDialog({
             ))}
           </Select>
         </Field>
+        {required.length > 0 && (
+          <fieldset className="kanban-form__required">
+            <legend>{t('fill.create')}</legend>
+            <RequiredFieldInputs
+              fields={required}
+              drafts={drafts}
+              onDraft={(fieldCode, draft) =>
+                setEdited((current) => ({ ...current, [fieldCode]: draft }))
+              }
+              problems={problems}
+              members={ownerOptions.map((o) => ({
+                userId: o.id,
+                name: o.name || t('newDeal.meOnly'),
+                disabled: false,
+              }))}
+            />
+          </fieldset>
+        )}
         <Field label={t('newDeal.dealTitle')}>
           <Input value={titleValue} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
         </Field>

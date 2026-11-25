@@ -163,6 +163,32 @@ describe('карточка сделки: статусы', () => {
     await waitFor(() => expect(api.deals[0]?.stageId).toBe(STAGES.decision))
     expect(api.calls).toEqual(['stage'])
   })
+
+  // Обязательные поля (тикет crm-fields/04): отказ 422 открывает форму заполнения.
+  it('этап с незаполненным обязательным полем — форма; «Зберегти» с значением меняет этап', async () => {
+    const api = fakeDealCardApi()
+    api.required = { [STAGES.decision]: ['budget'], win: ['budget'] }
+    const group = fieldGroup()
+    const fields = fakeCustomFieldsApi({
+      groups: [group],
+      fields: [fieldDef({ groupId: group.id, code: 'budget', nameUk: 'Бюджет' })],
+    })
+    await renderCard({ api, fields })
+    const path = screen.getByRole('list', { name: 'Етапи воронки' })
+    fireEvent.click(within(path).getByRole('button', { name: 'Рішення' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Заповніть поля для етапу «Рішення»',
+    })
+    expect(api.deals[0]?.stageId).toBe(STAGES.contact)
+    fireEvent.change(await within(dialog).findByRole('textbox', { name: 'Бюджет' }), {
+      target: { value: '700' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Зберегти' }))
+    await waitFor(() => expect(api.deals[0]?.stageId).toBe(STAGES.decision))
+    expect(api.sentCustom).toEqual([{ budget: '700' }])
+    expect(api.deals[0]?.custom).toEqual({ budget: '700' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
 })
 
 describe('карточка сделки: товары', () => {

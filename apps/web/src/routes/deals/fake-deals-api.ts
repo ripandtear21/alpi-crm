@@ -35,6 +35,8 @@ export interface FakeDealsCall {
   action: 'changeStage' | 'win' | 'lose' | 'take' | 'create' | 'stagePage'
   dealId?: string
   value?: unknown
+  /** Значения обязательных полей, ушедшие вместе с действием (тикет crm-fields/04). */
+  custom?: Record<string, unknown>
 }
 
 export interface FakeDealsApi extends DealsApi {
@@ -220,16 +222,21 @@ export function fakeDealsApi(deals: BoardDeal[] = []): FakeDealsApi {
       }
       return result
     },
-    async changeStage(_projectId, dealId, stageId) {
-      api.calls.push({ action: 'changeStage', dealId, value: stageId })
+    async changeStage(_projectId, dealId, stageId, custom) {
+      api.calls.push({
+        action: 'changeStage',
+        dealId,
+        value: stageId,
+        ...(custom ? { custom } : {}),
+      })
       failIfAsked()
       const deal = find(dealId)
       deal.stageId = stageId
       // Пришедшая на этап — сверху колонки, как у API.
       api.deals = [deal, ...api.deals.filter((d) => d !== deal)]
     },
-    async win(_projectId, dealId) {
-      api.calls.push({ action: 'win', dealId })
+    async win(_projectId, dealId, custom) {
+      api.calls.push({ action: 'win', dealId, ...(custom ? { custom } : {}) })
       failIfAsked()
       find(dealId)
       api.deals = api.deals.filter((d) => d.id !== dealId)
