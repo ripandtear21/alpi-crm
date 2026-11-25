@@ -43,13 +43,22 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/fields
 ## Done when
 
 - [x] Миграции применяются на чистую базу и откатываются; `custom` не принимает не-объект.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 - [x] Тесты проверки: для каждого из 15 типов — верное значение сохраняется в приведённом виде, неверное даёт 422 с кодом поля (телефон `067 123 45 67` сохраняется как `+380671234567`; ссылка `javascript:` — 422; архивный вариант и отключённый пользователь для нового значения — 422).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 - [x] Тест: PATCH с одним кодом не трогает другие ключи `custom`; `null` убирает ключ; неизвестный и архивный код — 422.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 - [x] Тест истории: изменение значения пишет в `change_log` «было → стало» с автором; повторная запись того же значения строки не пишет.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 - [x] Тест: первое значение ставит `first_value_at`, после этого смена кода — 409.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 - [x] Тест смены типа: число → текст и один вариант → несколько вариантов переписывают все записи фоновой задачей; во время задачи запись в поле — 409; дата → число — 409.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 - [x] Тест изоляции: значение поля проекта A нельзя записать в сделку проекта B; код поля проекта A в B — неизвестный код (422).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/fields/values.test.ts packages/shared/src/fields/values.test.ts` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 - [x] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 95c3a8cb40e8546ad7175d64f1b3f56f3d0e6727
 
 ## Результат
 
