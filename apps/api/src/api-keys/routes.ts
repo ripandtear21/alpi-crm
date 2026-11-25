@@ -257,6 +257,8 @@ export function apiKeysRoutes() {
   const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
     outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome)
   const grantRole = requirePermission('users_roles', 'edit')
+  // Создание и перевыпуск показывают секрет один раз: повтор с тем же Idempotency-Key отдаёт
+  // ответ без него (http/idempotency.ts, omitFromIdempotentReplay).
   return new Hono<PermissionsEnv>()
     .get('/', requirePermission('integrations', 'view'), async (c) => {
       const rows = await selectKeys(c.get('db'))
@@ -266,7 +268,6 @@ export function apiKeysRoutes() {
         .execute()
       return c.json<ApiKeySummary[]>(rows.map(keySummary))
     })
-    // Секрет показывается один раз: повтор с тем же Idempotency-Key отдаёт ответ без него.
     .post('/', requirePermission('integrations', 'create'), grantRole, async (c) => {
       omitFromIdempotentReplay(c, ['secret'])
       return respond(c, await createKey(c), 201)
