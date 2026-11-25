@@ -49,6 +49,11 @@ Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «До�
 
 Проверка: нужна линза безопасности (`security`): SSRF, хранение и показ секрета, изоляция проектов в обработчиках очереди.
 
+Из тикета 05 (PR #30), учесть здесь:
+- роли приложения на `webhook_event` выданы только `select` и `insert` — ночной задаче удаления старых событий нужен `grant delete` (своя миграция);
+- у очереди `webhook-fanout` настройки pg-boss по умолчанию — повторы и сроки задать здесь (`createQueue`/`updateQueue` с опциями);
+- остановка API (`apps/api/src/jobs/shutdown.ts`, `stopApi`): HTTP-сервер → фоновые задачи (`boss.stop` graceful) → база; очередь событий отключается только после `boss.stop`. Обработчик доставки должен вести себя так же при остановке.
+
 ## Where in code
 
 packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events/** (описания типов uk/ru), apps/api/src/events/** (fanout, deliver, sign, ssrf, crypto секрета), apps/api/src/webhook-endpoints/**, apps/api/src/jobs/** (очереди, очистка), apps/api/src/config.ts (ключ шифрования, разрешение localhost для тестов), apps/web/src/** (предупреждение в шапке).

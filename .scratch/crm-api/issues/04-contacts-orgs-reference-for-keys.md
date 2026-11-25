@@ -29,6 +29,8 @@ Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Де�
 
 Проверка: нужна линза безопасности (`security`): поиск по телефону и email не должен выдавать данные контакта вне охвата и чужого проекта.
 
+Из тикета 05 (PR #30), учесть здесь: `apps/api/src/contacts/contacts.ts` (`contactContext`) берёт автора из `c.get('session').user.id` — при открытии контактов ключу нужен `requestAuthor(c.get('actor'))`, иначе событие `contact.created`/`contact.updated` не назовёт ключ автором (и запрос по ключу без сессии упадёт).
+
 ## Where in code
 
 apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, apps/api/src/pipelines/**, apps/api/src/members/**, apps/api/src/teams/** (маршруты чтения для ключа), apps/api/src/openapi/**, packages/shared/src/** (типы ответов справочников).

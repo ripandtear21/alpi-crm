@@ -35,6 +35,10 @@ Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Де�
 
 Проверка: нужна линза безопасности (`security`): права, охват и изоляция проекта для ключа.
 
+Из тикета 05 (PR #30), учесть здесь:
+- автор события для запроса по ключу проверен только прямым вызовом `requestAuthor`/`emitDealChanges` — добавить проверку `actor: {type: api_key}` в событии через настоящий HTTP-запрос по ключу;
+- `apps/api/src/contacts/contacts.ts` (`contactContext`) берёт автора из `c.get('session').user.id` — при создании сделки с новым контактом по ключу нужен `requestAuthor(c.get('actor'))`, иначе `contact.created` не назовёт ключ автором.
+
 ## Where in code
 
 apps/api/src/deals/** (отметки «доступно ключу», схемы OpenAPI, проверка `transfer_deals` для ключа), apps/api/src/openapi/**, apps/api/src/deals/*.test.ts, apps/api/src/testing/** (помощник «запрос по ключу»).
