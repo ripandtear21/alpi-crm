@@ -1,0 +1,220 @@
+/*
+ * Налаштування → Поля (тикет crm-fields/05): группы-карточки, строки полей переносятся;
+ * на телефоне (375 px) всё в одну колонку, диалог — на весь экран. Только токены из
+ * styles/tokens.css.
+ */
+.fields-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: var(--content-w);
+}
+
+.fields-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding-top: var(--s-4);
+}
+
+.fields-tab__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.fields-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fields-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.fields-group__head,
+.fields-group__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.fields-group__head h2 {
+  flex: 1 1 12rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.fields-group__empty {
+  margin: 0;
+  color: var(--ink-3);
+}
+
+.fields-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fields-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  align-items: center;
+  padding: var(--s-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+.fields-row:first-child {
+  border-top: 0;
+}
+
+.fields-row__main {
+  display: flex;
+  flex: 1 1 16rem;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.fields-row__name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.fields-row__code,
+.fields-row__type,
+.fields-row__pipelines {
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.fields-row__badges,
+.fields-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+/* Диалог поля: поля формы друг под другом. */
+.fields-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.fields-form__set {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fields-form__set > legend {
+  margin-bottom: var(--s-2);
+  font-weight: 500;
+}
+
+.fields-form__nested {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding-left: var(--s-5);
+}
+
+.fields-form__flags,
+.fields-form__flag {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  align-items: center;
+}
+
+.fields-form__warning {
+  margin: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-block);
+  background: var(--hover);
+}
+
+.fields-form__hint {
+  margin: 0;
+  color: var(--ink-3);
+}
+
+.fields-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fields-options__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.fields-options__row .ui-input {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.fields-options__actions {
+  display: flex;
+  gap: var(--s-1);
+}
+
+.fields-options__archived ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-3);
+}
+
+.fields-access {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fields-access th,
+.fields-access td {
+  padding: var(--s-2);
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+@media (max-width: 640px) {
+  .fields-dialog.ui-dialog:not(.ui-dialog--side) {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .fields-form__nested {
+    padding-left: 0;
+  }
+}

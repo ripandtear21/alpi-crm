@@ -42,6 +42,11 @@ import { OrganizationCardPage } from './routes/organizations/$organizationId/org
 import { OrganizationsListPage } from './routes/organizations/organizations-list-page.tsx'
 import { type AuditApi, createAuditApi } from './routes/settings/audit-api.ts'
 import { AuditPage } from './routes/settings/audit-page.tsx'
+import {
+  createFieldsSettingsApi,
+  type FieldsSettingsApi,
+} from './routes/settings/fields/fields-api.ts'
+import { FieldsPage } from './routes/settings/fields/fields-page.tsx'
 import { LostReasonsPage } from './routes/settings/lost-reasons-page.tsx'
 import { createMembersApi, type MembersApi } from './routes/settings/members-api.ts'
 import { MembersPage } from './routes/settings/members-page.tsx'
@@ -70,6 +75,8 @@ export interface RouterContext {
   contacts: ContactsApi
   lists: ListsApi
   search: SearchApi
+  /** Конструктор полей в настройках (тикет crm-fields/05). */
+  fields: FieldsSettingsApi
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -314,7 +321,10 @@ const reportsRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: 'settings',
-  component: SettingsPage,
+  component: function SettingsRoute() {
+    const { fields } = settingsRoute.useRouteContext()
+    return <SettingsPage access={fields.access} />
+  },
 })
 
 const rolesRoute = createRoute({
@@ -377,6 +387,16 @@ const productsRoute = createRoute({
   component: function ProductsRoute() {
     const { products } = productsRoute.useRouteContext()
     return <ProductsPage api={products} />
+  },
+})
+
+// Налаштування → Поля (тикет crm-fields/05).
+const fieldsSettingsRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: 'settings/fields',
+  component: function FieldsSettingsRoute() {
+    const { fields } = fieldsSettingsRoute.useRouteContext()
+    return <FieldsPage api={fields} />
   },
 })
 
@@ -460,6 +480,7 @@ const routeTree = rootRoute.addChildren([
       pipelinesRoute,
       lostReasonsRoute,
       productsRoute,
+      fieldsSettingsRoute,
       trashRoute,
       dealCardRoute,
       contactCardRoute,
@@ -497,6 +518,8 @@ export interface AppRouterOptions {
   lists?: ListsApi
   /** Только в тестах: подставной клиент быстрого поиска. В браузере — запросы к API. */
   search?: SearchApi
+  /** Только в тестах: подставной клиент конструктора полей. В браузере — запросы к API. */
+  fields?: FieldsSettingsApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -516,6 +539,7 @@ export function createAppRouter({
   contacts = createContactsApi(),
   lists = createListsApi(),
   search = createSearchApi(),
+  fields = createFieldsSettingsApi(),
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -532,6 +556,7 @@ export function createAppRouter({
     contacts,
     lists,
     search,
+    fields,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })
