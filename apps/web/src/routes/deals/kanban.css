@@ -222,3 +222,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Обязательные поля в форме «+ Угода» (тикет crm-fields/04). */
+.kanban-form__required {
+  display: grid;
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

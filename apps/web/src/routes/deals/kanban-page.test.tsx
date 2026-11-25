@@ -3,6 +3,7 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
+import { fieldDef } from '../../components/custom-fields/fake-custom-fields-api.ts'
 import {
   fakeProjectsApi,
   PROJECT_ALPI,
@@ -115,21 +116,130 @@ describe('канбан воронки', () => {
     expect(within(column('Новий лід')).queryByRole('article')).toBeNull()
   })
 
-  it('отказ API (поля этапа) возвращает карточку на место с сообщением', async () => {
-    const deal = fakeDeal({ title: 'Ірина — вебінар' })
-    const api = fakeDealsApi([deal])
-    api.failNext = new DealsApiError(422, 'STAGE_REQUIREMENTS_MISSING', {
-      fields: ['expectedCloseDate', 'organizationId'],
+  // Обязательные поля этапа (тикет crm-fields/04): отказ 422 открывает форму заполнения.
+  describe('обязательные поля этапа', () => {
+    const budget = fieldDef({
+      groupId: 'group-1',
+      code: 'budget',
+      nameUk: 'Бюджет',
+      required: { mode: 'stages', stages: [{ pipelineId: PIPELINE_ID, stageId: STAGE_CONTACT }] },
     })
-    await renderKanban({ api })
-    drag(await cardIn('Новий лід', 'Ірина — вебінар'), column('Контакт'))
-    expect((await screen.findByRole('alert')).textContent).toBe(
-      'Етап вимагає заповнити: очікувана дата закриття, організація.',
-    )
-    await cardIn('Новий лід', 'Ірина — вебінар')
-    expect(within(column('Контакт')).queryByRole('article')).toBeNull()
-    expect(api.calls).toHaveLength(1)
-    expect(api.deals[0]?.stageId).toBe(STAGE_NEW)
+    const refusal = () =>
+      new DealsApiError(422, 'STAGE_REQUIREMENTS_MISSING', {
+        fields: ['budget'],
+        names: [{ code: 'budget', nameUk: 'Бюджет', nameRu: null }],
+        hiddenCount: 0,
+      })
+
+    it('перенос на этап X открывает форму; отмена возвращает карточку; «Зберегти» с значением переводит сделку', async () => {
+      const deal = fakeDeal({ title: 'Ірина — вебінар' })
+      const api = fakeDealsApi([deal])
+      api.customFields = [budget]
+      api.failNext = refusal()
+      await renderKanban({ api })
+
+      drag(await cardIn('Новий лід', 'Ірина — вебінар'), column('Контакт'))
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Заповніть поля для етапу «Контакт»',
+      })
+      await cardIn('Новий лід', 'Ірина — вебінар')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Скасувати' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await cardIn('Новий лід', 'Ірина — вебінар')
+      expect(within(column('Контакт')).queryByRole('article')).toBeNull()
+      expect(api.calls).toEqual([{ action: 'changeStage', dealId: deal.id, value: STAGE_CONTACT }])
+      expect(api.deals[0]?.stageId).toBe(STAGE_NEW)
+
+      api.failNext = refusal()
+      drag(await cardIn('Новий лід', 'Ірина — вебінар'), column('Контакт'))
+      const again = await screen.findByRole('dialog', {
+        name: 'Заповніть поля для етапу «Контакт»',
+      })
+      // Пустое поле не отправляется.
+      fireEvent.click(within(again).getByRole('button', { name: 'Зберегти' }))
+      expect(await within(again).findByText('Заповніть поле.')).toBeTruthy()
+      expect(api.calls).toHaveLength(2)
+
+      fireEvent.change(within(again).getByRole('textbox', { name: 'Бюджет' }), {
+        target: { value: '1000 €' },
+      })
+      fireEvent.click(within(again).getByRole('button', { name: 'Зберегти' }))
+      await cardIn('Контакт', 'Ірина — вебінар')
+      expect(api.calls[2]).toEqual({
+        action: 'changeStage',
+        dealId: deal.id,
+        value: STAGE_CONTACT,
+        custom: { budget: '1000 €' },
+      })
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('выигрыш с незаполненным полем открывает форму; поле скрытой группы — только числом', async () => {
+      const deal = fakeDeal({ title: 'Виграшна' })
+      const api = fakeDealsApi([deal])
+      api.customFields = [budget]
+      api.failNext = new DealsApiError(422, 'STAGE_REQUIREMENTS_MISSING', {
+        fields: ['budget'],
+        names: [{ code: 'budget', nameUk: 'Бюджет', nameRu: null }],
+        hiddenCount: 2,
+      })
+      await renderKanban({ api })
+      fireEvent.dragStart(await cardIn('Новий лід', 'Виграшна'))
+      fireEvent.drop(screen.getByText('Виграно'))
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Заповніть поля, щоб виграти угоду',
+      })
+      expect(within(dialog).getByText('Ще 2 поля, недоступні вашій ролі.')).toBeTruthy()
+      await cardIn('Новий лід', 'Виграшна')
+      fireEvent.change(within(dialog).getByRole('textbox', { name: 'Бюджет' }), {
+        target: { value: '5' },
+      })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Зберегти' }))
+      await waitFor(() =>
+        expect(api.calls[1]).toEqual({ action: 'win', dealId: deal.id, custom: { budget: '5' } }),
+      )
+    })
+
+    it('поле группы «только чтение» — без правки, с пояснением; его значение не отправляется', async () => {
+      const deal = fakeDeal({ title: 'Лише перегляд' })
+      const api = fakeDealsApi([deal])
+      api.customFields = [
+        budget,
+        fieldDef({ groupId: 'group-ro', code: 'contract', nameUk: 'Договір', position: 2 }),
+      ]
+      api.me.permissions.fieldGroups['group-ro'] = 'read'
+      api.failNext = new DealsApiError(422, 'STAGE_REQUIREMENTS_MISSING', {
+        fields: ['budget', 'contract'],
+        names: [
+          { code: 'budget', nameUk: 'Бюджет', nameRu: null },
+          { code: 'contract', nameUk: 'Договір', nameRu: null },
+        ],
+        hiddenCount: 0,
+      })
+      await renderKanban({ api })
+      drag(await cardIn('Новий лід', 'Лише перегляд'), column('Контакт'))
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Заповніть поля для етапу «Контакт»',
+      })
+      expect(
+        within(dialog).getByText(
+          'Ваша роль може лише переглядати: Договір. Попросіть заповнити того, хто має право їх змінювати.',
+        ),
+      ).toBeTruthy()
+      expect(within(dialog).queryByRole('textbox', { name: 'Договір' })).toBeNull()
+      fireEvent.change(within(dialog).getByRole('textbox', { name: 'Бюджет' }), {
+        target: { value: '7' },
+      })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Зберегти' }))
+      await waitFor(() =>
+        expect(api.calls[1]).toEqual({
+          action: 'changeStage',
+          dealId: deal.id,
+          value: STAGE_CONTACT,
+          custom: { budget: '7' },
+        }),
+      )
+    })
   })
 
   it('«Виграно» — выигрыш; «Програно» без причины не отправляется, с причиной — проигрыш', async () => {
@@ -355,6 +465,88 @@ describe('форма «+ Угода»', () => {
       },
     ])
     await cardIn('Новий лід', 'Ірина Вигадана — вебінар')
+  })
+
+  // Обязательные поля (тикет crm-fields/04): «всегда» и с выбранного этапа — сразу в форме.
+  it('поля «всегда» и обязательные на выбранном этапе — в форме; без значений запрос не уходит', async () => {
+    const api = fakeDealsApi()
+    api.customFields = [
+      fieldDef({ groupId: 'g', code: 'source', nameUk: 'Джерело', required: { mode: 'always' } }),
+      fieldDef({
+        groupId: 'g',
+        code: 'budget',
+        nameUk: 'Бюджет',
+        position: 2,
+        required: {
+          mode: 'stages',
+          stages: [{ pipelineId: PIPELINE_ID, stageId: STAGE_CONTACT }],
+        },
+      }),
+      fieldDef({ groupId: 'g', code: 'note', nameUk: 'Нотатка', position: 3 }),
+    ]
+    const form = await openForm(api)
+    expect(await within(form).findByRole('textbox', { name: 'Джерело' })).toBeTruthy()
+    expect(within(form).queryByRole('textbox', { name: 'Бюджет' })).toBeNull()
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Етап' }), {
+      target: { value: STAGE_CONTACT },
+    })
+    expect(within(form).getByRole('textbox', { name: 'Бюджет' })).toBeTruthy()
+    expect(within(form).queryByRole('textbox', { name: 'Нотатка' })).toBeNull()
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Новий контакт' }))
+    fireEvent.change(within(form).getByRole('textbox', { name: "Ім'я" }), {
+      target: { value: 'Ірина' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Створити угоду' }))
+    expect((await within(form).findAllByText('Заповніть поле.')).length).toBe(2)
+    expect(api.calls).toEqual([])
+
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Джерело' }), {
+      target: { value: 'Instagram' },
+    })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Бюджет' }), {
+      target: { value: '900' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Створити угоду' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(api.calls[0]?.value).toMatchObject({
+      stageId: STAGE_CONTACT,
+      custom: { source: 'Instagram', budget: '900' },
+    })
+  })
+
+  it('новый контакт: его поля «всегда» — в форме; без значения не уходит, значение уходит с контактом', async () => {
+    const api = fakeDealsApi()
+    api.contactCustomFields = [
+      fieldDef({
+        groupId: 'contact-group',
+        entity: 'contact',
+        code: 'city',
+        nameUk: 'Місто',
+        required: { mode: 'always' },
+      }),
+      fieldDef({ groupId: 'contact-group', entity: 'contact', code: 'hobby', nameUk: 'Хобі' }),
+    ]
+    const form = await openForm(api)
+    // Существующему контакту поля нового не нужны.
+    expect(within(form).queryByRole('textbox', { name: 'Місто' })).toBeNull()
+    fireEvent.click(within(form).getByRole('button', { name: 'Новий контакт' }))
+    const city = await within(form).findByRole('textbox', { name: 'Місто' })
+    expect(within(form).queryByRole('textbox', { name: 'Хобі' })).toBeNull()
+    fireEvent.change(within(form).getByRole('textbox', { name: "Ім'я" }), {
+      target: { value: 'Ірина' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Створити угоду' }))
+    expect(await within(form).findByText('Заповніть поле.')).toBeTruthy()
+    expect(api.calls).toEqual([])
+
+    fireEvent.change(city, { target: { value: 'Львів' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Створити угоду' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(api.calls[0]?.value).toMatchObject({
+      contact: { firstName: 'Ірина', lastName: null, phones: [], custom: { city: 'Львів' } },
+    })
+    expect(api.calls[0]?.value).not.toHaveProperty('custom')
   })
 
   it('существующий контакт из поиска; «одна открытая сделка» — подсказка со ссылкой', async () => {

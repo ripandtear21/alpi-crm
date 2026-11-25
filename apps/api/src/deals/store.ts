@@ -72,8 +72,9 @@ export type DealsErrorCode =
   /** «Підставити»: сумма строк больше наибольшей суммы сделки. */
   | 'PRODUCTS_TOTAL_TOO_LARGE'
   /**
-   * Смена этапа: не заполнены поля, которых требует этап (deals/stage-requirements.ts);
-   * `details.fields` — их имена. Сделка остаётся на месте.
+   * Создание, смена этапа, перенос или выигрыш: не заполнены поля, которых требует этап
+   * (deals/stage-requirements.ts); `details` — RequiredFieldsMissing (packages/shared): коды и
+   * названия видимых роли полей и число скрытых. Сделка остаётся на месте.
    */
   | 'STAGE_REQUIREMENTS_MISSING'
 

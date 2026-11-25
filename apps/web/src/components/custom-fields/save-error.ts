@@ -26,6 +26,8 @@ const KNOWN_CODES = [
   'CUSTOM_FIELD_UNKNOWN',
   'CUSTOM_FIELD_READ_ONLY',
   'CUSTOM_FIELD_CONVERTING',
+  // Очистка поля «всегда» (тикет crm-fields/04).
+  'REQUIRED_FIELDS_MISSING',
 ] as const
 
 export function useSaveErrorText(): (error: unknown, type: FieldType) => string {

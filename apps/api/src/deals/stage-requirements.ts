@@ -1,25 +1,42 @@
-import type { Database } from '@alpi/db'
-import type { Kysely } from 'kysely'
-import type { DealRow } from './store.ts'
+import type { FieldViewer } from '../fields/access.ts'
+import { type MissingFields, missingRequired, NOTHING_MISSING } from '../fields/requirements.ts'
+import type { CustomValues } from '../fields/values.ts'
 
-// Требования этапа (тикет crm-deals/11; spec.md эпика, «Не входит»): какие поля сделки должны
-// быть заполнены, чтобы перейти на этап. Смена этапа (deals.ts, changeStage) спрашивает эту
-// точку расширения; непустой список — ответ 422 STAGE_REQUIREMENTS_MISSING со списком полей,
-// сделка остаётся на месте. Правило одно для экрана и API (ADR 0003): экран показывает тот же
-// список из ответа. Пока пользовательских полей нет, требований нет; наполнит эпик полей.
+// Требования этапа (тикет crm-deals/11; наполнил тикет crm-fields/04): какие поля сделки должны
+// быть заполнены, чтобы поставить её на этап или выиграть. Спрашивают создание сделки, смена
+// этапа, выигрыш и перенос в другую воронку (deals.ts); непустой ответ — 422
+// STAGE_REQUIREMENTS_MISSING (details — RequiredFieldsMissing из packages/shared), сделка
+// остаётся на месте. Правило одно для экрана и API (ADR 0003): экран показывает тот же список
+// из ответа и открывает форму заполнения.
+
+/** Куда ставится сделка: этап воронки или выигрыш (этап не меняется). */
+export type StageTarget =
+  | { pipelineId: string; stageId: string }
+  | { pipelineId: string; won: true }
 
 export interface StageRequirements {
   /**
-   * Незаполненные поля, без которых сделка `deal` не перейдёт на этап `stageId` (имена полей
-   * ответа API: `expectedCloseDate`, `organizationId`…); пустой список — можно.
-   * `db` — транзакция проекта.
+   * Незаполненные поля, без которых сделка со значениями `custom` (после изменения) не
+   * встанет в `target`. `viewer` — транзакция проекта и права того, кто действует: поля скрытых
+   * от него групп — только числом.
    */
-  missingFields(db: Kysely<Database>, deal: DealRow, stageId: string): Promise<string[]>
+  missingFields(
+    viewer: FieldViewer,
+    target: StageTarget,
+    custom: CustomValues,
+  ): Promise<MissingFields>
 }
 
-/** Требований нет. */
+/** Обязательность пользовательских полей (fields/requirements.ts) — по умолчанию в API. */
+export const CUSTOM_FIELD_REQUIREMENTS: StageRequirements = {
+  missingFields(viewer, target, custom) {
+    return missingRequired(viewer, { entity: 'deal', ...target }, custom)
+  },
+}
+
+/** Требований нет (тесты, которым обязательность не нужна). */
 export const NO_STAGE_REQUIREMENTS: StageRequirements = {
   async missingFields() {
-    return []
+    return NOTHING_MISSING
   },
 }

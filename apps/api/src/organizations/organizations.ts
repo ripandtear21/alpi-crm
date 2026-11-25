@@ -23,6 +23,7 @@ import {
   UUID,
 } from '../contacts/http.ts'
 import type { FieldViewer } from '../fields/access.ts'
+import { clearedRequired, missingRequired, requiredFieldsOutcome } from '../fields/requirements.ts'
 import {
   type CustomValues,
   changesCustom,
@@ -178,6 +179,11 @@ async function updateOrganization(
   const { custom: customInput, ...fields } = input
   const custom = await prepareCustom(ctx, 'organization', row.custom, customInput ?? {})
   if (!custom.ok) return custom
+  // Поле «всегда» не очищается (тикет crm-fields/04); правка других полей проходит.
+  const cleared = requiredFieldsOutcome(
+    await clearedRequired(ctx, 'organization', null, custom.value),
+  )
+  if (!cleared.ok) return cleared
   const before = await view(ctx, row)
   const updated = await ctx.db
     .updateTable('organization')
@@ -296,6 +302,11 @@ export function organizationsRoutes() {
       const ctx = organizationContext(c)
       const custom = await prepareCustom(ctx, 'organization', {}, input.value.custom ?? {})
       if (!custom.ok) return fail(c, custom)
+      // Поля «всегда» (тикет crm-fields/04): без значения организация не создаётся.
+      const required = requiredFieldsOutcome(
+        await missingRequired(ctx, { entity: 'organization' }, custom.value.set),
+      )
+      if (!required.ok) return fail(c, required)
       const row = await ctx.db
         .insertInto('organization')
         .values({
