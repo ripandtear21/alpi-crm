@@ -7,6 +7,7 @@ import {
   type BulkActionRegistry,
   type BulkContext,
   BulkRecordError,
+  BulkSelectionError,
   bulkAllowed,
 } from './registry.ts'
 
@@ -36,13 +37,16 @@ const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,59}$/
  * - PERMISSION_DENIED — фильтр нечем развернуть: у инициатора нет прав на действие;
  * - INITIATOR_BANNED — учётную запись инициатора заблокировал владелец системы;
  * - PROCESSING_FAILED — задача упала после всех повторов pg-boss (в том числе процесс убит, и
- *   срок задачи истёк): её отметку ставит обработчик очереди мёртвых задач (jobs/jobs.ts).
+ *   срок задачи истёк): её отметку ставит обработчик очереди мёртвых задач (jobs/jobs.ts);
+ * - FILTER_UNAVAILABLE — фильтр не разворачивается правами инициатора на момент старта: поле
+ *   условия с запуска ушло в архив или стало скрытым (BulkSelectionError из `select`).
  */
 export type BulkJobFailure =
   | 'ACTION_NOT_REGISTERED'
   | 'PERMISSION_DENIED'
   | 'INITIATOR_BANNED'
   | 'PROCESSING_FAILED'
+  | 'FILTER_UNAVAILABLE'
 
 export interface RunOptions {
   batchSize?: number
@@ -127,7 +131,15 @@ async function prepare(
       return null
     }
     const ctx = await context(trx, job, access)
-    ids = await action.select(trx, (selection.filter ?? {}) as Record<string, unknown>, ctx)
+    try {
+      ids = await action.select(trx, (selection.filter ?? {}) as Record<string, unknown>, ctx)
+    } catch (error) {
+      // Отказ выбора по правам и каталогу инициатора бросается до запроса выборки: транзакция
+      // цела, отметка «failed» в ней записывается. Прочие ошибки — повтор задачи.
+      if (!(error instanceof BulkSelectionError)) throw error
+      await failBulkJob(trx, job.id, 'FILTER_UNAVAILABLE')
+      return null
+    }
   }
   ids = [...new Set(ids)]
   await trx

@@ -16,9 +16,17 @@ import {
   readLanguage,
   UTF8_BOM,
 } from '../export/csv.ts'
+import {
+  type CustomNames,
+  customCell,
+  customColumnField,
+  customHeaders,
+  loadCustomNames,
+} from '../export/custom.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { compileFilter, readFilterParam } from '../filters/compile.ts'
+import { type CatalogField, catalogFor, listSortKey, unknownCustomSort } from '../filters/custom.ts'
 import {
   afterPosition,
   countRows,
@@ -67,49 +75,76 @@ const SORT_KEYS: Record<OrganizationSort['column'], SortKey> = {
 
 export interface OrganizationListQuery {
   filter: FilterGroup | undefined
+  /** Пользовательские поля, которые видит пользователь (filters/custom.ts). */
+  custom: readonly CatalogField[]
   sort: OrganizationSort
   cursor?: PagePosition
   limit: number
 }
 
-type Result<T> = Outcome<T, 'INVALID_ORGANIZATION'>
+type Result<T> = Outcome<T, 'INVALID_ORGANIZATION' | 'CUSTOM_FIELD_UNKNOWN'>
 
 const invalid = (path: string, message?: string) =>
   refuse(400, 'INVALID_ORGANIZATION', { path, ...(message ? { message } : {}) })
+const unknownField = (field: string) => refuse(422, 'CUSTOM_FIELD_UNKNOWN', { field })
 
 const sortName = (sort: OrganizationSort) => `${sort.column}:${sort.direction}`
 
-export function readOrganizationListQuery(c: Ctx): Result<OrganizationListQuery> {
-  const filter = readFilterParam('organizations', c.req.query('filter'))
-  if (!filter.ok) return invalid(filter.path, filter.message)
+const sortKey = (sort: OrganizationSort, custom: readonly CatalogField[]) =>
+  listSortKey(sort.column, SORT_KEYS, 'organization', custom)
+
+export async function readOrganizationListQuery(c: Ctx): Promise<Result<OrganizationListQuery>> {
+  const custom = await catalogFor(
+    c.get('db'),
+    c.get('access').permissions,
+    'organization',
+    c.req.query('filter'),
+    c.req.query('sort'),
+    c.req.query('columns'),
+  )
+  const filter = readFilterParam('organizations', c.req.query('filter'), custom)
+  if (!filter.ok) {
+    if (filter.unknownCustomField !== undefined) return unknownField(filter.unknownCustomField)
+    return invalid(filter.path, filter.message)
+  }
   const limit = readLimit(c.req.query('limit'))
   if (limit === undefined) return invalid('limit')
   const rawSort = c.req.query('sort')
-  const sort = rawSort === undefined ? DEFAULT_SORT : parseSort('organizations', rawSort)
-  if (!sort) return invalid('sort')
+  const sort = rawSort === undefined ? DEFAULT_SORT : parseSort('organizations', rawSort, custom)
+  if (!sort) {
+    const unknown = rawSort === undefined ? null : unknownCustomSort(rawSort, custom)
+    return unknown === null ? invalid('sort') : unknownField(unknown)
+  }
   const rawCursor = c.req.query('cursor')
   const cursor =
     rawCursor === undefined
       ? undefined
-      : decodePageCursor(rawCursor, sortName(sort), SORT_KEYS[sort.column].cast)
+      : decodePageCursor(rawCursor, sortName(sort), sortKey(sort, custom).cast)
   if (rawCursor !== undefined && cursor === undefined) return invalid('cursor')
-  return ok({ filter: filter.filter, sort, limit, ...(cursor ? { cursor } : {}) })
+  return ok({ filter: filter.filter, custom, sort, limit, ...(cursor ? { cursor } : {}) })
 }
 
-function baseQuery(db: Kysely<Database>, actorId: string, filter: FilterGroup | undefined) {
+function baseQuery(
+  db: Kysely<Database>,
+  actorId: string,
+  filter: FilterGroup | undefined,
+  custom: readonly CatalogField[],
+) {
   let query = db.selectFrom('organization').where('organization.deleted_at', 'is', null)
-  if (filter !== undefined) query = query.where(compileFilter('organizations', filter, { actorId }))
+  if (filter !== undefined) {
+    query = query.where(compileFilter('organizations', filter, { actorId, custom }))
+  }
   return query
 }
 
 export async function listOrganizationsPage(
   viewer: FieldViewer,
   actorId: string,
-  { filter, sort, cursor, limit }: OrganizationListQuery,
+  { filter, custom: catalog, sort, cursor, limit }: OrganizationListQuery,
 ): Promise<OrganizationListPage> {
-  const key = SORT_KEYS[sort.column]
+  const key = sortKey(sort, catalog)
   const { db } = viewer
-  let query = baseQuery(db, actorId, filter)
+  let query = baseQuery(db, actorId, filter, catalog)
     .select([
       'organization.id',
       'organization.name',
@@ -152,12 +187,19 @@ export async function listOrganizationsPage(
 export async function countOrganizations(
   db: Kysely<Database>,
   actorId: string,
-  filter: FilterGroup | undefined,
+  { filter, custom }: Pick<OrganizationListQuery, 'filter' | 'custom'>,
 ): Promise<ListCount> {
-  return countRows(db, baseQuery(db, actorId, filter).select('organization.id'))
+  return countRows(db, baseQuery(db, actorId, filter, custom).select('organization.id'))
 }
 
-function organizationCell(item: OrganizationListItem, column: string): CsvValue {
+function organizationCell(
+  item: OrganizationListItem,
+  column: string,
+  language: ExportLanguage,
+  custom: { fields: readonly CatalogField[]; names: CustomNames },
+): CsvValue {
+  const field = customColumnField(column, custom.fields)
+  if (field) return customCell(field, item.custom[field.code], custom.names, language)
   switch (column) {
     case 'name':
       return item.name
@@ -176,15 +218,23 @@ function organizationCell(item: OrganizationListItem, column: string): CsvValue 
 
 /** `GET /v1/organizations/export.csv`: порции — каждая в своей транзакции проекта. */
 export async function exportOrganizations(c: Ctx, rootDb: Kysely<Database>): Promise<Response> {
-  const query = readOrganizationListQuery(c)
+  const query = await readOrganizationListQuery(c)
   if (!query.ok) return fail(c, query)
-  const chosen = readColumns('organizations', c.req.query('columns'))
-  if (!chosen) return fail(c, invalid('columns'))
+  const { filter, custom: catalog, sort, cursor: start } = query.value
+  const chosen = readColumns('organizations', c.req.query('columns'), catalog)
+  if (!chosen.ok) {
+    return fail(
+      c,
+      chosen.unknownCustomField === undefined
+        ? invalid('columns')
+        : unknownField(chosen.unknownCustomField),
+    )
+  }
   const lang = readLanguage(c.req.query('lang'))
   if (!lang) return fail(c, invalid('lang'))
-  const columns: readonly string[] = chosen
+  const columns: readonly string[] = chosen.columns
   const language: ExportLanguage = lang
-  const { filter, sort, cursor: start } = query.value
+  const customFields = catalog.filter((field) => columns.includes(`custom.${field.id}`))
   const projectId = c.get('projectId')
   const actorId = c.get('session').user.id
   const { permissions } = c.get('access')
@@ -198,24 +248,30 @@ export async function exportOrganizations(c: Ctx, rootDb: Kysely<Database>): Pro
     },
   })
   async function* rows(): AsyncGenerator<string> {
-    yield UTF8_BOM + csvHeader(columns, language)
+    yield UTF8_BOM + csvHeader(columns, language, customHeaders(columns, catalog, language))
     let cursor = start
     while (true) {
-      const page = await withProject(rootDb, projectId, (trx) =>
-        listOrganizationsPage({ db: trx, permissions }, actorId, {
+      const { page, names } = await withProject(rootDb, projectId, async (trx) => {
+        const page = await listOrganizationsPage({ db: trx, permissions }, actorId, {
           filter,
+          custom: catalog,
           sort,
           limit: EXPORT_BATCH,
           ...(cursor ? { cursor } : {}),
-        }),
-      )
+        })
+        const values = page.items.map((item) => item.custom)
+        return { page, names: await loadCustomNames(trx, customFields, values) }
+      })
+      const custom = { fields: customFields, names }
       if (page.items.length > 0) {
         yield page.items
-          .map((item) => csvRow(columns.map((column) => organizationCell(item, column))))
+          .map((item) =>
+            csvRow(columns.map((column) => organizationCell(item, column, language, custom))),
+          )
           .join('')
       }
       if (page.nextCursor === null) return
-      cursor = decodePageCursor(page.nextCursor, sortName(sort), SORT_KEYS[sort.column].cast)
+      cursor = decodePageCursor(page.nextCursor, sortName(sort), sortKey(sort, catalog).cast)
       if (!cursor) throw new Error('выгрузка: курсор своей же страницы не разобрался')
     }
   }
@@ -227,7 +283,7 @@ export function organizationListRoutes(rootDb: Kysely<Database>) {
   const view = requirePermission('organizations', 'view')
   return new Hono<PermissionsEnv>()
     .get('/list', view, async (c) => {
-      const query = readOrganizationListQuery(c)
+      const query = await readOrganizationListQuery(c)
       if (!query.ok) return fail(c, query)
       return c.json<OrganizationListPage>(
         await listOrganizationsPage(
@@ -238,10 +294,10 @@ export function organizationListRoutes(rootDb: Kysely<Database>) {
       )
     })
     .get('/count', view, async (c) => {
-      const query = readOrganizationListQuery(c)
+      const query = await readOrganizationListQuery(c)
       if (!query.ok) return fail(c, query)
       return c.json<ListCount>(
-        await countOrganizations(c.get('db'), c.get('session').user.id, query.value.filter),
+        await countOrganizations(c.get('db'), c.get('session').user.id, query.value),
       )
     })
     .get('/export.csv', view, requireStandalone('export'), (c) => exportOrganizations(c, rootDb))

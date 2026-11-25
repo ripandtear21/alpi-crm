@@ -1,6 +1,8 @@
 import {
+  CUSTOM_FIELD_PREFIX,
   DEFAULT_LIST_COLUMNS,
   EMPTY_FILTER,
+  FILTER_FIELD_ENTITY,
   type FilterEntity,
   type FilterGroup,
   hasStandalone,
@@ -20,6 +22,14 @@ import { Dialog } from '../../../ui/dialog.tsx'
 import { Notice, Skeleton } from '../../../ui/feedback.tsx'
 import { Field, Input, Select } from '../../../ui/field.tsx'
 import { Menu, type MenuItem } from '../../../ui/menu.tsx'
+import {
+  customColumn,
+  customColumnSortable,
+  customFieldName,
+  customFieldOf,
+  formatCustomValue,
+  liveFields,
+} from './custom-values.ts'
 import { conditionCount, FilterEditor, type FilterOptions } from './filter-editor.tsx'
 import { type ListRows, type ListsApi, ListsApiError } from './lists-api.ts'
 import './lists.css'
@@ -28,6 +38,8 @@ import './lists.css'
 // общий для сделок, контактов и организаций. Фильтр — тот же формат, что у канбана; выбор
 // колонок запоминается у пользователя (в браузере, по пользователю и списку); сохранённые
 // фильтры — на сервере. На узком экране (375 px) таблица прокручивается по горизонтали.
+// Пользовательские поля (тикет crm-fields/07): колонки и сортировка `custom.<id>`, условия
+// фильтра; сохранённый фильтр с недоступным полем открывается с пометкой «умова недоступна».
 
 export interface ListColumnDef<Row> {
   key: string
@@ -50,7 +62,11 @@ function readColumns(userId: string, entity: FilterEntity): string[] | null {
     const parsed: unknown = raw ? JSON.parse(raw) : null
     const known: readonly string[] = LIST_COLUMNS[entity]
     if (!Array.isArray(parsed)) return null
-    const columns = parsed.filter((c): c is string => typeof c === 'string' && known.includes(c))
+    // Колонки полей проверяются, когда поля загрузятся: поле могли убрать в архив.
+    const columns = parsed.filter(
+      (c): c is string =>
+        typeof c === 'string' && (known.includes(c) || c.startsWith(CUSTOM_FIELD_PREFIX)),
+    )
     return columns.length > 0 ? columns : null
   } catch {
     return null
@@ -153,15 +169,46 @@ export function ListView<E extends FilterEntity>({
     queryFn: () => api.savedFilters(projectId, entity),
     retry: false,
   })
+  const fields = useQuery({
+    queryKey: projectQueryKey(projectId, 'lists', 'fields', entity),
+    queryFn: () => api.fields(projectId, FILTER_FIELD_ENTITY[entity]),
+    retry: false,
+  })
+  const customFields = liveFields(fields.data)
 
   const rows = page.data?.pages.flatMap((p) => p.items) ?? []
   const permissions = access.data?.permissions
   const canExport = permissions ? hasStandalone(permissions, 'export') : false
   const sharedFilters = permissions ? hasStandalone(permissions, 'shared_filters') : false
-  const shownColumns = visible.filter((key) => columns[key])
-  const sortable: readonly string[] = SORTABLE_COLUMNS[entity]
-  const [sortColumn, sortDirection] = sort.split(':')
   const number = new Intl.NumberFormat(i18n.language)
+  const users = new Map(
+    (options.owner ?? options.createdBy ?? []).map((u) => [u.value, u.label] as const),
+  )
+  const format = { language: i18n.language, users, yes: t('filter.yes'), no: t('filter.no') }
+  const allColumns: Record<string, ListColumnDef<ListRows[E]>> = { ...columns }
+  for (const field of customFields) {
+    allColumns[customColumn(field)] = {
+      key: customColumn(field),
+      numeric: field.type === 'number' || field.type === 'money',
+      cell: (row) =>
+        formatCustomValue(
+          field,
+          (row as { custom?: Record<string, unknown> }).custom?.[field.code],
+          format,
+        ),
+    }
+  }
+  const shownColumns = visible.filter((key) => allColumns[key])
+  const sortableColumns: readonly string[] = SORTABLE_COLUMNS[entity]
+  const isSortable = (key: string) =>
+    sortableColumns.includes(key) || customColumnSortable(key, customFields)
+  const columnLabel = (key: string) => {
+    const custom = customFieldOf(key, customFields)
+    return custom
+      ? customFieldName(custom.field, i18n.language)
+      : t(`column.${entity}.${key}` as 'column.deals.title')
+  }
+  const [sortColumn, sortDirection] = sort.split(':')
 
   function changeFilter(next: FilterGroup) {
     setFilter(next)
@@ -194,10 +241,19 @@ export function ListView<E extends FilterEntity>({
   const savedItems: MenuItem[] = [
     ...(saved.data ?? []).map((item) => ({
       id: `apply-${item.id}`,
-      label: item.name,
+      label:
+        item.unavailableConditions > 0
+          ? t('saved.unavailableMark', { name: item.name })
+          : item.name,
       onSelect: () => {
         changeFilter(item.filter)
-        setNotice({ kind: 'status', text: t('saved.applied', { name: item.name }) })
+        setNotice({
+          kind: 'status',
+          text:
+            item.unavailableConditions > 0
+              ? t('saved.unavailable', { name: item.name, count: item.unavailableConditions })
+              : t('saved.applied', { name: item.name }),
+        })
       },
     })),
     { id: 'save', label: t('saved.save'), onSelect: () => setSaveOpen(true) },
@@ -311,15 +367,15 @@ export function ListView<E extends FilterEntity>({
                   </th>
                 )}
                 {shownColumns.map((key) => {
-                  const header = t(`column.${entity}.${key}` as 'column.deals.title')
+                  const header = columnLabel(key)
                   const active = sortColumn === key
                   return (
                     <th
                       key={key}
                       scope="col"
-                      className={cx(columns[key]?.numeric && 'ui-table__num')}
+                      className={cx(allColumns[key]?.numeric && 'ui-table__num')}
                       aria-sort={
-                        sortable.includes(key)
+                        isSortable(key)
                           ? active
                             ? sortDirection === 'asc'
                               ? 'ascending'
@@ -328,7 +384,7 @@ export function ListView<E extends FilterEntity>({
                           : undefined
                       }
                     >
-                      {sortable.includes(key) ? (
+                      {isSortable(key) ? (
                         <button
                           type="button"
                           className="ui-table__sort"
@@ -379,8 +435,8 @@ export function ListView<E extends FilterEntity>({
                         </td>
                       )}
                       {shownColumns.map((key) => (
-                        <td key={key} className={cx(columns[key]?.numeric && 'ui-table__num')}>
-                          {columns[key]?.cell(row)}
+                        <td key={key} className={cx(allColumns[key]?.numeric && 'ui-table__num')}>
+                          {allColumns[key]?.cell(row)}
                         </td>
                       ))}
                     </tr>
@@ -407,14 +463,15 @@ export function ListView<E extends FilterEntity>({
           open
           value={filter}
           options={options}
+          customFields={customFields}
           onApply={changeFilter}
           onClose={() => setFilterOpen(false)}
         />
       )}
       {columnsOpen && (
         <ColumnsDialog
-          entity={entity}
-          available={Object.keys(columns)}
+          available={Object.keys(allColumns)}
+          label={columnLabel}
           value={shownColumns}
           onApply={(next) => {
             setVisible(next)
@@ -454,15 +511,15 @@ export function ListView<E extends FilterEntity>({
 }
 
 function ColumnsDialog({
-  entity,
   available,
+  label,
   value,
   onApply,
   onReset,
   onClose,
 }: {
-  entity: FilterEntity
   available: string[]
+  label: (key: string) => string
   value: string[]
   onApply: (columns: string[]) => void
   onReset: () => void
@@ -494,7 +551,7 @@ function ColumnsDialog({
         {available.map((key) => (
           <Checkbox
             key={key}
-            label={t(`column.${entity}.${key}` as 'column.deals.title')}
+            label={label(key)}
             checked={chosen.has(key)}
             onChange={() =>
               setChosen((current) => {

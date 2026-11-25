@@ -47,6 +47,7 @@ const app = createApp({
   fields: {
     enqueuePurge: jobs.enqueueFieldPurge,
     enqueueRetype: jobs.enqueueFieldRetype,
+    enqueueIndex: jobs.enqueueFieldIndex,
     now: () => new Date(),
   },
   storage: localDiskStorage(env.storageDir),

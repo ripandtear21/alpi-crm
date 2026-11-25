@@ -1,5 +1,6 @@
 import {
   FILTER_FIELDS,
+  type FieldDefinitionSummary,
   type FilterCondition,
   type FilterEntity,
   type FilterFieldSpec,
@@ -19,12 +20,20 @@ import { Button } from '../../../ui/button.tsx'
 import { SidePanel } from '../../../ui/dialog.tsx'
 import { Notice } from '../../../ui/feedback.tsx'
 import { Field, Input, Select } from '../../../ui/field.tsx'
+import {
+  customConditionKeys,
+  customFieldName,
+  customFieldOf,
+  customFieldOperators,
+} from './custom-values.ts'
 import './lists.css'
 
 // Редактор фильтра списков и канбана (тикет crm-deals/12): условия «поле — оператор —
 // значение», связка всего фильтра И/ИЛИ и группы условий со своей связкой внутри. Поля и
 // операторы — те же белые списки, что проверяет сервер (packages/shared/src/filters), поэтому
-// собранный здесь фильтр проходит parseFilter без сюрпризов.
+// собранный здесь фильтр проходит parseFilter без сюрпризов. Пользовательские поля (тикет
+// crm-fields/07) — условия `custom.<id>` с операторами по типу поля; поля приходят из
+// `/v1/fields` (только видимые пользователю).
 
 /** Вариант значения поля-справочника (воронка, этап, ответственный…). */
 export interface FilterOption {
@@ -64,6 +73,19 @@ const nextKey = () => {
 function specOf(entity: FilterEntity, field: string): FilterFieldSpec {
   return (FILTER_FIELDS[entity] as Record<string, FilterFieldSpec>)[field] ?? { type: 'text' }
 }
+
+/** Операторы поля условия: системного — по описанию, пользовательского — по типу. */
+function operatorsFor(
+  entity: FilterEntity,
+  field: string,
+  custom: readonly FieldDefinitionSummary[],
+): readonly FilterOperator[] {
+  return customFieldOf(field, custom)
+    ? customFieldOperators(field, custom)
+    : operatorsOf(specOf(entity, field))
+}
+
+const isList = (op: FilterOperator) => op === 'in' || op === 'not_in'
 
 function newCondition(entity: FilterEntity): DraftCondition {
   const field = Object.keys(FILTER_FIELDS[entity])[0] ?? ''
@@ -137,6 +159,7 @@ export function FilterEditor({
   open,
   value,
   options,
+  customFields = [],
   onApply,
   onClose,
 }: {
@@ -144,10 +167,12 @@ export function FilterEditor({
   open: boolean
   value: FilterGroup
   options: FilterOptions
+  /** Пользовательские поля сущности, видимые пользователю (не в архиве). */
+  customFields?: readonly FieldDefinitionSummary[]
   onApply: (filter: FilterGroup) => void
   onClose: () => void
 }) {
-  const { t } = useTranslation('lists')
+  const { t, i18n } = useTranslation('lists')
   const [draft, setDraft] = useState<Draft>(() => toDraft(value))
   const [invalid, setInvalid] = useState(false)
 
@@ -162,13 +187,14 @@ export function FilterEditor({
       const next = { ...item, ...change }
       // Новое поле — первый оператор этого поля и пустое значение.
       if (change.field !== undefined && change.field !== item.field) {
-        next.op = operatorsOf(specOf(entity, change.field))[0] ?? 'eq'
+        next.op = operatorsFor(entity, change.field, customFields)[0] ?? 'eq'
         next.value = undefined
       }
       if (change.op !== undefined && change.op !== item.op) {
-        const wasList = item.op === 'in' || item.op === 'not_in'
-        const isList = change.op === 'in' || change.op === 'not_in'
-        if (wasList !== isList || VALUELESS_OPERATORS.includes(change.op)) next.value = undefined
+        const shapeChanged =
+          isList(item.op) !== isList(change.op) ||
+          (item.op === 'between') !== (change.op === 'between')
+        if (shapeChanged || VALUELESS_OPERATORS.includes(change.op)) next.value = undefined
       }
       return next
     }
@@ -196,7 +222,7 @@ export function FilterEditor({
 
   function apply() {
     const filter = fromDraft(draft)
-    const parsed = parseFilter(entity, filter)
+    const parsed = parseFilter(entity, filter, customFields)
     if (!parsed.ok) {
       setInvalid(true)
       return
@@ -204,15 +230,156 @@ export function FilterEditor({
     onApply(parsed.filter)
   }
 
-  const fieldLabel = (field: string) =>
-    t(`fields.${entity}.${field}` as 'fields.deals.title', { defaultValue: field })
+  const fieldLabel = (field: string) => {
+    const custom = customFieldOf(field, customFields)
+    if (!custom) {
+      return t(`fields.${entity}.${field}` as 'fields.deals.title', { defaultValue: field })
+    }
+    const name = customFieldName(custom.field, i18n.language)
+    return custom.part === undefined ? name : t(`filter.range.${custom.part}`, { name })
+  }
+
+  /** «Так» / «Ні»: значение условия — true или false. */
+  function booleanControl(condition: DraftCondition) {
+    return (
+      <Field label={t('filter.value')} className="filter-condition__value">
+        <Select
+          size="sm"
+          value={condition.value === undefined ? '' : String(condition.value)}
+          onChange={(event) =>
+            editCondition(condition.key, {
+              value: event.target.value === '' ? undefined : event.target.value === 'true',
+            })
+          }
+        >
+          <option value="">{t('filter.choose')}</option>
+          <option value="true">{t('filter.yes')}</option>
+          <option value="false">{t('filter.no')}</option>
+        </Select>
+      </Field>
+    )
+  }
+
+  /** Выбор из вариантов: «одне з» / «жодне з» — несколько, иначе один. */
+  function choiceControl(condition: DraftCondition, choices: FilterOption[]) {
+    const label = t('filter.value')
+    const set = (value: FilterValue | undefined) => editCondition(condition.key, { value })
+    if (isList(condition.op)) {
+      const selected = Array.isArray(condition.value) ? condition.value.map(String) : []
+      return (
+        <Field label={label} className="filter-condition__value">
+          <Select
+            size="sm"
+            multiple
+            value={selected}
+            onChange={(event) => {
+              const values = Array.from(event.target.selectedOptions, (o) => o.value)
+              set(values.length === 0 ? undefined : values)
+            }}
+          >
+            {choices.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )
+    }
+    return (
+      <Field label={label} className="filter-condition__value">
+        <Select
+          size="sm"
+          value={typeof condition.value === 'string' ? condition.value : ''}
+          onChange={(event) => set(event.target.value === '' ? undefined : event.target.value)}
+        >
+          <option value="">{t('filter.choose')}</option>
+          {choices.map((choice) => (
+            <option key={choice.value} value={choice.value}>
+              {choice.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    )
+  }
+
+  /** Значение условия по пользовательскому полю; «між» — два поля, «від» и «до». */
+  function customValueControl(condition: DraftCondition, field: FieldDefinitionSummary) {
+    const set = (value: FilterValue | undefined) => editCondition(condition.key, { value })
+    const numeric = field.type === 'number' || field.type === 'money'
+    const inputType =
+      field.type === 'date' || field.type === 'date_range'
+        ? 'date'
+        : field.type === 'time'
+          ? 'time'
+          : numeric
+            ? 'number'
+            : 'text'
+    // Незаполненная граница «між»: у числа — NaN, у даты и времени — пустая строка; такой
+    // фильтр не проходит parseFilter, и редактор показывает «фільтр заповнено не повністю».
+    const blank = numeric ? Number.NaN : ''
+    const read = (raw: string): string | number =>
+      raw === '' ? blank : numeric ? Number(raw) : raw
+    const shown = (value: unknown) =>
+      typeof value === 'number'
+        ? Number.isNaN(value)
+          ? ''
+          : String(value)
+        : typeof value === 'string'
+          ? value
+          : ''
+    const input = (label: string, value: unknown, onChange: (raw: string) => void) => (
+      <Field label={label} className="filter-condition__value">
+        <Input
+          size="sm"
+          type={inputType}
+          {...(numeric ? { step: 'any' } : {})}
+          value={shown(value)}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </Field>
+    )
+
+    if (condition.op === 'between') {
+      const pair = Array.isArray(condition.value) ? condition.value : []
+      const setPart = (index: 0 | 1, raw: string) => {
+        const next = [pair[0] ?? blank, pair[1] ?? blank]
+        next[index] = read(raw)
+        set(next as string[] | number[])
+      }
+      return (
+        <>
+          {input(t('filter.from'), pair[0], (raw) => setPart(0, raw))}
+          {input(t('filter.to'), pair[1], (raw) => setPart(1, raw))}
+        </>
+      )
+    }
+    if (field.type === 'boolean') return booleanControl(condition)
+    if (field.type === 'single_option' || field.type === 'multi_option') {
+      return choiceControl(
+        condition,
+        field.options.map((o) => ({ value: o.id, label: customFieldName(o, i18n.language) })),
+      )
+    }
+    if (field.type === 'user') {
+      return choiceControl(condition, [
+        { value: 'me', label: t('filter.me') },
+        ...(options.owner ?? options.createdBy ?? []),
+      ])
+    }
+    return input(t('filter.value'), condition.value, (raw) =>
+      set(raw === '' ? undefined : read(raw)),
+    )
+  }
 
   function valueControl(condition: DraftCondition) {
     if (VALUELESS_OPERATORS.includes(condition.op)) return null
+    const custom = customFieldOf(condition.field, customFields)
+    if (custom) return customValueControl(condition, custom.field)
     const spec = specOf(entity, condition.field)
     const label = t('filter.value')
     const set = (value: FilterValue | undefined) => editCondition(condition.key, { value })
-    const list = condition.op === 'in' || condition.op === 'not_in'
     let choices: FilterOption[] | undefined = options[condition.field]
     if (spec.type === 'enum') {
       choices = (spec.values ?? []).map((v) => ({
@@ -223,63 +390,8 @@ export function FilterEditor({
     if (spec.type === 'user') {
       choices = [{ value: 'me', label: t('filter.me') }, ...(options[condition.field] ?? [])]
     }
-    if (spec.type === 'boolean') {
-      return (
-        <Field label={label} className="filter-condition__value">
-          <Select
-            size="sm"
-            value={condition.value === undefined ? '' : String(condition.value)}
-            onChange={(event) =>
-              set(event.target.value === '' ? undefined : event.target.value === 'true')
-            }
-          >
-            <option value="">{t('filter.choose')}</option>
-            <option value="true">{t('filter.yes')}</option>
-            <option value="false">{t('filter.no')}</option>
-          </Select>
-        </Field>
-      )
-    }
-    if (choices) {
-      if (list) {
-        const selected = Array.isArray(condition.value) ? condition.value : []
-        return (
-          <Field label={label} className="filter-condition__value">
-            <Select
-              size="sm"
-              multiple
-              value={[...selected]}
-              onChange={(event) => {
-                const values = Array.from(event.target.selectedOptions, (o) => o.value)
-                set(values.length === 0 ? undefined : values)
-              }}
-            >
-              {choices.map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )
-      }
-      return (
-        <Field label={label} className="filter-condition__value">
-          <Select
-            size="sm"
-            value={typeof condition.value === 'string' ? condition.value : ''}
-            onChange={(event) => set(event.target.value === '' ? undefined : event.target.value)}
-          >
-            <option value="">{t('filter.choose')}</option>
-            {choices.map((choice) => (
-              <option key={choice.value} value={choice.value}>
-                {choice.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )
-    }
+    if (spec.type === 'boolean') return booleanControl(condition)
+    if (choices) return choiceControl(condition, choices)
     if (spec.type === 'date') {
       return (
         <Field label={label} className="filter-condition__value">
@@ -320,7 +432,7 @@ export function FilterEditor({
   }
 
   function conditionRow(condition: DraftCondition) {
-    const spec = specOf(entity, condition.field)
+    const customKeys = customConditionKeys(customFields)
     return (
       <fieldset key={condition.key} className="filter-condition">
         <legend className="visually-hidden">{fieldLabel(condition.field)}</legend>
@@ -335,6 +447,15 @@ export function FilterEditor({
                 {fieldLabel(field)}
               </option>
             ))}
+            {customKeys.length > 0 && (
+              <optgroup label={t('filter.customFields')}>
+                {customKeys.map((field) => (
+                  <option key={field} value={field}>
+                    {fieldLabel(field)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </Select>
         </Field>
         <Field label={t('filter.operator')} className="filter-condition__op">
@@ -345,7 +466,7 @@ export function FilterEditor({
               editCondition(condition.key, { op: event.target.value as FilterOperator })
             }
           >
-            {operatorsOf(spec).map((op) => (
+            {operatorsFor(entity, condition.field, customFields).map((op) => (
               <option key={op} value={op}>
                 {t(`ops.${op}`)}
               </option>

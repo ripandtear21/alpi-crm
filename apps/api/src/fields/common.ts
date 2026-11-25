@@ -11,6 +11,7 @@ import {
 } from '@alpi/shared'
 import type { Transaction } from 'kysely'
 import { type Ctx, optionalText, type Refusal, refuse, requiredText } from '../contacts/http.ts'
+import type { FieldIndexMessage } from '../jobs/field-index.ts'
 import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
 import type { FieldPurgeMessage } from './purge.ts'
 import type { FieldRetypeMessage } from './retype.ts'
@@ -79,6 +80,12 @@ export interface FieldsDeps {
   enqueuePurge(trx: Transaction<Database>, message: FieldPurgeMessage): Promise<void>
   /** Ставит смену типа поля с данными в очередь той же транзакцией проекта (jobs/jobs.ts). */
   enqueueRetype(trx: Transaction<Database>, message: FieldRetypeMessage): Promise<void>
+  /**
+   * Ставит построение копии значений «часто фильтруют» в очередь той же транзакцией проекта
+   * (jobs/field-index.ts, тикет 07). Нет — копия не строится: поле остаётся 'building', фильтр
+   * работает по `custom` без ускорения.
+   */
+  enqueueIndex?(trx: Transaction<Database>, message: FieldIndexMessage): Promise<void>
   /** Текущее время: отметка архива и срок 30 дней до окончательного удаления. */
   now(): Date
 }

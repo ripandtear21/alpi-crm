@@ -1,8 +1,10 @@
-import type {
-  LostReasonGroupSummary,
-  LostReasonSummary,
-  PipelineSummary,
-  StageSummary,
+import {
+  type FieldDefinitionSummary,
+  KANBAN_CARD_FIELDS_LIMIT,
+  type LostReasonGroupSummary,
+  type LostReasonSummary,
+  type PipelineSummary,
+  type StageSummary,
 } from '@alpi/shared'
 import type { PipelinesApi } from './pipelines-api.ts'
 import { RolesApiError } from './roles-api.ts'
@@ -15,6 +17,9 @@ export interface FakePipelinesApi extends PipelinesApi {
   pipelines: PipelineSummary[]
   groups: LostReasonGroupSummary[]
   failNextWith: string | null
+  /** Пользовательские поля сделки и поля карточки канбана по воронкам (тикет crm-fields/07). */
+  dealFieldList: FieldDefinitionSummary[]
+  cardFieldIds: Record<string, string[]>
 }
 
 let counter = 0
@@ -78,6 +83,8 @@ export function fakePipelinesApi({ deny = false }: { deny?: boolean } = {}): Fak
   }
 
   const api: FakePipelinesApi = {
+    dealFieldList: [],
+    cardFieldIds: {},
     pipelines: [
       {
         id: alpiId,
@@ -106,6 +113,22 @@ export function fakePipelinesApi({ deny = false }: { deny?: boolean } = {}): Fak
     async list() {
       if (deny) throw new RolesApiError(403, 'PERMISSION_DENIED')
       return structuredClone(api.pipelines)
+    },
+    async dealFields() {
+      return api.dealFieldList.filter((f) => f.archivedAt === null)
+    },
+    async cardFields(_projectId, pipelineId) {
+      return { fieldIds: api.cardFieldIds[pipelineId] ?? [] }
+    },
+    async setCardFields(_projectId, pipelineId, fieldIds) {
+      if (fieldIds.length > KANBAN_CARD_FIELDS_LIMIT) {
+        throw new RolesApiError(422, 'TOO_MANY_CARD_FIELDS')
+      }
+      if (fieldIds.some((id) => !api.dealFieldList.some((f) => f.id === id))) {
+        throw new RolesApiError(422, 'CUSTOM_FIELD_UNKNOWN')
+      }
+      api.cardFieldIds[pipelineId] = [...fieldIds]
+      return { fieldIds: [...fieldIds] }
     },
     async create(_projectId, input) {
       failIfAsked()

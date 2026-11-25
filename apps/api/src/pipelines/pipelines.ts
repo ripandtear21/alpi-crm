@@ -6,6 +6,7 @@ import { recordInRequest } from '../audit/record.ts'
 import { moveRulesOffStage } from '../fields/stage-rules.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint } from '../roles/roles.ts'
+import { getCardFields, putCardFields } from './card-fields.ts'
 import {
   type Ctx,
   fail,
@@ -27,7 +28,7 @@ import type { StageDealsChecker } from './stage-deals.ts'
 // (migrations/0008_pipelines.ts). Каждое изменение пишется в журнал проекта той же транзакцией.
 // Ни один запрос не трогает сделки (ADR 0003): архив воронки и удаление этапа меняют только
 // отметку; удаление этапа ещё переводит правила обязательности полей на следующий этап
-// (fields/stage-rules.ts).
+// (fields/stage-rules.ts). Поля карточки канбана воронки — card-fields.ts (тикет crm-fields/07).
 
 interface PipelineRow {
   id: string
@@ -419,6 +420,8 @@ export function pipelinesRoutes({ stageDeals }: { stageDeals: StageDealsChecker 
       // /order — до /:id: иначе «order» читался бы как id воронки.
       .put('/order', requirePermission('pipelines', 'edit'), reorderPipelines)
       .put('/:id', requirePermission('pipelines', 'edit'), updatePipeline)
+      .get('/:id/card-fields', requirePermission('deals', 'view'), getCardFields)
+      .put('/:id/card-fields', requirePermission('pipelines', 'edit'), putCardFields)
       .get('/:id/stages', requirePermission('deals', 'view'), listStages)
       .post('/:id/stages', requirePermission('pipelines', 'create'), createStage)
       .put('/:id/stages/order', requirePermission('pipelines', 'edit'), reorderStages)

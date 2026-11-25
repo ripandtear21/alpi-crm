@@ -1,4 +1,10 @@
-import type { FilterGroup, LostReasonGroupSummary, PipelineSummary } from '@alpi/shared'
+import type {
+  FieldDefinitionSummary,
+  FilterGroup,
+  KanbanCardFields,
+  LostReasonGroupSummary,
+  PipelineSummary,
+} from '@alpi/shared'
 import { projectHeaders } from '../../components/project-switcher/projects-api.ts'
 
 // Запросы канбана к API (apps/api/src/deals): `/api/v1/...` в контексте проекта. Отказ —
@@ -22,6 +28,11 @@ export interface BoardDeal {
   /** null — контакт вне охвата контактов пользователя. */
   contactName: string | null
   stageChangedAt: string
+  /**
+   * Значения полей карточки канбана воронки (до 3, тикет crm-fields/07): выдача канбана
+   * отдаёт только их и только видимые пользователю; пустое поле не приходит.
+   */
+  custom?: Readonly<Record<string, unknown>>
 }
 
 export interface DealsPage {
@@ -102,6 +113,10 @@ export interface DealsApi {
   pipelines(projectId: string): Promise<PipelineSummary[]>
   lostReasons(projectId: string): Promise<LostReasonGroupSummary[]>
   owners(projectId: string): Promise<DealOwner[]>
+  /** Пользовательские поля сделки, видимые пользователю, без архивных. */
+  fields(projectId: string): Promise<FieldDefinitionSummary[]>
+  /** Поля карточки канбана воронки, видимые пользователю, по порядку. */
+  cardFields(projectId: string, pipelineId: string): Promise<KanbanCardFields>
   stagePage(projectId: string, query: StagePageQuery): Promise<DealsPage>
   aggregates(
     projectId: string,
@@ -167,11 +182,14 @@ export function createDealsApi(fetchImpl: typeof fetch = (...args) => fetch(...a
     pipelines: (projectId) => send(projectId, 'GET', '/pipelines'),
     lostReasons: (projectId) => send(projectId, 'GET', '/lost-reasons'),
     owners: (projectId) => send(projectId, 'GET', '/deals/owners'),
+    fields: (projectId) => send(projectId, 'GET', '/fields?entity=deal'),
+    cardFields: (projectId, pipelineId) =>
+      send(projectId, 'GET', `/pipelines/${pipelineId}/card-fields`),
     stagePage: (projectId, { pipelineId, stageId, owner, filter, cursor }) =>
       send(
         projectId,
         'GET',
-        `/deals?${query({ pipeline: pipelineId, stage: stageId, owner, filter: filterParam(filter), cursor })}`,
+        `/deals?${query({ view: 'kanban', pipeline: pipelineId, stage: stageId, owner, filter: filterParam(filter), cursor })}`,
       ),
     aggregates: (projectId, pipelineId, owner, filter) =>
       send(

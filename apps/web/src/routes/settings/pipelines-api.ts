@@ -1,4 +1,6 @@
 import type {
+  FieldDefinitionSummary,
+  KanbanCardFields,
   LostReasonGroupSummary,
   LostReasonSummary,
   PipelineSummary,
@@ -44,6 +46,15 @@ export interface PipelinesApi {
   ): Promise<StageSummary>
   reorderStages(projectId: string, pipelineId: string, ids: string[]): Promise<StageSummary[]>
   removeStage(projectId: string, pipelineId: string, stageId: string): Promise<void>
+  /** Пользовательские поля сделки, видимые пользователю, без архивных (тикет crm-fields/07). */
+  dealFields(projectId: string): Promise<FieldDefinitionSummary[]>
+  /** Поля карточки канбана воронки (до 3). */
+  cardFields(projectId: string, pipelineId: string): Promise<KanbanCardFields>
+  setCardFields(
+    projectId: string,
+    pipelineId: string,
+    fieldIds: string[],
+  ): Promise<KanbanCardFields>
   listLostReasons(projectId: string): Promise<LostReasonGroupSummary[]>
   createGroup(projectId: string, name: string): Promise<LostReasonGroupSummary>
   updateGroup(
@@ -100,6 +111,11 @@ export function createPipelinesApi(
       send(projectId, 'PUT', `${stages(pipelineId)}/order`, { ids }),
     removeStage: (projectId, pipelineId, stageId) =>
       send(projectId, 'DELETE', `${stages(pipelineId)}/${stageId}`),
+    dealFields: (projectId) => send(projectId, 'GET', '/fields?entity=deal'),
+    cardFields: (projectId, pipelineId) =>
+      send(projectId, 'GET', `/pipelines/${pipelineId}/card-fields`),
+    setCardFields: (projectId, pipelineId, fieldIds) =>
+      send(projectId, 'PUT', `/pipelines/${pipelineId}/card-fields`, { fieldIds }),
     listLostReasons: (projectId) => send(projectId, 'GET', '/lost-reasons'),
     createGroup: (projectId, name) => send(projectId, 'POST', '/lost-reasons/groups', { name }),
     updateGroup: (projectId, groupId, change) =>

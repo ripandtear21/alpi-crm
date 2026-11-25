@@ -36,7 +36,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /**
  * Начальный фильтр списка сделок из адреса: `filter` (JSON того же формата, что у API) и/или
  * `pipeline`, `stage` — так открывает список ссылка «ще N» из колонки канбана. Негодный
- * фильтр в адресе молча отбрасывается: адрес мог прийти из старой закладки.
+ * фильтр в адресе молча отбрасывается: адрес мог прийти из старой закладки. С условиями по
+ * пользовательским полям фильтр проверяет сервер.
  */
 export function dealFilterFromSearch(search: {
   filter?: unknown
@@ -46,8 +47,12 @@ export function dealFilterFromSearch(search: {
   const parts: FilterNode[] = []
   if (typeof search.filter === 'string') {
     try {
-      const parsed = parseFilter('deals', JSON.parse(search.filter))
+      const raw: unknown = JSON.parse(search.filter)
+      const parsed = parseFilter('deals', raw)
       if (parsed.ok) parts.push(parsed.filter)
+      // Условия по пользовательским полям (тикет crm-fields/07) здесь проверить не по чему:
+      // полей ещё нет. Такой фильтр уходит как есть — его проверяет сервер (неверный — 400/422).
+      else if (parsed.error.unknownCustomField) parts.push(raw as FilterGroup)
     } catch {
       // не JSON — без фильтра из адреса
     }

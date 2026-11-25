@@ -560,9 +560,40 @@ export interface FieldDefinitionTable {
    * переписывает значения в этот тип; null — смены нет.
    */
   converting_to: string | null
+  /**
+   * Ускорение «часто фильтруют» (migrations/0018_field_filters.ts): building — копия значений
+   * в custom_value строится, ready — готова, failed — задача упала (текст в index_error); null —
+   * не нужна. Ставит и снимает триггер field_definition_index; ready и failed — фоновая задача.
+   */
+  index_state: Generated<'building' | 'ready' | 'failed' | null>
+  index_error: Generated<string | null>
+  /** Копия, для которой работает задача: новая при каждой постановке building. */
+  index_token: Generated<string | null>
   created_at: Timestamp
   updated_at: Timestamp
   created_by: string | null
+}
+
+/**
+ * Копия значений полей с ускорением «часто фильтруют» (migrations/0018_field_filters.ts):
+ * строка на значение, держит триггер custom_value_sync.
+ */
+export interface CustomValueTable {
+  project_id: string
+  field_id: string
+  record_id: string
+  /** 0 — значение; 1 — начало интервала дат; 2 — конец. */
+  part: Generated<number>
+  value_text: string | null
+  value_number: number | null
+}
+
+/** Поле сделки на карточке канбана воронки: позиция 1…3. */
+export interface PipelineCardFieldTable {
+  project_id: string
+  pipeline_id: string
+  field_id: string
+  position: number
 }
 
 /** Воронка, в которой видно поле сделки с видимостью 'selected'. */
@@ -634,4 +665,6 @@ export interface Database {
   field_pipeline: FieldPipelineTable
   field_required_stage: FieldRequiredStageTable
   field_option: FieldOptionTable
+  custom_value: CustomValueTable
+  pipeline_card_field: PipelineCardFieldTable
 }

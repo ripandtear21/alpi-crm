@@ -9,7 +9,7 @@ import { type Kysely, type RawBuilder, type SelectQueryBuilder, type SqlBool, sq
 // packages/shared/src/filters), иначе пара «значение, id» была бы неоднозначной.
 
 /** Тип значения колонки сортировки в курсоре. */
-export type SortCast = 'timestamptz' | 'numeric' | 'text'
+export type SortCast = 'timestamptz' | 'numeric' | 'text' | 'float8'
 
 /** Колонка сортировки: выражение для ORDER BY и его значение строкой для курсора. */
 export interface SortKey {
@@ -45,6 +45,8 @@ export interface PagePosition {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/
 const NUMBER = /^\d{1,14}(?:\.\d{1,2})?$/
+/** float8 текстом PostgreSQL: пустое значение пользовательского поля в сортировке — -Infinity. */
+const FLOAT = /^(?:-?Infinity|-?\d+(?:\.\d+)?(?:e[+-]\d+)?)$/
 const MAX_TEXT = 400
 
 /** Значение курсора подходит к типу колонки (иначе база ответила бы ошибкой, а не 400). */
@@ -59,6 +61,8 @@ export function validCursorValue(cast: SortCast, value: string): boolean {
       return NUMBER.test(value)
     case 'text':
       return value.length <= MAX_TEXT
+    case 'float8':
+      return FLOAT.test(value)
   }
 }
 
@@ -96,6 +100,7 @@ const CAST: Record<SortCast, (value: string) => RawBuilder<unknown>> = {
   timestamptz: (value) => sql`cast(${value} as timestamptz)`,
   numeric: (value) => sql`cast(${value} as numeric)`,
   text: (value) => sql`cast(${value} as text)`,
+  float8: (value) => sql`cast(${value} as double precision)`,
 }
 
 /** Условие «строка после позиции» для сортировки `key` по `direction`, затем по `idColumn`. */

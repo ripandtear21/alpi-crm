@@ -1,6 +1,7 @@
 import {
   can,
   FILTER_ENTITIES,
+  FILTER_FIELD_ENTITY,
   type FilterEntity,
   type FilterGroup,
   hasStandalone,
@@ -9,11 +10,13 @@ import {
   SAVED_FILTER_VISIBILITIES,
   type SavedFilterSummary,
   type SavedFilterVisibility,
+  withoutUnavailable,
 } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Ctx, fail, readBody, refuse, requiredText, UUID } from '../contacts/http.ts'
 import type { PermissionsEnv } from '../middleware/permissions.ts'
 import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
+import { type CatalogField, loadFilterCatalog } from './custom.ts'
 
 // Сохранённые фильтры списков (тикет crm-deals/12; таблица — migrations/0014_saved_filters.ts):
 // `/v1/saved-filters`. Видимость (spec.md, раздел 3.2; ответ владельца, пункт 32):
@@ -23,6 +26,12 @@ import { loadMemberAccess, type MemberAccess } from '../roles/access.ts'
 // - project — видят все участники проекта; сохранить — с правом «общие фильтры» и охватом
 //   сделок «все» (администратор, руководитель). Тимлиду (охват «команда») — 403.
 // Общий фильтр удаляет его автор, пока у него есть «общие фильтры», и администратор проекта.
+// Пользовательские поля (тикет crm-fields/07): условие хранится по id поля. Сохранить условие по
+// полю, которого пользователь не видит, — 422 CUSTOM_FIELD_UNKNOWN. Открывается фильтр без
+// условий по полям в архиве, удалённым и скрытым от того, кто открыл: `filter` — что можно
+// применить, `unavailableConditions` — сколько условий не применяется («умова недоступна»,
+// решено без владельца, подтвердить). В базе условие остаётся: вернул поле из архива — оно
+// снова действует.
 
 export type SavedFiltersErrorCode =
   | 'PERMISSION_DENIED'
@@ -31,6 +40,8 @@ export type SavedFiltersErrorCode =
   /** Фильтр для команды, а пользователь ни в одной команде не состоит. */
   | 'NO_TEAM'
   | 'TEAM_NOT_FOUND'
+  /** Условие по пользовательскому полю, которого пользователь не видит или нет (422). */
+  | 'CUSTOM_FIELD_UNKNOWN'
 
 /** Наибольшее число сохранённых фильтров одного списка, видимых пользователю, в ответе. */
 const LIST_LIMIT = 200
@@ -89,7 +100,8 @@ type Row = {
   created_at: Date
 }
 
-function summary(c: Ctx, row: Row): SavedFilterSummary {
+function summary(c: Ctx, row: Row, custom: readonly CatalogField[]): SavedFilterSummary {
+  const { filter, removed } = withoutUnavailable(row.filter as FilterGroup, custom)
   return {
     id: row.id,
     entity: row.entity,
@@ -97,7 +109,8 @@ function summary(c: Ctx, row: Row): SavedFilterSummary {
     visibility: row.visibility,
     teamId: row.team_id,
     ownerId: row.owner_id,
-    filter: row.filter as FilterGroup,
+    filter,
+    unavailableConditions: removed,
     canDelete: canDelete(c, row),
     createdAt: new Date(row.created_at).toISOString(),
   }
@@ -145,7 +158,8 @@ export function savedFiltersRoutes() {
       if (!isEntity(entity)) return fail(c, invalid('entity'))
       if (!(await canView(c, entity))) return fail(c, refuse(403, 'PERMISSION_DENIED'))
       const rows = await visibleFilters(c, entity)
-      return c.json<SavedFilterSummary[]>(rows.map((row) => summary(c, row)))
+      const custom = await catalogOf(c, entity)
+      return c.json<SavedFilterSummary[]>(rows.map((row) => summary(c, row, custom)))
     })
     .post('/', async (c) => {
       const body = await readBody(c)
@@ -161,9 +175,16 @@ export function savedFiltersRoutes() {
       const name = requiredText(body.name, MAX_NAME_LENGTH)
       if (name === undefined) return fail(c, invalid('name'))
       if (!isVisibility(visibility)) return fail(c, invalid('visibility'))
-      const parsed = parseFilter(entity, body.filter)
+      const custom = await catalogOf(c, entity)
+      const parsed = parseFilter(entity, body.filter, custom)
       if (!parsed.ok) {
-        return fail(c, invalid(`filter${parsed.error.path}`, parsed.error.message))
+        const unknown = parsed.error.unknownCustomField
+        return fail(
+          c,
+          unknown === undefined
+            ? invalid(`filter${parsed.error.path}`, parsed.error.message)
+            : refuse(422, 'CUSTOM_FIELD_UNKNOWN', { field: unknown }),
+        )
       }
       if (body.teamId !== undefined && visibility !== 'team') return fail(c, invalid('teamId'))
 
@@ -209,7 +230,7 @@ export function savedFiltersRoutes() {
         })
         .returning(COLUMNS)
         .executeTakeFirstOrThrow()) as Row
-      return c.json<SavedFilterSummary>(summary(c, row), 201)
+      return c.json<SavedFilterSummary>(summary(c, row, custom), 201)
     })
     .delete('/:id', async (c) => {
       const id = c.req.param('id')
@@ -230,6 +251,11 @@ export function savedFiltersRoutes() {
       await c.get('db').deleteFrom('saved_filter').where('id', '=', id).execute()
       return c.body(null, 204)
     })
+}
+
+/** Пользовательские поля списка `entity`, которые видит пользователь (canView уже загрузил роль). */
+function catalogOf(c: Ctx, entity: FilterEntity): Promise<CatalogField[]> {
+  return loadFilterCatalog(c.get('db'), c.get('access').permissions, FILTER_FIELD_ENTITY[entity])
 }
 
 /**

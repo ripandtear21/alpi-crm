@@ -94,6 +94,9 @@ interface FieldRow {
   archived_at: Date | string | null
   purge_requested_at: Date | string | null
   converting_to: string | null
+  index_state: 'building' | 'ready' | 'failed' | null
+  index_error: string | null
+  index_token: string | null
 }
 
 const FIELD_COLUMNS = [
@@ -113,6 +116,9 @@ const FIELD_COLUMNS = [
   'archived_at',
   'purge_requested_at',
   'converting_to',
+  'index_state',
+  'index_error',
+  'index_token',
 ] as const
 
 const OPTION_COLUMNS = ['id', 'field_id', 'name_uk', 'name_ru', 'position', 'archived_at'] as const
@@ -213,6 +219,8 @@ async function loadFields(
       purgeRequestedAt: isoOrNull(row.purge_requested_at),
       convertingTo: row.converting_to as FieldType | null,
       options: options.filter((o) => o.field_id === row.id).map(optionSummary),
+      indexState: row.index_state,
+      indexError: row.index_error,
     }
   })
 }
@@ -221,6 +229,27 @@ async function fieldSummary(db: Kysely<Database>, id: string): Promise<FieldDefi
   const [field] = await loadFields(db, { ids: [id], includeArchived: true })
   if (!field) throw new Error('поле пропало в той же транзакции')
   return field
+}
+
+/**
+ * Отметка «часто фильтруют» (тикет 07): триггер базы ставит полю новую копию значений
+ * (index_state 'building', новый index_token) — тогда задача field-index её строит, в той же
+ * транзакции (откатится запрос — не будет и задачи). `tokenBefore` — копия до запроса.
+ */
+async function enqueueIndex(
+  c: Ctx,
+  deps: FieldsDeps,
+  fieldId: string,
+  tokenBefore: string | null,
+): Promise<void> {
+  const db = c.get('db')
+  const row = await db
+    .selectFrom('field_definition')
+    .select(['index_state', 'index_token'])
+    .where('id', '=', fieldId)
+    .executeTakeFirst()
+  if (row?.index_state !== 'building' || row.index_token === tokenBefore) return
+  await deps.enqueueIndex?.(db, { projectId: c.get('projectId'), fieldId })
 }
 
 /** Права того, кто меняет описания: requirePermission маршрута уже загрузил роль. */
@@ -461,7 +490,7 @@ function readFlag(body: Record<string, unknown>, key: string): boolean | undefin
   return typeof value === 'boolean' ? value : null
 }
 
-async function createField(c: Ctx) {
+async function createField(c: Ctx, deps: FieldsDeps) {
   const body = await readBody(c)
   if (!body) return fail(c, invalid(''))
   const extra = unknownKey(body, [...FIELD_KEYS, 'options'])
@@ -544,6 +573,7 @@ async function createField(c: Ctx) {
       )
       .execute()
   }
+  await enqueueIndex(c, deps, id, null)
   const field = await fieldSummary(db, id)
   await recordInRequest(c, {
     action: 'field.created',
@@ -664,6 +694,7 @@ async function updateField(c: Ctx, deps: FieldsDeps) {
       throw error
     }
   }
+  await enqueueIndex(c, deps, row.id, row.index_token)
   if (rulesChanged) {
     await writePipelinesAndRequirement(db, c.get('projectId'), row.id, pipelines, required)
     before.pipelines = current.pipelines
@@ -737,6 +768,7 @@ async function archiveField(c: Ctx, deps: FieldsDeps, archived: boolean) {
   if (row.purge_requested_at !== null) return fail(c, refuse(409, 'FIELD_PURGE_PENDING'))
   if ((row.archived_at !== null) !== archived) {
     await setArchived(c, row, archived ? deps.now() : null)
+    await enqueueIndex(c, deps, row.id, row.index_token)
   }
   return c.json<FieldDefinitionSummary>(await fieldSummary(db, row.id))
 }
@@ -967,7 +999,7 @@ export function fieldsRoutes(deps: FieldsDeps) {
         // Поля скрытых от роли групп не отдаются (тикет 03).
         return c.json<FieldDefinitionSummary[]>(fields.filter((f) => fieldVisible(permissions, f)))
       })
-      .post('/', requirePermission('fields', 'create'), createField)
+      .post('/', requirePermission('fields', 'create'), (c) => createField(c, deps))
       // /order — до /:id: иначе «order» читался бы как id поля.
       .put('/order', requirePermission('fields', 'edit'), reorderFields)
       .get('/:id', readField)
