@@ -52,11 +52,21 @@ apps/api/src/http/** (ошибки, курсор, идемпотентность
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (pnpm verify) · windows - · 82baa11
 - [ ] Тест изоляции: записи `idempotency_record` проекта A не видны в контексте B; одинаковое значение `Idempotency-Key` у двух авторов или двух проектов — два независимых запроса.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] Тест ошибок: 400, 401, 403, 404, 409, 422 и 429 отдают `application/problem+json` с `type`, `title`, `status`, `code`; ошибка проверки — с `errors[].field`; 500 — без стека. Тест проходит по всем маршрутам `/api/v1` (обход списка маршрутов, а не выборочно).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] Тест курсора: 120 записей с равным значением сортировки читаются страницами по 50 ровно по одному разу; неверный курсор — 400.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] Тест идемпотентности: повтор `POST` с тем же ключом и телом возвращает тот же ответ с `Idempotent-Replayed: true`, вторая сделка не создана; тот же ключ с другим телом — 422; 10 параллельных одинаковых запросов создают одну сделку; ответ 500 не сохранён; запись старше 24 часов удаляется задачей.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts apps/api/src/jobs/jobs.test.ts` exit 0 · windows - · 82baa11
 - [ ] Тест лимита: 601-й запрос ключа за минуту — 429 с `Retry-After`; другой ключ в ту же минуту не ограничен; запросы по сессии не ограничены.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] `GET /api/v1/openapi.json` без входа отдаёт описание, которое проходит проверку валидатором OpenAPI 3.1; в нём нет маршрутов, недоступных ключу; страница `/api/v1/docs` открывается.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/http/http.test.ts` exit 0 · windows - · 82baa11
 - [ ] Клиент `apps/web` показывает ошибки и подгружает списки в новом формате (существующие тесты и `pnpm e2e` зелёные).
+  - evidence: test-run pass · `pnpm e2e` exit 0, `pnpm --filter @alpi/web exec vitest run` exit 0 · windows - · 82baa11
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 82baa11
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 82baa11
