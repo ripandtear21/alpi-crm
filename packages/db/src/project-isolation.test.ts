@@ -28,6 +28,7 @@ const migrationNames = [
   '0012_notes_files',
   '0014_saved_filters',
   '0015_search',
+  '0016_fields',
 ]
 
 const tablesOfMigration = [
@@ -73,6 +74,12 @@ const tablesOfMigration = [
   'file',
   // 0014_saved_filters
   'saved_filter',
+  // 0016_fields (и колонка custom у deal, contact, organization)
+  'field_group',
+  'field_definition',
+  'field_pipeline',
+  'field_required_stage',
+  'field_option',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -325,6 +332,11 @@ describe('схема и изоляция проектов', () => {
         { table: 'deal_participant', rls: true, policies: 1 },
         { table: 'deal_product', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
+        { table: 'field_definition', rls: true, policies: 1 },
+        { table: 'field_group', rls: true, policies: 1 },
+        { table: 'field_option', rls: true, policies: 1 },
+        { table: 'field_pipeline', rls: true, policies: 1 },
+        { table: 'field_required_stage', rls: true, policies: 1 },
         { table: 'file', rls: true, policies: 1 },
         { table: 'lost_reason', rls: true, policies: 1 },
         { table: 'lost_reason_group', rls: true, policies: 1 },
@@ -437,6 +449,113 @@ describe('схема и изоляция проектов', () => {
       for (const view of Object.keys(seeded.get(projectA) ?? {})) {
         expect({ view, ids: await idsOf(view, null) }).toEqual({ view, ids: [] })
       }
+    })
+  })
+
+  // Конструктор полей (0016_fields): группы, описания, видимость, правила и варианты.
+  describe('таблицы конструктора полей для роли приложения', () => {
+    const fieldTables = [
+      'field_group',
+      'field_definition',
+      'field_pipeline',
+      'field_required_stage',
+      'field_option',
+    ] as const
+
+    /** По строке в каждую таблицу конструктора проекта; код поля одинаков у обоих проектов. */
+    async function seedFields(projectId: string) {
+      const pipeline = await owner
+        .insertInto('pipeline')
+        .values({ project_id: projectId, code: 'fields_iso', name: 'Поля', position: 1 })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const stage = await owner
+        .insertInto('stage')
+        .values({ project_id: projectId, pipeline_id: pipeline.id, name: 'Новий', position: 1 })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const group = await owner
+        .insertInto('field_group')
+        .values({ project_id: projectId, entity: 'deal', name_uk: 'Основне' })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      const field = await owner
+        .insertInto('field_definition')
+        .values({
+          project_id: projectId,
+          entity: 'deal',
+          group_id: group.id,
+          code: 'motyv',
+          name_uk: 'Мотив',
+          type: 'single_option',
+          pipeline_visibility: 'selected',
+          required: 'stages',
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      await owner
+        .insertInto('field_pipeline')
+        .values({ project_id: projectId, field_id: field.id, pipeline_id: pipeline.id })
+        .execute()
+      await owner
+        .insertInto('field_required_stage')
+        .values({
+          project_id: projectId,
+          field_id: field.id,
+          pipeline_id: pipeline.id,
+          stage_id: stage.id,
+        })
+        .execute()
+      await owner
+        .insertInto('field_option')
+        .values({ project_id: projectId, field_id: field.id, name_uk: 'Перший' })
+        .execute()
+      return { groupId: group.id }
+    }
+
+    let groupOfA = ''
+
+    beforeAll(async () => {
+      groupOfA = (await seedFields(projectA)).groupId
+      await seedFields(projectB)
+    })
+
+    it('select * без where внутри withProject(B) отдаёт только строки B; без проекта — ноль', async () => {
+      for (const table of fieldTables) {
+        const { rows } = await withProject(app, projectB, (trx) =>
+          sql<{ project_id: string }>`select * from ${sql.table(table)}`.execute(trx),
+        )
+        expect({ table, count: rows.length }).toEqual({ table, count: 1 })
+        expect(rows.every((r) => r.project_id === projectB)).toBe(true)
+        const outside = await sql`select * from ${sql.table(table)}`.execute(app)
+        expect({ table, count: outside.rows.length }).toEqual({ table, count: 0 })
+      }
+    })
+
+    it('внутри withProject(B) нельзя записать поле в группу проекта A', async () => {
+      await expect(
+        withProject(app, projectB, (trx) =>
+          trx
+            .insertInto('field_definition')
+            .values({
+              project_id: projectB,
+              entity: 'deal',
+              group_id: groupOfA,
+              code: 'chuzhe',
+              name_uk: 'Чуже',
+              type: 'text',
+            })
+            .execute(),
+        ),
+      ).rejects.toThrow(/foreign key/)
+      await expect(
+        withProject(app, projectB, (trx) =>
+          trx
+            .insertInto('field_group')
+            .values({ project_id: projectA, entity: 'deal', name_uk: 'Чужа' })
+            .execute(),
+        ),
+      ).rejects.toThrow(/row-level security/)
     })
   })
 

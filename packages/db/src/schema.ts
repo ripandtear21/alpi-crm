@@ -1,7 +1,7 @@
 import type { ColumnType, Generated } from 'kysely'
 
 // Типы таблиц описаны вручную по migrations/0001_project_isolation.ts, 0002_auth.ts, 0004_roles.ts, 0005_audit.ts,
-// 0006_teams.ts, 0007_jobs_bulk.ts, 0008_pipelines.ts, 0009_contacts.ts, 0010_deals.ts и 0011_products.ts; меняются
+// 0006_teams.ts, 0007_jobs_bulk.ts, 0008_pipelines.ts, 0009_contacts.ts, 0010_deals.ts, 0011_products.ts и 0016_fields.ts; меняются
 // вместе с миграциями. shortcut: без kysely-codegen расхождение с базой ловят только тесты на настоящей
 // базе, перейти на codegen, когда таблиц станет больше нескольких.
 
@@ -318,6 +318,8 @@ export interface OrganizationTable {
   updated_at: Timestamp
   created_by: string | null
   deleted_at: Date | string | null
+  /** Значения пользовательских полей по коду (migrations/0016_fields.ts): объект JSON. */
+  custom: ColumnType<Record<string, unknown>, string | undefined, string>
   deleted_by: string | null
 }
 
@@ -338,6 +340,8 @@ export interface ContactTable {
   updated_at: Timestamp
   created_by: string | null
   deleted_at: Date | string | null
+  /** Значения пользовательских полей по коду (migrations/0016_fields.ts): объект JSON. */
+  custom: ColumnType<Record<string, unknown>, string | undefined, string>
   deleted_by: string | null
 }
 
@@ -409,6 +413,8 @@ export interface DealTable {
   updated_at: Timestamp
   created_by: string | null
   deleted_at: Date | string | null
+  /** Значения пользовательских полей по коду (migrations/0016_fields.ts): объект JSON. */
+  custom: ColumnType<Record<string, unknown>, string | undefined, string>
   deleted_by: string | null
 }
 
@@ -505,6 +511,86 @@ export interface SavedFilterTable {
   updated_at: Timestamp
 }
 
+/** Сущность с пользовательскими полями. */
+type FieldEntityColumn = ColumnType<
+  'deal' | 'contact' | 'organization',
+  'deal' | 'contact' | 'organization',
+  never
+>
+
+/** Группа пользовательских полей одной сущности (migrations/0016_fields.ts). */
+export interface FieldGroupTable {
+  id: Generated<string>
+  project_id: string
+  entity: FieldEntityColumn
+  name_uk: string
+  name_ru: string | null
+  position: Generated<number>
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/**
+ * Описание пользовательского поля: код уникален в проекте и сущности; правила кода, типа и
+ * окончательного удаления держит база (триггер field_definition_guard).
+ */
+export interface FieldDefinitionTable {
+  id: Generated<string>
+  project_id: string
+  entity: FieldEntityColumn
+  group_id: string
+  code: string
+  name_uk: string
+  name_ru: string | null
+  /** Один из FIELD_TYPES (packages/shared/src/fields). */
+  type: string
+  position: Generated<number>
+  /** 'all' — во всех воронках; 'selected' — в воронках из field_pipeline. */
+  pipeline_visibility: Generated<'all' | 'selected'>
+  /** 'none' | 'always' | 'stages' (правила — field_required_stage). */
+  required: Generated<'none' | 'always' | 'stages'>
+  is_important: Generated<boolean>
+  is_frequently_filtered: Generated<boolean>
+  first_value_at: Date | string | null
+  archived_at: Date | string | null
+  purge_requested_at: Date | string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
+/** Воронка, в которой видно поле сделки с видимостью 'selected'. */
+export interface FieldPipelineTable {
+  project_id: string
+  field_id: string
+  pipeline_id: string
+  visibility: Generated<'selected'>
+}
+
+/** Правило «обязательно с этапа»: `stage_id` null — только при выигрыше. */
+export interface FieldRequiredStageTable {
+  project_id: string
+  field_id: string
+  pipeline_id: string
+  stage_id: string | null
+  required: Generated<'stages'>
+}
+
+/** Вариант списка: id стабилен, удаления нет — только архив. */
+export interface FieldOptionTable {
+  id: Generated<string>
+  project_id: string
+  field_id: string
+  name_uk: string
+  name_ru: string | null
+  position: Generated<number>
+  archived_at: Date | string | null
+  created_at: Timestamp
+  updated_at: Timestamp
+  created_by: string | null
+}
+
 /** Таблицы базы для типов Kysely. */
 export interface Database {
   project: ProjectTable
@@ -538,4 +624,9 @@ export interface Database {
   note: NoteTable
   file: FileTable
   saved_filter: SavedFilterTable
+  field_group: FieldGroupTable
+  field_definition: FieldDefinitionTable
+  field_pipeline: FieldPipelineTable
+  field_required_stage: FieldRequiredStageTable
+  field_option: FieldOptionTable
 }

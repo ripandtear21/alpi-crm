@@ -3,6 +3,7 @@ import type { Kysely, Transaction } from 'kysely'
 import { fromKysely, PgBoss } from 'pg-boss'
 import type { BulkActionRegistry } from '../bulk/registry.ts'
 import { BULK_BATCH_SIZE, type BulkJobMessage, failBulkJob, runBulkJob } from '../bulk/runner.ts'
+import { FIELD_PURGE_BATCH_SIZE, type FieldPurgeMessage, purgeField } from '../fields/purge.ts'
 import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
 
 // Фоновые задачи на pg-boss (тикет crm-deals/04). Обработчик работает в процессе API (решено без
@@ -15,7 +16,9 @@ import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
 // - trash-purge — ежедневно: окончательное удаление из корзины старше 30 дней (trash/purge.ts),
 //   проекты по одному, каждый в своём withProject;
 // - failed-sign-in-purge — ежедневно: записи о неудачных входах старше 90 дней (служебная
-//   функция базы, packages/db/src/audit.ts).
+//   функция базы, packages/db/src/audit.ts);
+// - field-purge — окончательное удаление пользовательского поля по запросу администратора
+//   (fields/purge.ts): ключ поля уходит из `custom` записей порциями, потом описание.
 // Задачи по расписанию трогают только корзину и журнал входов и никогда не меняют сделки
 // (ADR 0003).
 
@@ -32,6 +35,7 @@ export const QUEUES = {
   bulkDead: 'bulk-job-dead',
   trashPurge: 'trash-purge',
   signInPurge: 'failed-sign-in-purge',
+  fieldPurge: 'field-purge',
 } as const
 
 /** Время расписания — киевское: ночью, когда в CRM никто не работает. */
@@ -52,6 +56,8 @@ export interface JobsOptions {
   bulkActions: BulkActionRegistry
   trashPurgers: TrashRegistry
   bulkBatchSize?: number
+  /** Записей в порции окончательного удаления поля; по умолчанию FIELD_PURGE_BATCH_SIZE. */
+  fieldPurgeBatchSize?: number
   /** Повторов массовой операции; по умолчанию BULK_RETRY_LIMIT. Тесты ставят 0. */
   bulkRetryLimit?: number
   /** Как часто опрашивать очередь, с; по умолчанию — как у pg-boss. Тесты ставят 0.5. */
@@ -66,6 +72,8 @@ export interface Jobs {
   boss: PgBoss
   /** Ставит массовую операцию в очередь той же транзакцией проекта, что создала bulk_job. */
   enqueueBulk(trx: Transaction<Database>, message: BulkJobMessage): Promise<void>
+  /** Ставит окончательное удаление поля в очередь той же транзакцией проекта, что его запросила. */
+  enqueueFieldPurge(trx: Transaction<Database>, message: FieldPurgeMessage): Promise<void>
   /** Перестаёт брать задачи и дожидается текущих (не дольше stopTimeoutMs). Повторный вызов — тот же. */
   stop(): Promise<void>
 }
@@ -103,6 +111,7 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   })
   await boss.createQueue(QUEUES.trashPurge, { retryLimit: 3, retryDelay: 15 * 60 })
   await boss.createQueue(QUEUES.signInPurge, { retryLimit: 3, retryDelay: 15 * 60 })
+  await boss.createQueue(QUEUES.fieldPurge, { retryLimit: 5, retryDelay: 60, retryBackoff: true })
 
   await boss.work<BulkJobMessage>(QUEUES.bulk, polling, async (batch) => {
     for (const job of batch) {
@@ -125,6 +134,11 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   await boss.work(QUEUES.signInPurge, polling, async () => {
     await purgeExpiredFailedSignIns(options.db)
   })
+  await boss.work<FieldPurgeMessage>(QUEUES.fieldPurge, polling, async (batch) => {
+    for (const job of batch) {
+      await purgeField(options.db, job.data, options.fieldPurgeBatchSize ?? FIELD_PURGE_BATCH_SIZE)
+    }
+  })
   if (schedule) {
     await boss.schedule(QUEUES.trashPurge, TRASH_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.signInPurge, SIGN_IN_PURGE_CRON, null, { tz: TIMEZONE })
@@ -136,6 +150,12 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
       await boss.send(QUEUES.bulk, message, {
         db: fromKysely(trx),
         singletonKey: message.bulkJobId,
+      })
+    },
+    async enqueueFieldPurge(trx, message) {
+      await boss.send(QUEUES.fieldPurge, message, {
+        db: fromKysely(trx),
+        singletonKey: message.fieldId,
       })
     },
     stop: () => boss.stop({ graceful: true, timeout: options.stopTimeoutMs ?? 30_000 }),

@@ -14,6 +14,9 @@ import { dealsRoutes, pipelineAggregatesRoutes } from './deals/deals.ts'
 import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
 import { dealListRoutes } from './deals/list-routes.ts'
 import { NO_STAGE_REQUIREMENTS, type StageRequirements } from './deals/stage-requirements.ts'
+import { type FieldsDeps, NO_FIELD_JOBS } from './fields/common.ts'
+import { fieldsRoutes } from './fields/fields.ts'
+import { fieldGroupsRoutes } from './fields/groups.ts'
 import { isFileUpload } from './files/files.ts'
 import { savedFiltersRoutes } from './filters/saved.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
@@ -67,6 +70,11 @@ export interface AppDeps {
   storage?: FileStorage
   /** Какие поля требует этап при смене этапа сделки; по умолчанию — никаких. */
   stageRequirements?: StageRequirements
+  /**
+   * Конструктор полей: очередь окончательного удаления поля и часы (срок 30 дней после архива);
+   * без очереди окончательное удаление поля с данными — ошибка 500.
+   */
+  fields?: FieldsDeps
 }
 
 /**
@@ -79,12 +87,14 @@ function v1Routes({
   contactDependents,
   storage,
   stageRequirements,
+  fields,
   db,
 }: {
   stageDeals: StageDealsChecker
   contactDependents: ContactDependents
   storage: FileStorage
   stageRequirements: StageRequirements
+  fields: FieldsDeps
   /** Подключение ролью приложения: порции выгрузки CSV — в своих транзакциях проекта. */
   db: Kysely<Database>
 }) {
@@ -110,6 +120,9 @@ function v1Routes({
       .route('/contacts', entityRecordsRoutes('contact', storage))
       .route('/organizations', entityRecordsRoutes('organization', storage))
       .route('/search', searchRoutes())
+      // Конструктор полей (эпик crm-fields): группы, описания и варианты.
+      .route('/field-groups', fieldGroupsRoutes())
+      .route('/fields', fieldsRoutes(fields))
   )
 }
 
@@ -129,6 +142,7 @@ export function createApp({
   contactDependents = DEAL_CONTACT_DEPENDENTS,
   storage = NO_FILE_STORAGE,
   stageRequirements = NO_STAGE_REQUIREMENTS,
+  fields = NO_FIELD_JOBS,
 }: AppDeps) {
   const jsonBodyLimit = bodyLimit({
     maxSize: MAX_BODY_BYTES,
@@ -164,7 +178,10 @@ export function createApp({
       // Маршруты /api/v1 (прокси отдаёт API путь без /api): разделы эпика сделок.
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
       .route('/v1/members', memberTransferRoutes(bulk))
-      .route('/v1', v1Routes({ stageDeals, contactDependents, storage, stageRequirements, db }))
+      .route(
+        '/v1',
+        v1Routes({ stageDeals, contactDependents, storage, stageRequirements, fields, db }),
+      )
   )
 }
 

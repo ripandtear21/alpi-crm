@@ -48,6 +48,27 @@ export const PROJECT_AUDIT_ACTIONS = [
   'deal.purged',
   /** Выгрузка списка в CSV (details — список, колонки, фильтр и сортировка). */
   'export.downloaded',
+  // Тикет crm-fields/01: конструктор полей.
+  'field_group.created',
+  'field_group.updated',
+  'field_group.reordered',
+  'field_group.deleted',
+  'field.created',
+  /** Название, код, тип, группа, видимость, обязательность, отметки. */
+  'field.updated',
+  'field.reordered',
+  'field.archived',
+  'field.restored',
+  /** Поле без значений удалено сразу. */
+  'field.deleted',
+  /** Запрошено окончательное удаление поля со значениями (через 30 дней после архива). */
+  'field.purge_requested',
+  /** Фоновая задача убрала значения поля из всех записей и удалила описание. */
+  'field.purged',
+  'field_option.created',
+  /** Название варианта, архив или возврат из архива. */
+  'field_option.updated',
+  'field_option.reordered',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 
