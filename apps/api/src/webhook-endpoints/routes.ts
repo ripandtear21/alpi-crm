@@ -176,7 +176,16 @@ async function deliveries24h(
   )
 }
 
-/** Адрес `id` текущего проекта, заблокированный до конца транзакции; нет — 404. */
+/**
+ * Адрес `id` текущего проекта, заблокированный до конца транзакции; нет — 404.
+ *
+ * FOR NO KEY UPDATE, не FOR UPDATE: изменения, отключение, повторы и «догнать» по-прежнему ждут
+ * друг друга (этот замок конфликтует сам с собой), но не мешают вставке доставки этого адреса.
+ * Внешний ключ webhook_delivery → webhook_endpoint при вставке берёт FOR KEY SHARE на строку
+ * адреса; с FOR UPDATE рассылка (fanout.ts) ждала бы «догнать», а «догнать» — её
+ * незафиксированную доставку той же пары «событие × адрес»: взаимоблокировка (40P01).
+ * Удаление адреса берёт FOR UPDATE само, командой delete.
+ */
 async function lockEndpoint(c: Ctx, id: string) {
   if (!UUID.test(id)) return null
   return c
@@ -184,7 +193,7 @@ async function lockEndpoint(c: Ctx, id: string) {
     .selectFrom('webhook_endpoint')
     .select(['id', 'url', 'state', 'secret_encrypted', 'event_types', 'created_at'])
     .where('id', '=', id)
-    .forUpdate()
+    .forNoKeyUpdate()
     .executeTakeFirst()
 }
 
@@ -472,10 +481,11 @@ async function retryFailedSince(c: Ctx, endpointId: string): Promise<Result<{ qu
  * трогаются. `queued` — сколько событий поставлено в отправку (решено без владельца —
  * подтвердить).
  *
- * Гонки: строка вебхука заблокирована (forUpdate) — второй «догнать» и повторы ждут конца
- * транзакции и видят доставки уже в pending. Рассылка (fanout.ts) вебхук не блокирует, но
- * вставляет доставку с тем же `on conflict (event_id, endpoint_id) do nothing`: пару создаёт и
- * ставит в очередь тот, кто вставил первым, второй её пропускает.
+ * Гонки: строка вебхука заблокирована (lockEndpoint, FOR NO KEY UPDATE) — второй «догнать» и
+ * повторы ждут конца транзакции и видят доставки уже в pending. Рассылка (fanout.ts) этот замок
+ * не ждёт (её внешний ключ берёт FOR KEY SHARE) и вставляет доставку с тем же
+ * `on conflict (event_id, endpoint_id) do nothing`: пару создаёт и ставит в очередь тот, кто
+ * вставил первым, второй ждёт его фиксации и пропускает пару.
  */
 async function catchUp(c: Ctx, endpointId: string): Promise<Result<{ queued: number }>> {
   const body = await readBody(c)

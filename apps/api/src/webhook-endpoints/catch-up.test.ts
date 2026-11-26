@@ -508,4 +508,69 @@ describe('догнать события с даты', () => {
     await new Promise((resolve) => setTimeout(resolve, 1500))
     expect(idsSentTo('/race').sort()).toEqual([...ids].sort())
   })
+
+  /**
+   * Ждёт, пока запрос к базе теста, текст которого начинается с `prefix`, ждёт блокировку
+   * (pg_stat_activity, wait_event_type = 'Lock'): true. `stop()` вернул true раньше — false.
+   * Не дольше 10 секунд, потом ошибка.
+   */
+  async function waitsForLock(prefix: string, stop: () => boolean = () => false) {
+    const deadline = Date.now() + 10_000
+    for (;;) {
+      if (stop()) return false
+      const { rows } = await sql<{ waiting: number }>`
+        select count(*)::int as waiting from pg_stat_activity
+        where datname = current_database() and wait_event_type = 'Lock'
+          and query like ${`${prefix}%`}
+      `.execute(h.owner)
+      if ((rows[0]?.waiting ?? 0) > 0) return true
+      if (Date.now() > deadline) throw new Error(`запрос «${prefix}» не дошёл до блокировки`)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+
+  it('«догнать» держит вебхук, а рассылка вставляет доставку этого вебхука — рассылка не ждёт «догнать», взаимоблокировки нет', async () => {
+    const target = await endpoint('/lock')
+    await createdAgo(target.endpoint.id, DAY_MS)
+    const since = new Date(Date.now() - DAY_MS / 2)
+    const failed = await event('contact.created')
+    await delivery(projectA, target.endpoint.id, failed, 'failed')
+    const fresh = await event('contact.created')
+
+    // Доставка `failed` заблокирована отдельной транзакцией: «догнать» берёт строку вебхука
+    // своим замком и встаёт на возврате этой доставки в pending — замок вебхука держится.
+    // Тем временем рассылка вставляет доставку `fresh` тому же вебхуку. С FOR UPDATE на
+    // вебхуке её внешний ключ (FOR KEY SHARE) ждёт «догнать», а после отпускания «догнать»
+    // вставляет ту же пару и ждёт рассылку: 40P01, ответ 500.
+    const run = await h.owner.transaction().execute(async (trx) => {
+      await trx
+        .selectFrom('webhook_delivery')
+        .select('id')
+        .where('event_id', '=', failed)
+        .forUpdate()
+        .execute()
+      const caughtUp = catchUp(target.endpoint.id, since)
+      await waitsForLock('update "webhook_delivery"')
+      let fanoutDone = false
+      const fanned = fanoutEvent(h.appDb, { projectId: projectA, eventId: fresh })
+      fanned.then(
+        () => (fanoutDone = true),
+        () => (fanoutDone = true),
+      )
+      const fanoutWaited = await waitsForLock('insert into "webhook_delivery"', () => fanoutDone)
+      return { caughtUp, fanned, fanoutWaited }
+    })
+    // Замок доставки отпущен: оба запроса доходят до конца (с FOR UPDATE — один с 40P01).
+    const [fanout, response] = await Promise.allSettled([run.fanned, run.caughtUp])
+    const fanoutWaited = run.fanoutWaited
+
+    expect(fanoutWaited).toBe(false)
+    expect(fanout).toEqual({ status: 'fulfilled', value: 1 })
+    expect(response.status).toBe('fulfilled')
+    // «Догнать» вернул в pending только неудачную; доставку `fresh` создала рассылка.
+    expect(await queued((response as PromiseFulfilledResult<Response>).value)).toBe(1)
+    expect((await deliveries(target.endpoint.id)).map((row) => row.event_id).sort()).toEqual(
+      [failed, fresh].sort(),
+    )
+  })
 })
