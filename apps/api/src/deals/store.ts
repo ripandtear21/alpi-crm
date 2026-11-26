@@ -8,7 +8,7 @@ import { type Ctx, type Outcome, ok, refuse } from '../contacts/http.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
-import { API_KEY_VIEWER, PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
+import { requestViewer, type Viewer } from '../roles/scope.ts'
 import { dealInScope, ownerAllowed } from './scope.ts'
 
 // Сделки в базе (тикет crm-deals/05): чтение строки в охвате, ответ API, запись с переводом
@@ -107,8 +107,7 @@ export async function dealContext(c: Ctx): Promise<DealContext> {
     ...requestAuthor(actor),
     permissions,
     scope: permissions.scopes.deals,
-    viewer:
-      actor.type === 'user' ? await resolveViewer(db, actor.userId, PROJECT_TEAMS) : API_KEY_VIEWER,
+    viewer: await requestViewer(db, actor),
   }
 }
 

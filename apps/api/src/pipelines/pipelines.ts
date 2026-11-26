@@ -1,6 +1,6 @@
 import type { Database } from '@alpi/db'
 import { PIPELINE_CODE, type PipelineSummary, type StageSummary } from '@alpi/shared'
-import { Hono } from 'hono'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { type Kysely, sql } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
 import { moveRulesOffStage } from '../fields/stage-rules.ts'
@@ -19,6 +19,7 @@ import {
   UUID,
   uniqueRefusal,
 } from './directory.ts'
+import { listPipelinesRoute, listStagesRoute } from './openapi.ts'
 import type { StageDealsChecker } from './stage-deals.ts'
 
 // Воронки и этапы проекта (тикет crm-deals/02): `/api/v1/pipelines`. Читает каждый с правом
@@ -409,20 +410,24 @@ async function deleteStage(c: Ctx, stageDeals: StageDealsChecker) {
   return c.body(null, 204)
 }
 
-/** Маршруты воронок и этапов: `/api/v1/pipelines`. */
+/**
+ * Маршруты воронок и этапов: `/api/v1/pipelines`. Ключу API открыто только чтение — список
+ * воронок и этапы воронки (тикет crm-api/04, pipelines/openapi.ts).
+ */
 export function pipelinesRoutes({ stageDeals }: { stageDeals: StageDealsChecker }) {
+  const app = new OpenAPIHono<PermissionsEnv>()
+  app.openapi(listPipelinesRoute, async (c) =>
+    c.json<PipelineSummary[], 200>(await listPipelines(c.get('db')), 200),
+  )
+  app.openapi(listStagesRoute, (c) => listStages(c) as never)
   return (
-    new Hono<PermissionsEnv>()
-      .get('/', requirePermission('deals', 'view'), async (c) =>
-        c.json<PipelineSummary[]>(await listPipelines(c.get('db'))),
-      )
+    app
       .post('/', requirePermission('pipelines', 'create'), createPipeline)
       // /order — до /:id: иначе «order» читался бы как id воронки.
       .put('/order', requirePermission('pipelines', 'edit'), reorderPipelines)
       .put('/:id', requirePermission('pipelines', 'edit'), updatePipeline)
       .get('/:id/card-fields', requirePermission('deals', 'view'), getCardFields)
       .put('/:id/card-fields', requirePermission('pipelines', 'edit'), putCardFields)
-      .get('/:id/stages', requirePermission('deals', 'view'), listStages)
       .post('/:id/stages', requirePermission('pipelines', 'create'), createStage)
       .put('/:id/stages/order', requirePermission('pipelines', 'edit'), reorderStages)
       .put('/:id/stages/:stageId', requirePermission('pipelines', 'edit'), updateStage)

@@ -34,6 +34,7 @@ const migrationNames = [
   '0019_api_keys',
   '0020_idempotency',
   '0021_webhook_events',
+  '0023_note_api_key_author',
 ]
 
 const tablesOfMigration = [

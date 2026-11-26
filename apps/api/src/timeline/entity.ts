@@ -3,7 +3,7 @@ import { sql } from 'kysely'
 import { type Ctx, type Outcome, ok, refuse, UUID } from '../contacts/http.ts'
 import { contactScopePredicate } from '../contacts/scope.ts'
 import { dealInScope, ownerAllowed } from '../deals/scope.ts'
-import { PROJECT_TEAMS, resolveViewer } from '../roles/scope.ts'
+import { requestViewer } from '../roles/scope.ts'
 
 // Запись, к которой относятся заметки, файлы и лента (тикет crm-deals/07): сделка, контакт или
 // организация. Права — права на саму запись: читать — право «смотреть» её часть системы и
@@ -87,8 +87,8 @@ export async function entityFor(
       .executeTakeFirst()
     return row ? ok(ref) : notFound
   }
-  const userId = c.get('session').user.id
-  const viewer = await resolveViewer(db, userId, PROJECT_TEAMS)
+  // Автор запроса — участник или ключ API (тикет crm-api/04): сессии у ключа нет.
+  const viewer = await requestViewer(db, c.get('actor'))
   const { permissions } = c.get('access')
   if (type === 'deal') {
     const scope = permissions.scopes.deals

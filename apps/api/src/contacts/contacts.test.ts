@@ -11,7 +11,7 @@ import {
   startApiHarness,
 } from '../testing/api-harness.ts'
 import { pathError, problemFields, problemOf } from '../testing/problem.ts'
-import type { ContactView } from './contacts.ts'
+import type { ContactSearchPage, ContactView } from './contacts.ts'
 import type { ContactDependents } from './dependents.ts'
 import { findContactMatch } from './match.ts'
 
@@ -160,7 +160,12 @@ describe('контакты и организации', () => {
         'GET',
         `/v1/contacts?phone=${encodeURIComponent(p2.spaced)}`,
       )
-      expect((await json<ContactView[]>(byPhone)).map((c) => c.id)).toEqual([contact.id])
+      // Поиск по телефону — страница выдачи /api/v1 (тикет crm-api/04).
+      expect(await json<ContactSearchPage>(byPhone)).toEqual({
+        data: [contact],
+        next_cursor: null,
+        outOfScope: null,
+      })
     })
 
     it('неразбираемый телефон — 422 INVALID_PHONE с указанием поля', async () => {

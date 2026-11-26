@@ -570,7 +570,7 @@ describe('общие правила /api/v1', () => {
       expect(allowed.headers.get('RateLimit-Reset')).toBe('60')
       // Закрытый ключу маршрут тоже считается и тоже несёт заголовки лимита.
       for (let i = 2; i <= 600; i++) {
-        const res = await keyRequest(app, first.secret, 'GET', '/v1/contacts')
+        const res = await keyRequest(app, first.secret, 'GET', '/v1/contacts/list')
         expect(res.status).toBe(403)
       }
       now += 15_000

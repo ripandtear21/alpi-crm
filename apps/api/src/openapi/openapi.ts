@@ -122,6 +122,35 @@ export const PageQuerySchema = z.object({
   }),
 })
 
+/** id записи (UUID) и время (ISO 8601, UTC) в схемах ответов. */
+export const IdSchema = z.guid().openapi({ format: 'uuid' })
+export const IsoTimeSchema = z.string().openapi({ format: 'date-time' })
+
+/** Содержимое `application/json` со схемой и выдуманным примером. */
+export function jsonContent<T extends z.ZodType>(schema: T, example: unknown) {
+  return { 'application/json': { schema, example } }
+}
+
+/** Тело запроса `application/json` для `request` маршрута. */
+export function jsonBody<T extends z.ZodType>(schema: T, example: unknown, required = true) {
+  return { body: { required, content: jsonContent(schema, example) } }
+}
+
+/**
+ * Параметры пути `{name}` с примерами: строки, а не UUID — запись с id не в формате UUID
+ * отвечает 404, как несуществующая.
+ */
+export function pathParams<const N extends string>(examples: Record<N, string>) {
+  return z.object(
+    Object.fromEntries(
+      Object.entries<string>(examples).map(([name, example]) => [
+        name,
+        z.string().openapi({ param: { name, in: 'path' }, format: 'uuid', example }),
+      ]),
+    ) as Record<N, z.ZodString>,
+  )
+}
+
 /** Страница выдачи `{ data, next_cursor }` со строками `item`. */
 export function pageSchema<T extends z.ZodType>(item: T) {
   return z.object({

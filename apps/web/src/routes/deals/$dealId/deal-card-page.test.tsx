@@ -327,6 +327,25 @@ describe('карточка сделки: лента', () => {
     expect(timeline.items.filter((item) => item.kind === 'note')).toHaveLength(3)
   })
 
+  it('заметка ключа API — название ключа с пометкой «ключ API», без «Змінити»', async () => {
+    await renderCard({
+      timeline: fakeTimelineApi([
+        {
+          kind: 'note',
+          id: '00000000-0000-4000-9300-100000000009',
+          occurredAt: '2026-11-06T10:00:00.000Z',
+          actorId: null,
+          actorApiKeyId: '00000000-0000-4000-9400-000000000001',
+          actorName: 'Інтеграція n8n',
+          note: { text: 'Нотатка від автоматизації', updatedAt: '2026-11-06T10:00:00.000Z' },
+        },
+      ]),
+    })
+    const [item] = within(await historyList()).getAllByRole('listitem')
+    expect(item?.textContent).toContain('Інтеграція n8n (ключ API)')
+    expect(within(item as HTMLElement).queryByRole('button', { name: 'Змінити' })).toBeNull()
+  })
+
   it('файл больше 25 МБ отклоняется до отправки', async () => {
     const { timeline } = await renderCard()
     fireEvent.click(screen.getByRole('tab', { name: 'Файл' }))

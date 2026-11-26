@@ -1,7 +1,7 @@
 # Контакты, организации, заметки и справочники для ключей API
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T00:24Z
 Blocked by: 01, 02
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Действия в MVP», волна 2); .scratch/crm-mvp/spec.md, раздел 4 («чужой клиент», охват контактов); .scratch/crm-deals/issues/02-pipelines-stages-lost-reasons.md, 03-contacts-organizations.md, 07-notes-files.md; .scratch/crm-foundation/issues/06-teams-and-users.md (команды); .scratch/crm-api/spec.md
 
@@ -45,3 +45,20 @@ apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, 
 - [ ] Тест: удаление контакта и организации по ключу — 403 `API_KEY_NOT_ALLOWED`.
 - [ ] Описание OpenAPI содержит все маршруты тикета с выдуманными примерами.
 - [ ] `pnpm verify` зелёный.
+
+## Результат
+
+Ветка `crm-api/04`. Маршруты, открытые ключу, объявлены через `keyRoute`: контакты и организации — `apps/api/src/contacts/openapi.ts`, заметки — `apps/api/src/notes/openapi.ts`, воронки и причины проигрыша — `apps/api/src/pipelines/openapi.ts`, участники и команды — `apps/api/src/members/directory.ts`. Те же маршруты обслуживают и сессию apps/web. Тесты — `apps/api/src/contacts/api-key.test.ts`. Миграция `0023_note_api_key_author` (номер 0022 занят веткой тикета 06; пропуск мигратор принимает).
+
+Открыто ключу: `GET /contacts?phone=&email=`, `GET /contacts/:id`, `POST /contacts`, `PATCH /contacts/:id`; `GET /organizations?name=`, `GET /organizations/:id`, `POST /organizations`, `PATCH /organizations/:id`; `GET|POST /{deals|contacts|organizations}/:id/notes`, `PATCH|DELETE …/notes/:noteId`; `GET /pipelines`, `GET /pipelines/:id/stages`, `GET /lost-reasons`, `GET /users`, `GET /teams`. Удаление, восстановление и `PUT` контактов, организаций и заметок, файлы, списки `/list` — 403 `API_KEY_NOT_ALLOWED`.
+
+Решено без владельца — подтвердить:
+
+- Поиск контакта: ответ `{ data, next_cursor: null, outOfScope }`; совпадение вне охвата ключа в `data` не попадает, вместо него `outOfScope: { managerName }` — без id, имени, телефонов и email (как 409 `CONTACT_OUT_OF_SCOPE`). Совпадения отдаются одной страницей (до 200), без курсора.
+- `GET /contacts` без `phone` и `email` и `GET /organizations` без `name` — прежняя выдача apps/web (массив), ключу — 400. Сессия с `phone`/`email` теперь получает тот же ответ-страницу, что ключ.
+- Автор-ключ в ленте и в заметке — название ключа с пометкой «(ключ API)»; в ответах — `authorApiKeyId` / `actorApiKeyId`. Записи журнала изменений от ключа в ленте тоже называют ключ.
+- `/v1/users` и `/v1/teams` — новые маршруты рядом с прежними `/members` и `/teams` (они остаются только для сессии); право — «сделки: смотреть». Справочники (воронки, причины, участники, команды) отдаются целиком массивом, без курсора.
+- Охват контактов «свои» и «команда» у ключа — контакты, созданные этим ключом (`contact.created_by_api_key_id`). Так ключ с таким охватом видит созданный им контакт и создаёт сделку с новым контактом (долг max-review тикета 03 закрыт, тест через `POST /api/v1/deals`). Контакты, созданные другим ключом или системой, ему не видны.
+- Заметку ключа меняет только сам ключ; удалить её может и пользователь с правом «удалять». Ключ не удаляет чужие заметки даже с правом «удалять».
+- Список заметок `GET …/notes` переведён на курсорную выдачу `{ data, next_cursor }` (apps/web его не читает).
+- `audit_log` по изменениям ключа не пишется: как у сделок тикета 03, автор-ключ — в `change_log`; в журнал опасных действий попадает только окончательное удаление, а оно ключу закрыто.

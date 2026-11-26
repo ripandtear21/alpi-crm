@@ -26,6 +26,7 @@ import { idempotency } from './http/idempotency.ts'
 import { problem } from './http/problem.ts'
 import { createRateLimiter, type RateLimitOptions } from './http/rate-limit.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
+import { teamDirectoryRoutes, usersRoutes } from './members/directory.ts'
 import { membersRoutes } from './members/members.ts'
 import { OPEN_MEMBER_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
 import { memberTransferRoutes } from './members/transfer.ts'
@@ -145,6 +146,9 @@ function v1Routes({
       .route('/contacts', entityRecordsRoutes('contact', storage))
       .route('/organizations', entityRecordsRoutes('organization', storage))
       .route('/search', searchRoutes())
+      // Справочники участников и команд для ключа API (тикет crm-api/04): только чтение.
+      .route('/users', usersRoutes())
+      .route('/teams', teamDirectoryRoutes())
       // Конструктор полей (эпик crm-fields): группы, описания и варианты.
       .route('/field-groups', fieldGroupsRoutes())
       .route('/fields', fieldsRoutes(fields))

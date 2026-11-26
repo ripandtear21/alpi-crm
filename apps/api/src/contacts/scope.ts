@@ -19,9 +19,16 @@ export type ContactScopeRule = (
   viewer: Viewer,
 ) => Expression<SqlBool>
 
-/** Контакт создан пользователем (охват «свои») или пользователем его команды («команда»). */
+/**
+ * Контакт создан пользователем (охват «свои») или пользователем его команды («команда»). У ключа
+ * API команды нет: и «свои», и «команда» — контакты, созданные этим ключом (тикет crm-api/04;
+ * решено без владельца — подтвердить). Так ключ с таким охватом видит контакт, который только
+ * что создал, и может создать сделку с новым контактом.
+ */
 export const CREATED_BY_RULE: ContactScopeRule = (eb, scope, viewer) =>
-  scopePredicate(eb, scope, viewer, 'contact.created_by')
+  viewer.apiKeyId === undefined
+    ? scopePredicate(eb, scope, viewer, 'contact.created_by')
+    : eb('contact.created_by_api_key_id', '=', viewer.apiKeyId)
 
 /**
  * Контакт — основной или участник в сделке, доступной в том же охвате (её ответственный —
