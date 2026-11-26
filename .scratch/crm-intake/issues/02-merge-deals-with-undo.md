@@ -1,7 +1,8 @@
 # Слияние сделок с откатом
 
 Type: task
-Status: claimed 2026-11-26T21:51Z
+Status: done 2026-11-26T23:30Z
+PR: #40
 Risk: high
 Blocked by: —
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 26, 29, 30, 35, 36); docs/adr/0005-sliyanie-s-otkatom.md; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Слияние», «Сделка», «Архив»); .scratch/crm-intake/spec.md
@@ -63,6 +64,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 - [ ] Тест событий и журнала: по одному `deal.merged` и `deal.unmerged`, тела проходят схему; записи в журнале проекта и в истории обеих сделок; упавшее слияние не оставляет ни переноса, ни события.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0, `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 · windows - · a939724
 - [ ] Экран: «Об'єднати з…», «Скасувати об'єднання», страница слитой сделки; тексты uk и ru; работает на 375 px.
+  - evidence: review pass · PR #40: снимки Playwright verify-02 (светлая и тёмная тема, 375 px и 1440 px) — https://github.com/ripandtear21/alpi-crm/pull/40#issuecomment-7199740352 · - - · f4042f8fa1c136a9b3719ada37fbf92fbb731070
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `gate fast` exit 0, `pnpm verify` exit 0 · windows - · a939724
   - evidence: gate pass · `gate fast` exit 0, `pnpm verify` exit 0 · windows - · 58066a967e37f963706efeab6afb9f19d9865256
