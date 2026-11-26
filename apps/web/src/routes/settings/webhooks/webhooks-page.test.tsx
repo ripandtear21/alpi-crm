@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeProjectsApi } from '../../../components/project-switcher/fake-projects-api.ts'
 import { createI18n, type Language } from '../../../i18n/index.ts'
 import { resources } from '../../../i18n/resources.ts'
@@ -414,21 +414,53 @@ describe('экран вебхуков: «наздогнати події з да
     expect(since).toBe(new Date(`${today}T00:00:00`).toISOString())
   })
 
-  it('в первый доступный день — с самой границы: не раньше создания вебхука и не старше 30 дней', async () => {
-    const api = await renderAt('/settings/webhooks')
-    const log = await openLog()
-    const input = within(log).getByLabelText('Події з дати') as HTMLInputElement
-    expect(input.max).toBe(localDay(new Date()))
-    pick(log, input.min)
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Наздогнати' }))
-    // Подставной API, как и настоящий, отвечает 422 на дату раньше создания или старше 30 дней.
-    expect(await within(log).findByText(/^У чергу поставлено подій: \d+\.$/)).toBeTruthy()
-    const since = Date.parse(
-      (api.calls.at(-1)?.input as { since?: string } | undefined)?.since ?? '',
-    )
-    expect(since).toBeGreaterThanOrEqual(Date.parse(api.endpoints[0]?.createdAt ?? ''))
-    expect(since).toBeGreaterThan(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  describe('первый доступный день', () => {
+    const DAY = 24 * 60 * 60 * 1000
+    // Часы стоят на полудне 26.11.2026 по местному времени: границы не зависят от дня запуска и
+    // не попадают на полночь. Подменяется только Date — таймеры waitFor и findBy настоящие.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(2026, 10, 26, 12, 0))
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Вебхук «n8n: нові угоди», созданный `daysAgo` дней назад; возвращает отправленный since. */
+    async function catchUpFromFirstDay(daysAgo: number) {
+      const api = fakeWebhooksApi()
+      const createdAt = new Date(Date.now() - daysAgo * DAY).toISOString()
+      const active = api.endpoints[0]
+      if (active) active.createdAt = createdAt
+      await renderAt('/settings/webhooks', { api })
+      const log = await openLog()
+      const input = within(log).getByLabelText('Події з дати') as HTMLInputElement
+      expect(input.max).toBe('2026-11-26')
+      const min = input.min
+      pick(log, min)
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Наздогнати' }))
+      // Подставной API, как и настоящий, отвечает 422 на дату раньше создания или старше 30 дней.
+      expect(await within(log).findByText(/^У чергу поставлено подій: \d+\.$/)).toBeTruthy()
+      const since = (api.calls.at(-1)?.input as { since?: string } | undefined)?.since ?? ''
+      return { min, since, createdAt }
+    }
+
+    it('вебхук создан 5 дней назад — с дня и самого времени создания', async () => {
+      const { min, since, createdAt } = await catchUpFromFirstDay(5)
+      expect(min).toBe('2026-11-21')
+      expect(since).toBe(createdAt)
+    })
+
+    it('вебхук создан 40 дней назад — не старше 30 дней: с дня «30 дней назад»', async () => {
+      const { min, since } = await catchUpFromFirstDay(40)
+      expect(min).toBe('2026-10-27')
+      // Сама граница «30 дней назад» (с запасом в минуту), а не начало дня: начало дня старше
+      // 30 дней, и API ответил бы 422.
+      const sinceTime = Date.parse(since)
+      expect(sinceTime).toBeGreaterThan(Date.now() - 30 * DAY)
+      expect(sinceTime).toBeLessThan(Date.now() - 30 * DAY + 5 * 60 * 1000)
+    })
   })
 
   it('отказ API — понятная причина', async () => {
