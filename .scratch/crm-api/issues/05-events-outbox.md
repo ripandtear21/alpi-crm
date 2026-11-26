@@ -56,7 +56,7 @@ Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Со�
 
 Изменение суммы, названия и пользовательских полей событий не создаёт: их нет в решении владельца.
 
-События регистраций, платежей, звонков и задач (`registration.added`, `payment.succeeded`, `payment.refunded`, `call.completed`, `call.missed`, `task.created`, `task.completed`) добавляют эпики приёма, платежей, Unitalk и задач по этому образцу: схема типа в `packages/shared/src/events/`, вызов функции записи в той же транзакции, строка в этой таблице каталога. Так же поступает каждая новая сущность.
+События регистраций, платежей, звонков и задач (`registration.created` — так решено в эпике `crm-intake` 2026-11-26, раньше здесь было `registration.added`; `payment.succeeded`, `payment.refunded`, `call.completed`, `call.missed`, `task.created`, `task.completed`) добавляют эпики приёма, платежей, Unitalk и задач по этому образцу: схема типа в `packages/shared/src/events/`, вызов функции записи в той же транзакции, строка в этой таблице каталога. Так же поступает каждая новая сущность.
 
 Проверка ADR 0003: функция записи только сообщает; ни одно событие внутри CRM ничего не меняет.
 
