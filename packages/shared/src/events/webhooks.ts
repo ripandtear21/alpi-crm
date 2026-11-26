@@ -166,3 +166,7 @@ export type WebhookEndpointsErrorCode =
   | 'WEBHOOK_DELIVERY_NOT_FOUND'
   | 'WEBHOOK_ENDPOINT_DISABLED'
   | 'WEBHOOK_DELIVERY_PENDING'
+  /** «Догнать события с даты» (тикет 09): дата раньше создания вебхука. */
+  | 'WEBHOOK_CATCH_UP_BEFORE_CREATED'
+  /** «Догнать события с даты»: дата старше 30 дней — события за неё уже удалены. */
+  | 'WEBHOOK_CATCH_UP_TOO_OLD'

@@ -24,6 +24,8 @@ export interface FakeWebhooksApi extends WebhooksApi {
   deliveryLog: Map<string, WebhookDeliveryView[]>
   calls: { method: string; endpointId?: string; deliveryId?: string; input?: unknown }[]
   failNextWith: string | null
+  /** Сколько событий «догнать» поставит сверх неудачных доставок журнала (тикет 09). */
+  missedEvents: number
 }
 
 const PROJECT_ID = '00000000-0000-4000-8000-00000000000a'
@@ -217,6 +219,7 @@ export function fakeWebhooksApi({
     ]),
     calls: [],
     failNextWith: null,
+    missedEvents: 3,
     async access() {
       return { userId: AUTHOR.id, permissions: structuredClone(permissions) }
     },
@@ -345,6 +348,21 @@ export function fakeWebhooksApi({
         (d) => (d.state === 'failed' || d.state === 'cancelled') && d.occurredAt >= since,
       ).length
       return { queued }
+    },
+    async catchUp(_projectId, endpointId, since) {
+      api.calls.push({ method: 'catchUp', endpointId, input: { since } })
+      failIfAsked()
+      const found = endpoint(endpointId)
+      requireActive(found)
+      if (since < found.createdAt) throw new RolesApiError(422, 'WEBHOOK_CATCH_UP_BEFORE_CREATED')
+      if (Date.parse(since) < Date.now() - 30 * 24 * 60 * 60 * 1000) {
+        throw new RolesApiError(422, 'WEBHOOK_CATCH_UP_TOO_OLD')
+      }
+      // Неудачные и отменённые с даты и `missedEvents` событий, которых в журнале ещё нет.
+      const queued = (api.deliveryLog.get(endpointId) ?? []).filter(
+        (d) => (d.state === 'failed' || d.state === 'cancelled') && d.occurredAt >= since,
+      ).length
+      return { queued: queued + api.missedEvents }
     },
   }
   return api

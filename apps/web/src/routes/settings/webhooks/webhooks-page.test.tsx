@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeProjectsApi } from '../../../components/project-switcher/fake-projects-api.ts'
 import { createI18n, type Language } from '../../../i18n/index.ts'
 import { resources } from '../../../i18n/resources.ts'
@@ -65,6 +65,12 @@ function stubClipboard() {
     configurable: true,
   })
   return spy
+}
+
+/** Дата `YYYY-MM-DD` по местному времени — значение поля type="date". */
+function localDay(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 async function openCreate() {
@@ -132,6 +138,11 @@ describe('экран вебхуков: список', () => {
     expect(log.textContent).toContain('увімкніть його')
     const retryAll = within(log).getByRole('button', { name: 'Надіслати всі невдалі з дати' })
     expect((retryAll as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(within(log).getByLabelText('Події з дати'), {
+      target: { value: localDay(new Date()) },
+    })
+    const catchUp = within(log).getByRole('button', { name: 'Наздогнати події з дати' })
+    expect((catchUp as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(await within(log).findByRole('button', { name: 'Деталі' }))
     const retry = await within(log).findByRole('button', { name: 'Надіслати ще раз' })
     expect((retry as HTMLButtonElement).disabled).toBe(true)
@@ -355,6 +366,116 @@ describe('экран вебхуков: журнал доставок', () => {
     fireEvent.click(within(log).getByRole('button', { name: 'Показати ще' }))
     expect(await within(log).findByRole('listitem', { name: /Угоду виграно/ })).toBeTruthy()
     expect(within(log).queryByRole('button', { name: 'Показати ще' })).toBeNull()
+  })
+})
+
+describe('экран вебхуков: «наздогнати події з дати» (тикет crm-api/09)', () => {
+  async function openLog() {
+    const card = await screen.findByRole('article', { name: 'n8n: нові угоди' })
+    fireEvent.click(within(card).getByRole('button', { name: 'Журнал доставок' }))
+    const log = await within(card).findByRole('region', { name: 'Журнал доставок' })
+    await within(log).findByRole('listitem', { name: /Угоду виграно/ })
+    return log
+  }
+
+  function pick(log: HTMLElement, day: string) {
+    fireEvent.change(within(log).getByLabelText('Події з дати'), { target: { value: day } })
+    fireEvent.click(within(log).getByRole('button', { name: 'Наздогнати події з дати' }))
+  }
+
+  it('дата, подтверждение, число поставленных событий; отмена ничего не отправляет', async () => {
+    const api = await renderAt('/settings/webhooks')
+    const log = await openLog()
+    const catchUp = within(log).getByRole('button', { name: 'Наздогнати події з дати' })
+    // Без даты кнопка недоступна.
+    expect((catchUp as HTMLButtonElement).disabled).toBe(true)
+
+    const today = localDay(new Date())
+    pick(log, today)
+    const cancelled = await screen.findByRole('dialog', {
+      name: 'Наздогнати події вебхука «n8n: нові угоди»?',
+    })
+    fireEvent.click(within(cancelled).getByRole('button', { name: 'Скасувати' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(api.calls.some((call) => call.method === 'catchUp')).toBe(false)
+
+    pick(log, today)
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Наздогнати події вебхука «n8n: нові угоди»?',
+    })
+    expect(dialog.textContent).toContain('лише тих типів, на які він підписаний зараз')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Наздогнати' }))
+    expect(await within(log).findByText('У чергу поставлено подій: 3.')).toBeTruthy()
+    const call = api.calls.at(-1)
+    expect(call?.method).toBe('catchUp')
+    expect(call?.endpointId).toBe(api.endpoints[0]?.id)
+    // Дата без времени — с начала этого дня по местному времени.
+    const since = (call?.input as { since: string } | undefined)?.since ?? ''
+    expect(since).toBe(new Date(`${today}T00:00:00`).toISOString())
+  })
+
+  describe('первый доступный день', () => {
+    const DAY = 24 * 60 * 60 * 1000
+    // Часы стоят на полудне 26.11.2026 по местному времени: границы не зависят от дня запуска и
+    // не попадают на полночь. Подменяется только Date — таймеры waitFor и findBy настоящие.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(2026, 10, 26, 12, 0))
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Вебхук «n8n: нові угоди», созданный `daysAgo` дней назад; возвращает отправленный since. */
+    async function catchUpFromFirstDay(daysAgo: number) {
+      const api = fakeWebhooksApi()
+      const createdAt = new Date(Date.now() - daysAgo * DAY).toISOString()
+      const active = api.endpoints[0]
+      if (active) active.createdAt = createdAt
+      await renderAt('/settings/webhooks', { api })
+      const log = await openLog()
+      const input = within(log).getByLabelText('Події з дати') as HTMLInputElement
+      expect(input.max).toBe('2026-11-26')
+      const min = input.min
+      pick(log, min)
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Наздогнати' }))
+      // Подставной API, как и настоящий, отвечает 422 на дату раньше создания или старше 30 дней.
+      expect(await within(log).findByText(/^У чергу поставлено подій: \d+\.$/)).toBeTruthy()
+      const since = (api.calls.at(-1)?.input as { since?: string } | undefined)?.since ?? ''
+      return { min, since, createdAt }
+    }
+
+    it('вебхук создан 5 дней назад — с дня и самого времени создания', async () => {
+      const { min, since, createdAt } = await catchUpFromFirstDay(5)
+      expect(min).toBe('2026-11-21')
+      expect(since).toBe(createdAt)
+    })
+
+    it('вебхук создан 40 дней назад — не старше 30 дней: с дня «30 дней назад»', async () => {
+      const { min, since } = await catchUpFromFirstDay(40)
+      expect(min).toBe('2026-10-27')
+      // Сама граница «30 дней назад» (с запасом в минуту), а не начало дня: начало дня старше
+      // 30 дней, и API ответил бы 422.
+      const sinceTime = Date.parse(since)
+      expect(sinceTime).toBeGreaterThan(Date.now() - 30 * DAY)
+      expect(sinceTime).toBeLessThan(Date.now() - 30 * DAY + 5 * 60 * 1000)
+    })
+  })
+
+  it('отказ API — понятная причина', async () => {
+    const api = await renderAt('/settings/webhooks')
+    const log = await openLog()
+    api.failNextWith = 'WEBHOOK_CATCH_UP_TOO_OLD'
+    pick(log, localDay(new Date()))
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Наздогнати' }),
+    )
+    expect(
+      await within(log).findByText(
+        'Події, старші за 30 днів, уже видалено — оберіть пізнішу дату.',
+      ),
+    ).toBeTruthy()
   })
 })
 

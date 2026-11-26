@@ -1,7 +1,7 @@
 # Догнать события с даты: события за время, пока вебхук был отключён
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T11:59Z
 Blocked by: 06, 07
 Source: решения владельца 2026-11-26 (опрос по доставке событий; docs/adr/0004-dostavka-sobytiy-vebhukami.md); .scratch/crm-api/issues/06-webhook-delivery.md; .scratch/crm-api/issues/07-events-settings-screen.md
 
@@ -24,13 +24,43 @@ Source: решения владельца 2026-11-26 (опрос по доста
 
 apps/api/src/webhook-endpoints/** (запрос), apps/api/src/events/** (создание доставок), apps/web/src/features/webhooks/**, apps/web/src/i18n/locales/{uk,ru}/**.
 
+Фактические пути (тикет 07 положил экран не туда, куда указано выше): экран — apps/web/src/routes/settings/webhooks/**, тексты — apps/web/src/locales/{uk,ru}/webhooks.json; подпись действия в журнале проекта — apps/web/src/routes/settings/audit-page.tsx и apps/web/src/locales/{uk,ru}/audit.json; общие типы — packages/shared/src/events/webhooks.ts, packages/shared/src/audit.ts.
+
 ## Done when
 
 - [ ] Тест: событие, случившееся пока вебхук отключён, после «догнать с даты» доставлено с тем же `webhook-id`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints/catch-up.test.ts` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
 - [ ] Тест: событие, уже доставленное успешно, повторно не отправляется; неудачное и отменённое — отправляются.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints/catch-up.test.ts` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
 - [ ] Тест: типы, на которые вебхук не подписан сейчас, не отправляются.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints/catch-up.test.ts` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
 - [ ] Тест: дата раньше создания вебхука или старше 30 дней — 422; отключённый вебхук — 409; без `integrations` — 403; по ключу API — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints/catch-up.test.ts` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
 - [ ] Тест изоляции: события проекта A не уходят на вебхук проекта B.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints/catch-up.test.ts` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
 - [ ] Тест: запуск записан в журнал проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints/catch-up.test.ts` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
 - [ ] Кнопка на экране вебхуков работает; тексты есть в uk и ru.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks/webhooks-page.test.tsx` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks/webhooks-page.test.tsx` exit 0 · windows - · a5f3d7b030ab97f68b9b3e9079eb432af6674563
 - [ ] `pnpm verify` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
+  - evidence: gate pass · `gate fast` exit 0 · windows - · a5f3d7b030ab97f68b9b3e9079eb432af6674563
+
+## Результат
+
+Ветка `crm-api/09`, без миграции: хватило таблиц тикетов 05 и 06 (`webhook_event` с индексом `(project_id, created_at)`, уникальная пара `(event_id, endpoint_id)` в `webhook_delivery`).
+
+- Запрос `POST /api/v1/webhook-endpoints/:id/catch-up` с телом `{ "since": "<ISO 8601 с часовым поясом>" }` — `apps/api/src/webhook-endpoints/routes.ts`, функция `catchUp`. Ответ `202 { "queued": N }`. Право — «интеграции: изменять», только по сессии (ключ API — 403 `API_KEY_NOT_ALLOWED`). Отказы: 400 `INVALID_WEBHOOK_ENDPOINT` (нет даты, дата без часового пояса, лишнее поле), 404 — чужой или несуществующий вебхук, 409 `WEBHOOK_ENDPOINT_DISABLED`, 422 `WEBHOOK_CATCH_UP_BEFORE_CREATED` (дата раньше создания вебхука, с точностью до миллисекунды — как время создания в ответах API), 422 `WEBHOOK_CATCH_UP_TOO_OLD` (старше 30 дней, `WEBHOOK_RETENTION_DAYS`).
+- Какие события: проекта, записанные (`created_at`) начиная с даты, типов, на которые вебхук подписан в момент запроса. Нет доставки — создаётся (pending) и ставится задача `webhook-deliver`; неудачная или отменённая — снова pending и новая задача (попытки добавляются к той же доставке); успешная и ожидающая не трогаются. Дальше — обычная доставка тикета 06: тот же `webhook-id` (id события), подпись, повторы, проверка адреса перед отправкой.
+- Гонки: строка вебхука блокируется (`for update`) — второй «догнать», повтор и ручное отключение ждут конца транзакции. Рассылка нового события (`events/fanout.ts`) вставляет доставку с тем же `on conflict (event_id, endpoint_id) do nothing`: пару создаёт и ставит в очередь тот, кто вставил первым. Тест «гонка» запускает два «догнать» и рассылку пяти событий одновременно: пять доставок, пять отправок.
+- Журнал проекта: новое действие `webhook_endpoint.caught_up` (`packages/shared/src/audit.ts`), автор — пользователь, `details: { url, since, queued }`; на экране журнала — «Наздогнано події вебхука» / «Вебхук догнал события» и строка «адрес: події з <дата>, у черзі: N». Отказ в журнал не пишется.
+- Экран «Налаштування → Вебхуки», журнал доставок вебхука: поле «Події з дати» и кнопка «Наздогнати події з дати» под «Надіслати всі невдалі з дати», подсказка о границах, окно подтверждения, после — «У чергу поставлено подій: N.». У отключённого вебхука кнопка недоступна (подсказка «увімкніть його» — прежняя). Поле не даёт выбрать день раньше создания вебхука и старше 30 дней; в первый доступный день отправляется сама граница (время создания вебхука или «30 дней назад + минута»), а не начало дня — иначе API ответил бы 422. Текст подтверждения включения вебхука теперь называет эту кнопку.
+- Тесты: `apps/api/src/webhook-endpoints/catch-up.test.ts` (настоящие PostgreSQL и pg-boss, приёмник — локальный HTTP-сервер; каждый пункт «Done when» и гонка), `webhook-endpoints.test.ts` (новый маршрут в списке «без права — 403»), `apps/web/src/routes/settings/webhooks/webhooks-page.test.tsx` (дата, подтверждение и отмена, граница первого дня — день создания и «30 дней назад» при остановленных часах, отказ API, отключённый вебхук), `apps/web/src/routes/settings/audit-page.test.tsx` (строка журнала). Каждое правило проверено мутацией: убранный фильтр состояния, типа, даты, `on conflict`, проверки 422 и 409, запись в журнал и на экране — обрезка первого дня, недоступность у отключённого, окно подтверждения — делают тесты красными.
+
+Решено без владельца — подтвердить:
+
+- Ответ `202 { "queued": N }`: N — сколько событий поставлено в отправку, то есть новые доставки плюс неудачные и отменённые, возвращённые в pending. Ожидающие (уже в очереди) не считаются.
+- Новое действие журнала проекта `webhook_endpoint.caught_up` для запуска «догнать».
+- Дата отбора — время записи события (`webhook_event.created_at`), как у рассылки, а не `occurred_at` из тела события.
+- Подписка «сейчас» действует и на возврат неудачных доставок: неудачная доставка типа, от которого вебхук уже отписан, не отправляется заново.

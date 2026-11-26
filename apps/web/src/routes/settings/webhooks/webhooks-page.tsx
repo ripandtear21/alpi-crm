@@ -6,6 +6,7 @@ import {
   MAX_WEBHOOK_URL_LENGTH,
   type RolePermissions,
   WEBHOOK_DELIVERY_STATES,
+  WEBHOOK_RETENTION_DAYS,
   type WebhookDeliveryState,
   type WebhookDeliveryView,
   type WebhookEndpointInput,
@@ -41,6 +42,8 @@ import './webhooks.css'
 //   только в состоянии окна и пропадает, когда окно закрыли.
 // - Журнал доставок раскрывается в карточке вебхука: фильтр, подгрузка курсором, попытки и тело
 //   события; повторы недоступны отключённому вебхуку (API ответил бы 409).
+// - «Наздогнати події з дати» (тикет crm-api/09): там же, с датой и подтверждением; события за
+//   время отключения уходят обычной доставкой. Тоже только включённому вебхуку.
 
 /** Ссылки справки о подписи — из исследования docs/research/webhook-delivery.md, раздел 3.4. */
 const HELP_LINKS = {
@@ -52,6 +55,36 @@ const HELP_LINKS = {
 
 /** Как часто перечитывать журнал, пока в нём есть ожидающие доставки, мс. */
 const PENDING_REFRESH_MS = 5000
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Дата `YYYY-MM-DD` по местному времени — значение поля type="date". */
+function localDay(time: number): string {
+  const date = new Date(time)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/**
+ * Самое раннее время, с которого API позволит «наздогнати події» (тикет 09): не раньше создания
+ * вебхука и не старше срока хранения событий. shortcut: минута запаса на дорогу запроса до API
+ * у границы 30 дней, когда запрос идёт дольше минуты — API ответит 422 и экран покажет причину.
+ */
+function catchUpBound(endpoint: WebhookEndpointListItem): number {
+  return Math.max(
+    Date.parse(endpoint.createdAt),
+    Date.now() - WEBHOOK_RETENTION_DAYS * DAY_MS + 60 * 1000,
+  )
+}
+
+/**
+ * Начало выбранного дня по местному времени; в первый доступный день — сама граница: день
+ * создания вебхука начинается раньше него, а API такую дату отклонил бы (422).
+ */
+function catchUpSince(day: string, bound: number): string {
+  const start = new Date(`${day}T00:00:00`).getTime()
+  return new Date(day === localDay(bound) ? Math.max(start, bound) : start).toISOString()
+}
 
 type Language = 'uk' | 'ru'
 
@@ -669,6 +702,9 @@ function DeliveryLog({
   const [state, setState] = useState<WebhookDeliveryState | ''>('')
   const [type, setType] = useState<EventType | ''>('')
   const [since, setSince] = useState('')
+  const [catchUpDay, setCatchUpDay] = useState('')
+  const [confirmCatchUp, setConfirmCatchUp] = useState(false)
+  const catchUpHintId = useId()
   const [notice, setNotice] = useState<Notice>(null)
   const disabled = endpoint.state !== 'active'
   // Под ключом списка: изменение вебхука перечитывает и журнал, повтор — и сводку в списке.
@@ -709,6 +745,17 @@ function DeliveryLog({
   }
 
   const deliveries = log.data?.pages.flatMap((page) => page.data) ?? []
+  const bound = catchUpBound(endpoint)
+  const dayFormat = new Intl.DateTimeFormat(language, { dateStyle: 'long' })
+  const catchUpDate = catchUpDay === '' ? '' : dayFormat.format(new Date(`${catchUpDay}T00:00:00`))
+
+  const runCatchUp = () => {
+    setConfirmCatchUp(false)
+    void runRetry(
+      () => api.catchUp(projectId, endpoint.id, catchUpSince(catchUpDay, bound)),
+      (n) => t('log.catchUpQueued', { n }),
+    )
+  }
 
   return (
     <section className="webhooks__log" aria-label={t('log.title')}>
@@ -773,6 +820,33 @@ function DeliveryLog({
           </Button>
         </div>
       )}
+      {canEdit && (
+        <div className="webhooks__filters">
+          <Field label={t('log.catchUpSince')}>
+            <Input
+              size="sm"
+              type="date"
+              aria-describedby={catchUpHintId}
+              min={localDay(bound)}
+              max={localDay(Date.now())}
+              value={catchUpDay}
+              onChange={(event) => setCatchUpDay(event.target.value)}
+            />
+          </Field>
+          <Button
+            size="sm"
+            disabled={disabled || catchUpDay === '' || retry.isPending}
+            onClick={() => setConfirmCatchUp(true)}
+          >
+            {t('log.catchUp')}
+          </Button>
+        </div>
+      )}
+      {canEdit && (
+        <p id={catchUpHintId} className="directory__hint">
+          {t('log.catchUpHint')}
+        </p>
+      )}
       {canEdit && disabled && <p className="directory__hint">{t('log.disabledHint')}</p>}
       <NoticeLine notice={notice} />
       {log.isPending && <Skeleton />}
@@ -806,6 +880,25 @@ function DeliveryLog({
             {t('log.loadMore')}
           </Button>
         </div>
+      )}
+      {confirmCatchUp && (
+        <Dialog
+          open
+          onClose={() => setConfirmCatchUp(false)}
+          title={t('log.catchUpConfirm.title', { name: nameOf(endpoint) })}
+          footer={
+            <>
+              <Button variant="quiet" onClick={() => setConfirmCatchUp(false)}>
+                {t('confirm.cancel')}
+              </Button>
+              <Button variant="primary" onClick={runCatchUp}>
+                {t('log.catchUpConfirm.submit')}
+              </Button>
+            </>
+          }
+        >
+          <p>{t('log.catchUpConfirm.text', { date: catchUpDate })}</p>
+        </Dialog>
       )}
     </section>
   )

@@ -118,6 +118,7 @@ describe('адреса событий', () => {
         ['GET', `/v1/webhook-endpoints/${id}/deliveries`],
         ['POST', `/v1/webhook-endpoints/${id}/deliveries/${id}/retry`],
         ['POST', `/v1/webhook-endpoints/${id}/retry-failed`, { since: '2026-01-01T00:00:00Z' }],
+        ['POST', `/v1/webhook-endpoints/${id}/catch-up`, { since: endpoint.createdAt }],
       ]
       for (const [method, path, body] of routes) {
         const res = await manager.call(strictApp, method as 'GET', path, {

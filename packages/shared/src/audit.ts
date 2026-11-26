@@ -93,6 +93,11 @@ export const PROJECT_AUDIT_ACTIONS = [
    * gone_410 или failing_5_days).
    */
   'webhook_endpoint.disabled',
+  /**
+   * Тикет crm-api/09: «догнать события с даты» — details: адрес, дата (since) и сколько событий
+   * поставлено в отправку (queued).
+   */
+  'webhook_endpoint.caught_up',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 
