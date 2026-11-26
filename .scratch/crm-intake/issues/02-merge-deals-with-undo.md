@@ -1,7 +1,9 @@
 # Слияние сделок с откатом
 
 Type: task
-Status: open
+Status: blocked 2026-11-26T21:35Z
+Blocked reason: max-review REJECTED, PR #40: загрузка файла держит блокировку FOR SHARE на строке сделки весь поток файла (timeline/entity.ts:107, files/files.ts:168-206) — правка, этапы, корзина и слияние сделки ждут
+Waits: owner
 Risk: high
 Blocked by: —
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 26, 29, 30, 35, 36); docs/adr/0005-sliyanie-s-otkatom.md; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Слияние», «Сделка», «Архив»); .scratch/crm-intake/spec.md
