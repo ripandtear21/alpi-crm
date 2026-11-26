@@ -348,6 +348,8 @@ export interface ContactTable {
   /** Значения пользовательских полей по коду (migrations/0016_fields.ts): объект JSON. */
   custom: ColumnType<Record<string, unknown>, string | undefined, string>
   deleted_by: string | null
+  /** Ключ API, создавший контакт (migrations/0023); не вместе с `created_by`. */
+  created_by_api_key_id: string | null
 }
 
 /** Телефон контакта в E.164; не больше одного основного у контакта. */
@@ -475,7 +477,9 @@ export interface NoteTable {
   contact_id: string | null
   organization_id: string | null
   text: string
-  author_id: string
+  /** Автор — пользователь или ключ API (migrations/0023): ровно одно из двух. */
+  author_id: string | null
+  author_api_key_id: string | null
   created_at: Timestamp
   updated_at: Timestamp
 }

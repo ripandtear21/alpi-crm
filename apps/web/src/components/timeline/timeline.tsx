@@ -284,7 +284,11 @@ function TimelineRow(props: TimelineProps & { item: TimelineItem; onChanged: () 
         )}
         <p className="timeline__meta">
           <time dateTime={item.occurredAt}>{when}</time>
-          <span>{item.actorName ?? t('system')}</span>
+          <span>
+            {item.actorApiKeyId
+              ? t('apiKeyActor', { name: item.actorName ?? '' })
+              : (item.actorName ?? t('system'))}
+          </span>
         </p>
       </article>
     </li>

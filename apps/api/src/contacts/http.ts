@@ -1,3 +1,4 @@
+import type { Hook } from '@hono/zod-openapi'
 import type { Context } from 'hono'
 import { problem } from '../http/problem.ts'
 import type { PermissionsEnv } from '../middleware/permissions.ts'
@@ -72,3 +73,25 @@ export function readLimit(value: string | undefined): number | undefined {
   const limit = Number(value)
   return limit >= 1 && limit <= 200 ? limit : undefined
 }
+
+/**
+ * Ошибка схемы запроса маршрута с описанием OpenAPI (keyRoute) — тем же отказом `code` с путём к
+ * полю, что и разбор тела вручную: клиент apps/web читает код, а не общий INVALID_INPUT.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: один обработчик для маршрутов с любыми схемами
+export function refusalHook(code: string): Hook<any, any, any, any> {
+  return (result, c) => {
+    if (result.success) return
+    const [issue] = result.error.issues
+    const path = issue?.path.map(String) ?? []
+    // Лишний ключ тела — путь к самому ключу, как у разбора тела.
+    if (issue?.code === 'unrecognized_keys' && issue.keys[0] !== undefined) path.push(issue.keys[0])
+    return fail(c as Ctx, refuse(400, code, { path: path.join('.') }))
+  }
+}
+
+/**
+ * Ответ маршрута `openapi()` (keyRoute): форму описывает схема маршрута, собирают те же ответы,
+ * что у маршрутов сессии; с типом схемы не сверяется (apps/web ходит своим fetch).
+ */
+export const typed = (res: Response) => res as never

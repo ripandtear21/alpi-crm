@@ -1,4 +1,5 @@
 import type { Page } from '@alpi/shared'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { Hono } from 'hono'
 import { sql } from 'kysely'
 import { type Ctx, fail, type Outcome, ok, readLimit, refuse } from '../contacts/http.ts'
@@ -36,8 +37,10 @@ export interface TimelineItem {
   kind: TimelineKind
   id: string
   occurredAt: string
-  /** Кто сделал; null — система. */
+  /** Кто сделал; null — система или ключ API. */
   actorId: string | null
+  /** Сделал ключ API (тикет crm-api/04): тогда `actorName` — название ключа. */
+  actorApiKeyId: string | null
   actorName: string | null
   change?: { field: string; before: unknown; after: unknown }
   note?: { text: string; updatedAt: string }
@@ -54,6 +57,7 @@ interface TimelineRow {
   /** Время строки с микросекундами, UTC: для курсора. */
   cursor_at: string
   actor_id: string | null
+  actor_api_key_id: string | null
   actor_name: string | null
   field: string | null
   before: unknown
@@ -87,7 +91,8 @@ function branch(kind: TimelineKind, type: EntityType, id: string, customFields: 
     case 'change':
       // Изменения пользовательских полей — только тех, что роль видит (тикет crm-fields/03).
       return sql`
-        select 'change'::text as kind, l.id, l.occurred_at, l.actor_id, l.field, l.before, l.after,
+        select 'change'::text as kind, l.id, l.occurred_at, l.actor_id, l.actor_api_key_id,
+          l.field, l.before, l.after,
           null::text as text, null::timestamptz as updated_at, null::text as name,
           null::text as content_type, null::bigint as size
         from change_log l
@@ -97,14 +102,14 @@ function branch(kind: TimelineKind, type: EntityType, id: string, customFields: 
     case 'note':
       return sql`
         select 'note'::text as kind, n.id, n.created_at as occurred_at, n.author_id as actor_id,
-          null::text as field, null::jsonb as before, null::jsonb as after, n.text, n.updated_at,
+          n.author_api_key_id as actor_api_key_id, null::text as field, null::jsonb as before, null::jsonb as after, n.text, n.updated_at,
           null::text as name, null::text as content_type, null::bigint as size
         from note n
         where ${sql.ref(`n.${ENTITY_COLUMN[type]}`)} = ${id}`
     case 'file':
       return sql`
         select 'file'::text as kind, f.id, f.created_at as occurred_at, f.author_id as actor_id,
-          null::text as field, null::jsonb as before, null::jsonb as after, null::text as text,
+          null::uuid as actor_api_key_id, null::text as field, null::jsonb as before, null::jsonb as after, null::text as text,
           null::timestamptz as updated_at, f.name, f.content_type, f.size
         from file f
         where ${sql.ref(`f.${ENTITY_COLUMN[type]}`)} = ${id}`
@@ -117,6 +122,7 @@ function item(row: TimelineRow): TimelineItem {
     id: row.id,
     occurredAt: new Date(row.occurred_at).toISOString(),
     actorId: row.actor_id,
+    actorApiKeyId: row.actor_api_key_id,
     actorName: row.actor_name,
   }
   switch (row.kind) {
@@ -160,13 +166,14 @@ async function timeline(
       )
     : []
   const { rows } = await sql<TimelineRow>`
-    select t.*, u.name as actor_name,
+    select t.*, coalesce(u.name, k.name) as actor_name,
       to_char(t.occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_at
     from (${sql.join(
       kinds.map((kind) => branch(kind, type, entity.value.id, customFields)),
       sql` union all `,
     )}) t
     left join "user" u on u.id = t.actor_id
+    left join api_key k on k.id = t.actor_api_key_id
     where ${after}
     order by t.occurred_at desc, t.id desc
     limit ${limit + 1}
@@ -199,7 +206,8 @@ export function timelineRoutes(type: EntityType) {
  * маршрутами: `.route('/deals', entityRecordsRoutes('deal', storage))`.
  */
 export function entityRecordsRoutes(type: EntityType, storage: FileStorage) {
-  return new Hono<PermissionsEnv>()
+  // OpenAPIHono: заметки, открытые ключу API (notes/openapi.ts), попадают в описание /api/v1.
+  return new OpenAPIHono<PermissionsEnv>()
     .route('/', notesRoutes(type))
     .route('/', filesRoutes(type, storage))
     .route('/', timelineRoutes(type))

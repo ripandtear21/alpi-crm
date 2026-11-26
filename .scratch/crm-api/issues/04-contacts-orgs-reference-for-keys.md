@@ -1,7 +1,7 @@
 # Контакты, организации, заметки и справочники для ключей API
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T00:24Z
 Blocked by: 01, 02
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Действия в MVP», волна 2); .scratch/crm-mvp/spec.md, раздел 4 («чужой клиент», охват контактов); .scratch/crm-deals/issues/02-pipelines-stages-lost-reasons.md, 03-contacts-organizations.md, 07-notes-files.md; .scratch/crm-foundation/issues/06-teams-and-users.md (команды); .scratch/crm-api/spec.md
 
@@ -38,10 +38,43 @@ apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, 
 ## Done when
 
 - [ ] Тест изоляции: ключ проекта A не находит по телефону и email контакт проекта B с теми же данными; справочники отдают только воронки, причины, участников и команды своего проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест прав: без «контакты: создавать / изменять» — 403; без «сделки: смотреть» — 403 на справочники; email участников без «пользователи и роли: смотреть» в ответе отсутствует.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
 - [ ] Тест поиска: `067 123 45 67`, `+380671234567` и `(067) 123-45-67` находят один и тот же выдуманный контакт; email в другом регистре — тоже; контакт вне охвата — ответ «чужой клиент» без имени, телефона и email.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест создания ключом: совпадение по телефону — 409 со ссылкой; только по email — контакт с пометкой «возможный дубль».
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест заметок: ключ создаёт заметку, автор — ключ; изменить или удалить чужую заметку — 403; свою — проходит.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
 - [ ] Тест: удаление контакта и организации по ключу — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Описание OpenAPI содержит все маршруты тикета с выдуманными примерами.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: gate pass · `gate fast` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
+  - evidence: gate pass · `gate fast` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
+
+## Результат
+
+Ветка `crm-api/04`. Маршруты, открытые ключу, объявлены через `keyRoute`: контакты и организации — `apps/api/src/contacts/openapi.ts`, заметки — `apps/api/src/notes/openapi.ts`, воронки и причины проигрыша — `apps/api/src/pipelines/openapi.ts`, участники и команды — `apps/api/src/members/directory.ts`. Те же маршруты обслуживают и сессию apps/web. Тесты — `apps/api/src/contacts/api-key.test.ts`. Миграция `0023_note_api_key_author` (номер 0022 занят веткой тикета 06; пропуск мигратор принимает).
+
+Открыто ключу: `GET /contacts?phone=&email=`, `GET /contacts/:id`, `POST /contacts`, `PATCH /contacts/:id`; `GET /organizations?name=`, `GET /organizations/:id`, `POST /organizations`, `PATCH /organizations/:id`; `GET|POST /{deals|contacts|organizations}/:id/notes`, `PATCH|DELETE …/notes/:noteId`; `GET /pipelines`, `GET /pipelines/:id/stages`, `GET /lost-reasons`, `GET /users`, `GET /teams`. Удаление, восстановление и `PUT` контактов, организаций и заметок, файлы, списки `/list` — 403 `API_KEY_NOT_ALLOWED`.
+
+Решено без владельца — подтвердить:
+
+- Поиск контакта: ответ `{ data, next_cursor: null, outOfScope }`; совпадение вне охвата ключа в `data` не попадает, вместо него `outOfScope: { managerName }` — без id, имени, телефонов и email (как 409 `CONTACT_OUT_OF_SCOPE`). Совпадения отдаются одной страницей (до 200), без курсора.
+- `GET /contacts` без `phone` и `email` и `GET /organizations` без `name` — прежняя выдача apps/web (массив), ключу — 400. Сессия с `phone`/`email` теперь получает тот же ответ-страницу, что ключ.
+- Автор-ключ в ленте и в заметке — название ключа с пометкой «(ключ API)»; в ответах — `authorApiKeyId` / `actorApiKeyId`. Записи журнала изменений от ключа в ленте тоже называют ключ.
+- `/v1/users` и `/v1/teams` — новые маршруты рядом с прежними `/members` и `/teams` (они остаются только для сессии). Право ключа — «сделки: смотреть»; сессии — прежнее «пользователи и роли: смотреть», как у `/members` и `/teams`, чтобы менеджер без этого права не видел всех участников и состав команд (`apps/api/src/members/directory.ts`, тест 403 менеджеру в `apps/api/src/contacts/api-key.test.ts`, доработка 1). Справочники (воронки, причины, участники, команды) отдаются целиком массивом, без курсора.
+- Охват контактов «свои» и «команда» у ключа — контакты, созданные этим ключом (`contact.created_by_api_key_id`). Так ключ с таким охватом видит созданный им контакт и создаёт сделку с новым контактом (долг max-review тикета 03 закрыт, тест через `POST /api/v1/deals`). Контакты, созданные другим ключом или системой, ему не видны.
+- Заметку ключа меняет только сам ключ; удалить её может и пользователь с правом «удалять». Ключ не удаляет чужие заметки даже с правом «удалять».
+- Список заметок `GET …/notes` переведён на курсорную выдачу `{ data, next_cursor }` (apps/web его не читает).
+
+Журналы — выполнено: изменения ключа пишутся в `change_log` с автором-ключом (`actor_api_key_id`) и в `audit_log`. Запись `api_key.request` (метод, путь, статус, автор — ключ) пишет `apps/api/src/middleware/project-context.ts` на каждый успешный изменяющий запрос ключа (POST, PATCH, DELETE), в той же транзакции, что и изменение. Тесты: `apps/api/src/api-keys/api-keys.test.ts` (общий механизм) и `apps/api/src/contacts/api-key.test.ts` (создание и изменение контакта ключом — записи `api_key.request`).
+
+Доработка 1 (по отказу проверяющего в PR #33): тест отката миграции `0023_note_api_key_author` на данных — `packages/db/src/project-isolation.test.ts` (два проекта, заметки пользователя и ключа; после отката остаются только заметки пользователей, контакты на месте); пользователь с правом «удалять» удаляет заметку ключа — тест DELETE администратором, 204.

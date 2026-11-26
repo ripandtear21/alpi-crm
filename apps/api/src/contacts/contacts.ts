@@ -3,11 +3,13 @@ import {
   type CustomFieldErrorCode,
   normalizeEmail,
   normalizePhone,
+  PAGE_LIMIT_MAX,
+  type Page,
   type ResourceScope,
   type RolePermissions,
   type Scope,
 } from '@alpi/shared'
-import { Hono } from 'hono'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { type Kysely, type Selectable, sql } from 'kysely'
 import { requestAuthor } from '../api-keys/actor.ts'
 import { audit } from '../audit/record.ts'
@@ -32,7 +34,7 @@ import {
   visibleCustom,
 } from '../fields/values.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
-import { API_KEY_VIEWER, PROJECT_TEAMS, resolveViewer, type Viewer } from '../roles/scope.ts'
+import { requestViewer, type Viewer } from '../roles/scope.ts'
 import {
   type ContactDependents,
   type DependentRecord,
@@ -48,11 +50,19 @@ import {
   optionalText,
   readBody,
   readLimit,
+  refusalHook,
   refuse,
   requiredText,
+  typed,
   UUID,
 } from './http.ts'
 import { findContactMatch } from './match.ts'
+import {
+  createContactRoute,
+  getContactRoute,
+  patchContactRoute,
+  searchContactsRoute,
+} from './openapi.ts'
 import { contactScopePredicate } from './scope.ts'
 
 // Контакты проекта (тикет crm-deals/03; spec.md, разделы 3.2 и 4): маршруты `/v1/contacts`
@@ -77,6 +87,9 @@ import { contactScopePredicate } from './scope.ts'
 // - Каждое изменение полей пишется в change_log той же транзакцией; окончательное удаление —
 //   ещё и в журнал опасных действий (audit_log), а история записи стирается.
 // - CRM сама ничего не делает и событий не шлёт (ADR 0003).
+// - Ключ API (тикет crm-api/04) проходит на поиск по телефону и email, чтение, создание и PATCH
+//   (contacts/openapi.ts); удаление, восстановление и PUT — только сессия. «Свои» контакты
+//   ключа — созданные им (contacts/scope.ts).
 
 export type ContactsErrorCode =
   | 'PERMISSION_DENIED'
@@ -248,8 +261,7 @@ async function contactContext(c: Ctx, dependents: ContactDependents): Promise<Co
     ip: c.get('clientIp'),
     scope: c.get('access').permissions.scopes.contacts,
     permissions: c.get('access').permissions,
-    viewer:
-      actor.type === 'user' ? await resolveViewer(db, actor.userId, PROJECT_TEAMS) : API_KEY_VIEWER,
+    viewer: await requestViewer(db, actor),
     dependents,
   }
 }
@@ -485,6 +497,7 @@ async function createContact(
       possible_duplicate: keys.value.emailMatched,
       custom: customInsert(custom.value),
       created_by: ctx.actorId,
+      created_by_api_key_id: ctx.actorApiKeyId ?? null,
     })
     .returningAll()
     .executeTakeFirstOrThrow()
@@ -653,7 +666,10 @@ async function purgeContact(ctx: ContactContext, id: string): Promise<Result<nul
   return ok(null)
 }
 
-/** Выдача для карточек и выбора: новые сверху, с простыми условиями. Список с фильтрами — тикет 12. */
+/**
+ * Выдача для карточек и выбора (только сессия): новые сверху, с простыми условиями. Список с
+ * фильтрами — тикет 12, поиск по телефону и email — searchContacts.
+ */
 async function listContacts(ctx: ContactContext, c: Ctx): Promise<Result<ContactView[]>> {
   const limit = readLimit(c.req.query('limit'))
   if (limit === undefined) return refuse(400, 'INVALID_CONTACT', { path: 'limit' })
@@ -669,7 +685,43 @@ async function listContacts(ctx: ContactContext, c: Ctx): Promise<Result<Contact
   if (q) {
     query = query.where(sql<boolean>`concat_ws(' ', first_name, last_name) ilike ${likePattern(q)}`)
   }
-  const rawPhone = c.req.query('phone')
+  const organizationId = c.req.query('organizationId')
+  if (organizationId !== undefined) {
+    if (!UUID.test(organizationId)) return ok([])
+    query = query.where('organization_id', '=', organizationId)
+  }
+  return ok(await contactViews(ctx, await query.execute()))
+}
+
+/** Ответ поиска контакта по телефону или email (`GET /v1/contacts?phone=…&email=…`). */
+export interface ContactSearchPage extends Page<ContactView> {
+  /**
+   * «Чужой клиент»: совпал контакт вне охвата чтения — без его id, имени, телефонов и email,
+   * только менеджер его открытой сделки (spec.md MVP, раздел 4); null — таких совпадений нет.
+   */
+  outOfScope: { managerName: string | null } | null
+}
+
+/**
+ * Поиск по точному телефону (любая запись номера, normalizePhone) и email (normalizeEmail, без
+ * учёта регистра) среди контактов проекта вне корзины: видимые — в `data`, совпадение вне
+ * охвата — `outOfScope` без данных контакта. Контакты другого проекта не видны вовсе
+ * (row-level security).
+ */
+async function searchContacts(
+  ctx: ContactContext,
+  rawPhone: string | undefined,
+  rawEmail: string | undefined,
+): Promise<Result<ContactSearchPage>> {
+  let query = ctx.db
+    .selectFrom('contact')
+    .select('id')
+    .where('deleted_at', 'is', null)
+    .orderBy('created_at')
+    .orderBy('id')
+    // shortcut: одна страница без курсора, больше PAGE_LIMIT_MAX совпадений не отдаёт; нужен
+    // курсор, если один телефон или email окажется у сотен контактов проекта.
+    .limit(PAGE_LIMIT_MAX)
   if (rawPhone !== undefined) {
     const phone = normalizePhone(rawPhone)
     if (phone === null) return refuse(422, 'INVALID_PHONE', { path: 'phone' })
@@ -677,7 +729,6 @@ async function listContacts(ctx: ContactContext, c: Ctx): Promise<Result<Contact
       eb.selectFrom('contact_phone').select('contact_id').where('phone', '=', phone),
     )
   }
-  const rawEmail = c.req.query('email')
   if (rawEmail !== undefined) {
     const email = normalizeEmail(rawEmail)
     if (email === null) return refuse(422, 'INVALID_EMAIL', { path: 'email' })
@@ -685,12 +736,26 @@ async function listContacts(ctx: ContactContext, c: Ctx): Promise<Result<Contact
       eb.selectFrom('contact_email').select('contact_id').where('email', '=', email),
     )
   }
-  const organizationId = c.req.query('organizationId')
-  if (organizationId !== undefined) {
-    if (!UUID.test(organizationId)) return ok([])
-    query = query.where('organization_id', '=', organizationId)
-  }
-  return ok(await contactViews(ctx, await query.execute()))
+  const matched = (await query.execute()).map((row) => row.id)
+  const visible =
+    matched.length === 0
+      ? []
+      : await ctx.db
+          .selectFrom('contact')
+          .selectAll()
+          .where('id', 'in', matched)
+          .where((eb) => contactScopePredicate(eb, ctx.scope.read, ctx.viewer))
+          .orderBy('created_at')
+          .orderBy('id')
+          .execute()
+  const visibleIds = new Set(visible.map((row) => row.id))
+  const hidden = matched.find((id) => !visibleIds.has(id))
+  return ok({
+    data: await contactViews(ctx, visible),
+    next_cursor: null,
+    outOfScope:
+      hidden === undefined ? null : { managerName: await openDealManager(ctx.db, hidden) },
+  })
 }
 
 /**
@@ -713,34 +778,62 @@ export function contactsRoutes({
   dependents?: ContactDependents
 } = {}) {
   const context = (c: Ctx) => contactContext(c, dependents)
-  return new Hono<PermissionsEnv>()
-    .get('/', requirePermission('contacts', 'view'), async (c) => {
-      const outcome = await listContacts(await context(c), c)
-      return outcome.ok ? c.json<ContactView[]>(outcome.value) : fail(c, outcome)
-    })
-    .get('/:id', requirePermission('contacts', 'view'), async (c) => {
-      const id = c.req.param('id')
+  const hook = refusalHook('INVALID_CONTACT')
+  const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
+    typed(outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome))
+  const update = async (c: Ctx) => {
+    const body = await readBody(c)
+    if (!body) return fail(c, refuse(400, 'INVALID_CONTACT', { path: '' }))
+    const input = parseInput(body, false)
+    if (!input.ok) return fail(c, input)
+    const outcome = await updateContact(await context(c), c.req.param('id') ?? '', input.value)
+    return outcome.ok ? c.json<ContactView>(outcome.value) : fail(c, outcome)
+  }
+  // Маршруты, открытые ключу API, — `openapi()` с keyRoute (contacts/openapi.ts); остальные —
+  // только сессия: ключ получает 403 API_KEY_NOT_ALLOWED.
+  const app = new OpenAPIHono<PermissionsEnv>()
+  // С `phone` или `email` — поиск (страница и «чужой клиент»); без них — прежняя выдача
+  // карточек и подсказок apps/web (массив), ключу она не открыта.
+  app.openapi(
+    searchContactsRoute,
+    async (c) => {
+      const phone = c.req.query('phone')
+      const email = c.req.query('email')
+      const ctx = await context(c)
+      if (phone !== undefined || email !== undefined) {
+        return respond(c, await searchContacts(ctx, phone, email))
+      }
+      if (c.get('apiKey')) return respond(c, refuse(400, 'INVALID_CONTACT', { path: 'phone' }))
+      return respond(c, await listContacts(ctx, c))
+    },
+    hook,
+  )
+  app.openapi(
+    getContactRoute,
+    async (c) => {
+      const id = c.req.param('id') ?? ''
       const ctx = await context(c)
       const row = UUID.test(id) ? await findContact(ctx, id, ctx.scope.read) : undefined
-      if (!row || row.deleted_at !== null) return fail(c, refuse(404, 'CONTACT_NOT_FOUND'))
-      return c.json<ContactView>(await contactView(ctx, row))
-    })
-    .post('/', requirePermission('contacts', 'create'), async (c) => {
+      if (!row || row.deleted_at !== null) return respond(c, refuse(404, 'CONTACT_NOT_FOUND'))
+      return respond(c, ok(await contactView(ctx, row)))
+    },
+    hook,
+  )
+  app.openapi(
+    createContactRoute,
+    async (c) => {
       const body = await readBody(c)
-      if (!body) return fail(c, refuse(400, 'INVALID_CONTACT', { path: '' }))
+      if (!body) return respond(c, refuse(400, 'INVALID_CONTACT', { path: '' }))
       const input = parseInput(body, true)
-      if (!input.ok) return fail(c, input)
-      const outcome = await createContact(await context(c), input.value)
-      return outcome.ok ? c.json<ContactView>(outcome.value, 201) : fail(c, outcome)
-    })
-    .put('/:id', requirePermission('contacts', 'edit'), async (c) => {
-      const body = await readBody(c)
-      if (!body) return fail(c, refuse(400, 'INVALID_CONTACT', { path: '' }))
-      const input = parseInput(body, false)
-      if (!input.ok) return fail(c, input)
-      const outcome = await updateContact(await context(c), c.req.param('id'), input.value)
-      return outcome.ok ? c.json<ContactView>(outcome.value) : fail(c, outcome)
-    })
+      if (!input.ok) return respond(c, input)
+      return respond(c, await createContact(await context(c), input.value), 201)
+    },
+    hook,
+  )
+  app.openapi(patchContactRoute, async (c) => typed(await update(c)), hook)
+  // Карточка контакта apps/web — PUT с теми же правилами, что PATCH; ключу закрыт.
+  return app
+    .put('/:id', requirePermission('contacts', 'edit'), update)
     .delete('/:id', requirePermission('contacts', 'delete'), async (c) => {
       const confirm = c.req.query('confirm')
       const outcome = await trashContact(

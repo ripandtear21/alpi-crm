@@ -20,8 +20,10 @@ export interface TimelineItem {
   kind: TimelineKind
   id: string
   occurredAt: string
-  /** Кто сделал; null — система. */
+  /** Кто сделал; null — система или ключ API. */
   actorId: string | null
+  /** Сделал ключ API (тикет crm-api/04): `actorName` — название ключа. */
+  actorApiKeyId?: string | null
   actorName: string | null
   change?: { field: string; before: unknown; after: unknown }
   note?: { text: string; updatedAt: string }

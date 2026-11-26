@@ -1,7 +1,8 @@
 import type { Database, OrganizationTable } from '@alpi/db'
-import type { CustomFieldErrorCode, RolePermissions } from '@alpi/shared'
-import { Hono } from 'hono'
+import type { CustomFieldErrorCode, Page, RolePermissions } from '@alpi/shared'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { type Kysely, type Selectable, sql } from 'kysely'
+import { requestAuthor } from '../api-keys/actor.ts'
 import { audit } from '../audit/record.ts'
 import {
   type ChangeAuthor,
@@ -18,10 +19,18 @@ import {
   optionalText,
   readBody,
   readLimit,
+  refusalHook,
   refuse,
   requiredText,
+  typed,
   UUID,
 } from '../contacts/http.ts'
+import {
+  createOrganizationRoute,
+  getOrganizationRoute,
+  listOrganizationsRoute,
+  patchOrganizationRoute,
+} from '../contacts/openapi.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { clearedRequired, missingRequired, requiredFieldsOutcome } from '../fields/requirements.ts'
 import {
@@ -34,6 +43,7 @@ import {
   readCustomInput,
   visibleCustom,
 } from '../fields/values.ts'
+import { decodePageCursor, encodePageCursor } from '../filters/page.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 
 // Организации проекта (тикет crm-deals/03; spec.md, раздел 3.2): маршруты `/v1/organizations`
@@ -44,6 +54,9 @@ import { type PermissionsEnv, requirePermission } from '../middleware/permission
 // Удаление (ответ владельца, пункт 35): организация уходит в корзину, а у её контактов связь
 // остаётся до окончательного удаления; окончательное удаление обнуляет связь у контактов (и
 // пишет это в их журнал изменений), историю самой организации стирает.
+//
+// Ключ API (тикет crm-api/04) проходит на поиск по названию, чтение, создание и PATCH
+// (contacts/openapi.ts); удаление, восстановление и PUT — только сессия.
 
 export type OrganizationsErrorCode =
   | 'PERMISSION_DENIED'
@@ -112,7 +125,6 @@ function parseInput(body: Record<string, unknown>, create: boolean): Result<Orga
 }
 
 interface OrganizationContext extends ChangeAuthor {
-  actorId: string
   ip: string | null
   /** Права роли: какие группы полей видны и меняются (fields/access.ts). */
   permissions: RolePermissions
@@ -122,7 +134,8 @@ function organizationContext(c: Ctx): OrganizationContext {
   return {
     db: c.get('db'),
     projectId: c.get('projectId'),
-    actorId: c.get('session').user.id,
+    // Автор — участник или ключ API (тикет crm-api/04): сессии у запроса по ключу нет.
+    ...requestAuthor(c.get('actor')),
     ip: c.get('clientIp'),
     permissions: c.get('access').permissions,
   }
@@ -261,15 +274,107 @@ async function purgeOrganization(ctx: OrganizationContext, id: string): Promise<
   return ok(null)
 }
 
+/** Сортировка поиска по названию в курсоре (filters/page.ts). */
+const NAME_SORT = 'name:asc'
+
+/**
+ * Поиск по названию для ключа API и интеграций: название содержит `name` (ILIKE, как фильтр
+ * «название» списка организаций), по названию, курсорная выдача `/api/v1`.
+ */
+async function searchOrganizations(
+  ctx: OrganizationContext,
+  c: Ctx,
+  name: string,
+): Promise<Result<Page<OrganizationView>>> {
+  const limit = readLimit(c.req.query('limit'))
+  if (limit === undefined) return refuse(400, 'INVALID_ORGANIZATION', { path: 'limit' })
+  const rawCursor = c.req.query('cursor')
+  const cursor =
+    rawCursor === undefined ? undefined : decodePageCursor(rawCursor, NAME_SORT, 'text')
+  if (rawCursor !== undefined && !cursor) {
+    return refuse(400, 'INVALID_ORGANIZATION', { path: 'cursor' })
+  }
+  let query = ctx.db
+    .selectFrom('organization')
+    .selectAll()
+    .where('deleted_at', 'is', null)
+    .where('name', 'ilike', likePattern(name.trim()))
+    .orderBy('name')
+    .orderBy('id')
+    .limit(limit + 1)
+  if (cursor) query = query.where(sql<boolean>`(name, id) > (${cursor.v}, ${cursor.id}::uuid)`)
+  const rows = await query.execute()
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  return ok({
+    data: await views(ctx, page),
+    next_cursor:
+      rows.length > limit && last
+        ? encodePageCursor(NAME_SORT, { v: last.name, id: last.id })
+        : null,
+  })
+}
+
+async function createOrganization(
+  ctx: OrganizationContext,
+  input: OrganizationInput,
+): Promise<Result<OrganizationView>> {
+  const custom = await prepareCustom(ctx, 'organization', {}, input.custom ?? {})
+  if (!custom.ok) return custom
+  // Поля «всегда» (тикет crm-fields/04): без значения организация не создаётся.
+  const required = requiredFieldsOutcome(
+    await missingRequired(ctx, { entity: 'organization' }, custom.value.set),
+  )
+  if (!required.ok) return required
+  const row = await ctx.db
+    .insertInto('organization')
+    .values({
+      project_id: ctx.projectId,
+      name: input.name ?? '',
+      address: input.address ?? null,
+      website: input.website ?? null,
+      custom: customInsert(custom.value),
+      created_by: ctx.actorId,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow()
+  await finishCustom(ctx, { type: 'organization', id: row.id }, custom.value, { history: false })
+  return ok(await view(ctx, row))
+}
+
 /** Маршруты организаций: `/v1/organizations`. */
 export function organizationsRoutes() {
-  return new Hono<PermissionsEnv>()
-    .get('/', requirePermission('organizations', 'view'), async (c) => {
+  const hook = refusalHook('INVALID_ORGANIZATION')
+  const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
+    typed(outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome))
+  const update = async (c: Ctx) => {
+    const body = await readBody(c)
+    if (!body) return fail(c, refuse(400, 'INVALID_ORGANIZATION', { path: '' }))
+    const input = parseInput(body, false)
+    if (!input.ok) return fail(c, input)
+    const outcome = await updateOrganization(
+      organizationContext(c),
+      c.req.param('id') ?? '',
+      input.value,
+    )
+    return outcome.ok ? c.json<OrganizationView>(outcome.value) : fail(c, outcome)
+  }
+  // Маршруты, открытые ключу API, — `openapi()` с keyRoute (contacts/openapi.ts); остальные —
+  // только сессия: ключ получает 403 API_KEY_NOT_ALLOWED.
+  const app = new OpenAPIHono<PermissionsEnv>()
+  // С `name` — поиск (страница с курсором); без него — прежняя выдача подсказок apps/web
+  // (массив, `?q=`), ключу она не открыта.
+  app.openapi(
+    listOrganizationsRoute,
+    async (c) => {
+      const ctx = organizationContext(c)
+      const name = c.req.query('name')
+      if (name !== undefined) return respond(c, await searchOrganizations(ctx, c, name))
+      if (c.get('apiKey')) return respond(c, refuse(400, 'INVALID_ORGANIZATION', { path: 'name' }))
       const limit = readLimit(c.req.query('limit'))
       if (limit === undefined)
-        return fail(c, refuse(400, 'INVALID_ORGANIZATION', { path: 'limit' }))
-      let query = c
-        .get('db')
+        return respond(c, refuse(400, 'INVALID_ORGANIZATION', { path: 'limit' }))
+      let query = ctx.db
         .selectFrom('organization')
         .selectAll()
         .where('deleted_at', 'is', null)
@@ -278,10 +383,14 @@ export function organizationsRoutes() {
         .limit(limit)
       const q = c.req.query('q')?.trim()
       if (q) query = query.where('name', 'ilike', likePattern(q))
-      return c.json<OrganizationView[]>(await views(organizationContext(c), await query.execute()))
-    })
-    .get('/:id', requirePermission('organizations', 'view'), async (c) => {
-      const id = c.req.param('id')
+      return respond(c, ok(await views(ctx, await query.execute())))
+    },
+    hook,
+  )
+  app.openapi(
+    getOrganizationRoute,
+    async (c) => {
+      const id = c.req.param('id') ?? ''
       const row = UUID.test(id)
         ? await c
             .get('db')
@@ -291,51 +400,26 @@ export function organizationsRoutes() {
             .where('deleted_at', 'is', null)
             .executeTakeFirst()
         : undefined
-      if (!row) return fail(c, refuse(404, 'ORGANIZATION_NOT_FOUND'))
-      return c.json<OrganizationView>(await view(organizationContext(c), row))
-    })
-    .post('/', requirePermission('organizations', 'create'), async (c) => {
+      if (!row) return respond(c, refuse(404, 'ORGANIZATION_NOT_FOUND'))
+      return respond(c, ok(await view(organizationContext(c), row)))
+    },
+    hook,
+  )
+  app.openapi(
+    createOrganizationRoute,
+    async (c) => {
       const body = await readBody(c)
-      if (!body) return fail(c, refuse(400, 'INVALID_ORGANIZATION', { path: '' }))
+      if (!body) return respond(c, refuse(400, 'INVALID_ORGANIZATION', { path: '' }))
       const input = parseInput(body, true)
-      if (!input.ok) return fail(c, input)
-      const ctx = organizationContext(c)
-      const custom = await prepareCustom(ctx, 'organization', {}, input.value.custom ?? {})
-      if (!custom.ok) return fail(c, custom)
-      // Поля «всегда» (тикет crm-fields/04): без значения организация не создаётся.
-      const required = requiredFieldsOutcome(
-        await missingRequired(ctx, { entity: 'organization' }, custom.value.set),
-      )
-      if (!required.ok) return fail(c, required)
-      const row = await ctx.db
-        .insertInto('organization')
-        .values({
-          project_id: ctx.projectId,
-          name: input.value.name ?? '',
-          address: input.value.address ?? null,
-          website: input.value.website ?? null,
-          custom: customInsert(custom.value),
-          created_by: ctx.actorId,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow()
-      await finishCustom(ctx, { type: 'organization', id: row.id }, custom.value, {
-        history: false,
-      })
-      return c.json<OrganizationView>(await view(ctx, row), 201)
-    })
-    .put('/:id', requirePermission('organizations', 'edit'), async (c) => {
-      const body = await readBody(c)
-      if (!body) return fail(c, refuse(400, 'INVALID_ORGANIZATION', { path: '' }))
-      const input = parseInput(body, false)
-      if (!input.ok) return fail(c, input)
-      const outcome = await updateOrganization(
-        organizationContext(c),
-        c.req.param('id'),
-        input.value,
-      )
-      return outcome.ok ? c.json<OrganizationView>(outcome.value) : fail(c, outcome)
-    })
+      if (!input.ok) return respond(c, input)
+      return respond(c, await createOrganization(organizationContext(c), input.value), 201)
+    },
+    hook,
+  )
+  app.openapi(patchOrganizationRoute, async (c) => typed(await update(c)), hook)
+  // Карточка организации apps/web — PUT с теми же правилами, что PATCH; ключу закрыт.
+  return app
+    .put('/:id', requirePermission('organizations', 'edit'), update)
     .delete('/:id', requirePermission('organizations', 'delete'), async (c) => {
       const outcome = await trashOrganization(organizationContext(c), c.req.param('id'))
       return outcome.ok ? c.body(null, 204) : fail(c, outcome)

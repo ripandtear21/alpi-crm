@@ -3,6 +3,7 @@
   "loading": "Завантаження історії…",
   "more": "Показати ще",
   "system": "Система",
+  "apiKeyActor": "{{name}} (ключ API)",
   "cancel": "Скасувати",
   "confirmDelete": "Так, видалити",
   "filter": {

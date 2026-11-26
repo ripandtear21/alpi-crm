@@ -8,6 +8,7 @@ import {
   type StringReference,
   sql,
 } from 'kysely'
+import type { RequestActor } from '../api-keys/actor.ts'
 
 // Охват записей (spec.md, раздел 4): «свои» — пользователь ответственный; «своей команды» —
 // ответственный из команды пользователя; «все» — все записи проекта. Охват — условие WHERE
@@ -59,10 +60,24 @@ export interface Viewer {
   userId: string | null
   /** Пользователи его команды; сам пользователь в охват «команда» входит всегда. */
   teamUserIds: readonly string[]
+  /**
+   * Ключ API запроса (тикет crm-api/04): его «свои» контакты — созданные им
+   * (contacts/scope.ts). У пользователя не задан.
+   */
+  apiKeyId?: string
 }
 
-/** Охват ключа API: ни своих записей, ни команды. */
-export const API_KEY_VIEWER: Viewer = { userId: null, teamUserIds: [] }
+/** Охват ключа API `apiKeyId`: ни своих сделок, ни команды. */
+export function apiKeyViewer(apiKeyId: string): Viewer {
+  return { userId: null, teamUserIds: [], apiKeyId }
+}
+
+/** Охват автора запроса: участник — с его командой, ключ API — apiKeyViewer. */
+export function requestViewer(db: Kysely<Database>, actor: RequestActor): Promise<Viewer> {
+  return actor.type === 'user'
+    ? resolveViewer(db, actor.userId, PROJECT_TEAMS)
+    : Promise.resolve(apiKeyViewer(actor.apiKeyId))
+}
 
 export async function resolveViewer(
   db: Kysely<Database>,

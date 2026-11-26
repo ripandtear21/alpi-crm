@@ -14,6 +14,21 @@ export interface MemberSummary {
   disabled: boolean
 }
 
+/**
+ * Участник проекта в справочнике `GET /api/v1/users` (тикет crm-api/04): для ключа API и
+ * интеграций. Пароли, 2FA и роли не отдаются.
+ */
+export interface ProjectUser {
+  id: string
+  name: string
+  /** Команда участника; null — ни в одной команде. */
+  teamId: string | null
+  /** Участие не отключено. */
+  active: boolean
+  /** Только если у роли есть «пользователи и роли: смотреть» (персональные данные). */
+  email?: string
+}
+
 /** Ответ `POST /members/new`: участник и временный пароль новой учётной записи. */
 export interface CreatedMemberResponse {
   member: MemberSummary

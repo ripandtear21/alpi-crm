@@ -908,7 +908,8 @@ describe('запросы сделок по ключу API', () => {
       )
       const routes: string[] = []
       for (const [path, methods] of Object.entries(doc.paths)) {
-        if (!path.startsWith('/deals')) continue
+        // Заметки сделки открыл тикет crm-api/04: их проверяет contacts/api-key.test.ts.
+        if (!path.startsWith('/deals') || path.includes('/notes')) continue
         for (const [method, operation] of Object.entries(methods)) {
           routes.push(`${method} ${path}`)
           const success = operation.responses['200'] ?? operation.responses['201']

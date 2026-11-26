@@ -169,7 +169,7 @@ describe('заметки, файлы и лента', () => {
       ).toBe(404)
       expect(
         await (await call(admin, 'GET', `/v1/deals/${b.deal}/notes`, projectB)).json(),
-      ).toEqual([])
+      ).toEqual({ data: [], next_cursor: null })
       // Ссылка из B на запись A не пройдёт и мимо API: составной внешний ключ и RLS.
       await expect(
         withProject(h.appDb, projectB, (trx) =>

@@ -1,6 +1,6 @@
 import type { Database } from '@alpi/db'
 import type { LostReasonGroupSummary, LostReasonSummary } from '@alpi/shared'
-import { Hono } from 'hono'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { type Kysely, sql } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
@@ -16,6 +16,7 @@ import {
   UUID,
   uniqueRefusal,
 } from '../pipelines/directory.ts'
+import { listLostReasonsRoute } from '../pipelines/openapi.ts'
 import { inSavepoint } from '../roles/roles.ts'
 
 // Справочник причин проигрыша (тикет crm-deals/02): группа → причина, `/api/v1/lost-reasons`.
@@ -331,13 +332,17 @@ async function updateReason(c: Ctx) {
   return c.json<LostReasonSummary>(reasonSummary(row))
 }
 
-/** Маршруты справочника причин проигрыша: `/api/v1/lost-reasons`. */
+/**
+ * Маршруты справочника причин проигрыша: `/api/v1/lost-reasons`. Ключу API открыт только
+ * список (тикет crm-api/04, pipelines/openapi.ts).
+ */
 export function lostReasonsRoutes() {
+  const app = new OpenAPIHono<PermissionsEnv>()
+  app.openapi(listLostReasonsRoute, async (c) =>
+    c.json<LostReasonGroupSummary[], 200>(await listLostReasons(c.get('db')), 200),
+  )
   return (
-    new Hono<PermissionsEnv>()
-      .get('/', requirePermission('deals', 'view'), async (c) =>
-        c.json<LostReasonGroupSummary[]>(await listLostReasons(c.get('db'))),
-      )
+    app
       .post('/', requirePermission('pipelines', 'create'), createReason)
       .post('/groups', requirePermission('pipelines', 'create'), createGroup)
       // …/order — до …/:id: иначе «order» читался бы как id группы.
