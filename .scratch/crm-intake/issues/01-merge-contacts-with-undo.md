@@ -1,7 +1,9 @@
 # Слияние контактов с откатом
 
 Type: task
-Status: open
+Status: blocked 2026-11-26T16:38Z
+Blocked reason: max-review REJECTED, PR #39: три гонки транзакций — откат при цепочке слияний (merged_at = начало транзакции), фоновая очистка корзины удаляет восстановленный контакт (0026_merge.ts:59), файл или заметка во время слияния уходят к скрытому контакту (timeline/entity.ts:108)
+Waits: owner
 Risk: high
 Blocked by: —
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 6, 15, 23, 25, 26, 29, 35, 36); docs/adr/0005-sliyanie-s-otkatom.md; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Слияние», «Возможный дубль»); .scratch/crm-intake/spec.md
@@ -67,3 +69,15 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 - [ ] Тест пометки: пара «возможный дубль» после слияния без пометки, после отката — снова с пометкой и ссылкой.
 - [ ] Экран: «Об'єднати з…» с направлением и предпросмотром, «Скасувати об'єднання» в карточке и журнале, страница слитого контакта; тексты uk и ru; работает на 375 px.
 - [ ] `pnpm verify` зелёный.
+
+### Итог (2026-11-26)
+
+Не слит: заблокирован расширенной проверкой. PR #39 (ветка `crm-intake/01`, head 122b239) открыт.
+
+- Обычная проверка: круг 1 — REJECTED (заголовок проекта терялся в `merges-api.tsx`, нет теста блокировки контактов; https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7196739925); доработка с переименованием миграции в `0026_merge`; круг 2 — VERIFIED (https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197601813).
+- MAX-REVIEW: REJECTED (https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199). Три находки уровня med устояли у скептиков, каждая воспроизведена тестом на настоящей базе:
+  - откат слияния при цепочке слияний: `merged_at` — время начала транзакции, а откат не проверяет, что оставшийся контакт сам не слит (`packages/db/migrations/0026_merge.ts:140`, `apps/api/src/merge/store.ts:100-114`, `apps/api/src/merge/contacts.ts:519`) — откат проходит, вернувшийся контакт пуст;
+  - фоновая очистка корзины удаляет контакт, восстановленный в тот же момент: `delete` в `purge_from_trash` потерял условие `deleted_at is not null` (`packages/db/migrations/0026_merge.ts:41-59`, `apps/api/src/trash/purgers.ts:45-66`);
+  - файл или заметка, созданные во время слияния, уходят к скрытому контакту: проверка контакта без блокировки строки (`apps/api/src/timeline/entity.ts:108-121`).
+- Решение владельца: доработать эти три пункта (исправления названы в вердикте) или слить как есть. Без решения тикет 02 (слияние сделок) и тикеты, ждущие 01, не запускаются.
+- Долги (Consider) и замечания (Noted) — в вердикте расширенной проверки; вопрос владельцу: заметки, файлы и лента слитого контакта отвечают `CONTACT_NOT_FOUND`, а не `CONTACT_MERGED`.
