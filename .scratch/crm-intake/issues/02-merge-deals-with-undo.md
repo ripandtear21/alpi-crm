@@ -41,18 +41,25 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 
 - [ ] Миграция применяется на чистую базу и откатывается.
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · a939724
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · 92c24de
 - [ ] Тест изоляции: слияния сделок проекта A не видны в контексте B без фильтра в коде; слить сделку A со сделкой B другого проекта нельзя (404).
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · a939724
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · 92c24de
 - [ ] Тест прав: без «сделки: изменять» — 403; с охватом «свои», когда одна сделка чужая, — 403; откат — те же проверки.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · a939724
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · 92c24de
 - [ ] Тест слияния: этап, ответственный и заполненные поля — оставшейся; пустые заполнены из второй; заметки, файлы, строки товаров и участники перешли; основной контакт второй — участник; сумма не пересчитана строками товаров.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · a939724
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · 92c24de
 - [ ] Тест скрытия: слитая сделка не видна в канбане, списке, поиске, корзине и агрегатах; `GET` по id — 404 `DEAL_MERGED`; после слияния у контакта можно открыть новую сделку в той же воронке, индекс скрытую не считает.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · a939724
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · 92c24de
 - [ ] Тест истории: лента оставшейся показывает записи второй с пометкой; после отката — только свои.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · a939724
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · 92c24de
 - [ ] Тест отката: вернулось ровно перешедшее, добавленное после слияния осталось; вторая сделка с прежними этапом, статусом и архивом; откат, который даёт вторую открытую сделку в воронке, — 409.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · a939724
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0 · windows - · 92c24de
 - [ ] Тест событий и журнала: по одному `deal.merged` и `deal.unmerged`, тела проходят схему; записи в журнале проекта и в истории обеих сделок; упавшее слияние не оставляет ни переноса, ни события.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/deal-merge.test.ts` exit 0, `pnpm vitest run apps/api/src/events/events.test.ts` exit 0 · windows - · a939724
 - [ ] Экран: «Об'єднати з…», «Скасувати об'єднання», страница слитой сделки; тексты uk и ru; работает на 375 px.
