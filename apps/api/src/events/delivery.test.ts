@@ -545,7 +545,10 @@ describe('доставка событий', () => {
     } finally {
       clockOffset = 0
     }
-    expect(await endpointRow(paused.endpoint.id)).toEqual({ state: 'active', disabled_reason: null })
+    expect(await endpointRow(paused.endpoint.id)).toEqual({
+      state: 'active',
+      disabled_reason: null,
+    })
     expect(requestsTo('/paused')).toHaveLength(before + 2)
   })
 
