@@ -27,12 +27,19 @@ apps/web/src/routes/** (настройки → вебхуки), apps/web/src/fea
 ## Done when
 
 - [ ] Тест компонента или e2e: без права «інтеграції» пункта меню нет, прямая ссылка — «немає доступу».
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Тест: создание вебхука с адресом `http://` или частным адресом показывает ошибку у поля; с верным адресом — окно с секретом, после закрытия секрет больше нигде не виден.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Тест: смена секрета показывает новый секрет и предупреждение про 24 часа.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Тест журнала: неудачная доставка раскрывается с попытками; «надіслати ще раз» добавляет попытку в список.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Отключённый вебхук показан с причиной; предупреждение в шапке ведёт на экран.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks apps/web/src/layout/webhook-alert-banner.test.tsx` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Все тексты есть в uk и ru (проверка ключей переводов); экран работает на 375 px (снимок в отчёте).
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks apps/web/src/i18n` exit 0; снимки 375 px в отчёте · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 
 ## Результат
 
