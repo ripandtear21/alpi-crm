@@ -62,6 +62,8 @@ import { RolesPage } from './routes/settings/roles-page.tsx'
 import { SettingsPage } from './routes/settings/settings-page.tsx'
 import { TeamsPage } from './routes/settings/teams-page.tsx'
 import { TrashPage } from './routes/settings/trash-page.tsx'
+import { createWebhooksApi, type WebhooksApi } from './routes/settings/webhooks/webhooks-api.ts'
+import { WebhooksPage } from './routes/settings/webhooks/webhooks-page.tsx'
 import { ToastProvider } from './ui/toast.tsx'
 
 export interface RouterContext {
@@ -82,6 +84,8 @@ export interface RouterContext {
   fields: FieldsSettingsApi
   /** Ключи API проекта в настройках (тикет crm-api/01). */
   apiKeys: ApiKeysApi
+  /** Вебхуки проекта в настройках (тикет crm-api/07). */
+  webhooks: WebhooksApi
   /**
    * Предупреждение в шапке об отключённых адресах событий (тикет crm-api/06). Нет — нет и
    * предупреждения: тестам маршрутов оно не нужно, браузеру его передаёт main.tsx.
@@ -410,6 +414,16 @@ const apiKeysRoute = createRoute({
   },
 })
 
+// Налаштування → Вебхуки (тикет crm-api/07).
+const webhooksRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: 'settings/webhooks',
+  component: function WebhooksRoute() {
+    const { webhooks } = webhooksRoute.useRouteContext()
+    return <WebhooksPage api={webhooks} />
+  },
+})
+
 // Налаштування → Поля (тикет crm-fields/05).
 const fieldsSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
@@ -502,6 +516,7 @@ const routeTree = rootRoute.addChildren([
       productsRoute,
       fieldsSettingsRoute,
       apiKeysRoute,
+      webhooksRoute,
       trashRoute,
       dealCardRoute,
       contactCardRoute,
@@ -543,6 +558,8 @@ export interface AppRouterOptions {
   fields?: FieldsSettingsApi
   /** Только в тестах: подставной клиент ключей API. В браузере — запросы к API. */
   apiKeys?: ApiKeysApi
+  /** Только в тестах: подставной клиент вебхуков. В браузере — запросы к API. */
+  webhooks?: WebhooksApi
   /** Предупреждение об отключённых адресах событий; в тестах маршрутов — нет. */
   webhookAlerts?: WebhookAlertsApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
@@ -566,6 +583,7 @@ export function createAppRouter({
   search = createSearchApi(),
   fields = createFieldsSettingsApi(),
   apiKeys = createApiKeysApi(),
+  webhooks = createWebhooksApi(),
   webhookAlerts,
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
@@ -585,6 +603,7 @@ export function createAppRouter({
     search,
     fields,
     apiKeys,
+    webhooks,
     webhookAlerts,
     queryClient,
   }

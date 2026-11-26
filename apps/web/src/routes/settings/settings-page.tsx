@@ -1,4 +1,4 @@
-import type { ProjectAccess } from '@alpi/shared'
+import { can, type ProjectAccess } from '@alpi/shared'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -11,8 +11,9 @@ import { fieldsSettingsAllowed } from './fields/fields-data.ts'
 import './settings.css'
 
 // Настройки проекта: роли, пользователи, команды, журнал действий, воронки, причины проигрыша,
-// товары, поля и ключи API; остальные подразделы придут со своими тикетами. Пункт «Поля» — только с правом
-// «поля» (тикет crm-fields/05): права пользователя — `GET /project/access`.
+// товары, поля, ключи API и вебхуки; остальные подразделы придут со своими тикетами. Пункт «Поля» —
+// только с правом «поля» (тикет crm-fields/05), пункт «Вебхуки» — с правом «інтеграції: дивитися»
+// (тикет crm-api/07): права пользователя — `GET /project/access`.
 export function SettingsPage({
   access,
 }: {
@@ -31,6 +32,7 @@ export function SettingsPage({
     enabled: projectId !== '',
   })
   const fieldsAllowed = rights.data ? fieldsSettingsAllowed(rights.data.permissions) : false
+  const webhooksAllowed = rights.data ? can(rights.data.permissions, 'integrations', 'view') : false
 
   return (
     <section>
@@ -77,6 +79,13 @@ export function SettingsPage({
               {t('apiKeys.title')}
             </Link>
           </li>
+          {webhooksAllowed && (
+            <li>
+              <Link to="/p/$code/settings/webhooks" params={{ code }}>
+                {t('webhooks.title')}
+              </Link>
+            </li>
+          )}
           {fieldsAllowed && (
             <li>
               <Link to="/p/$code/settings/fields" params={{ code }}>

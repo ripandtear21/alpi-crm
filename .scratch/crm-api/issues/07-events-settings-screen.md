@@ -1,7 +1,7 @@
 # Экран «Налаштування → Вебхуки»: вебхуки, типы событий, секрет, журнал доставок
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T10:58Z
 Blocked by: 06
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Тикеты», волна 3 — экран «События»); .scratch/crm-mvp/spec.md, раздел 5.5 (настройки проекта, интеграции); .scratch/crm-api/spec.md; решения владельца 2026-11-26 (термин «вебхук» — GLOSSARY.md, docs/adr/0004-dostavka-sobytiy-vebhukami.md)
 
@@ -27,9 +27,37 @@ apps/web/src/routes/** (настройки → вебхуки), apps/web/src/fea
 ## Done when
 
 - [ ] Тест компонента или e2e: без права «інтеграції» пункта меню нет, прямая ссылка — «немає доступу».
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Тест: создание вебхука с адресом `http://` или частным адресом показывает ошибку у поля; с верным адресом — окно с секретом, после закрытия секрет больше нигде не виден.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Тест: смена секрета показывает новый секрет и предупреждение про 24 часа.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Тест журнала: неудачная доставка раскрывается с попытками; «надіслати ще раз» добавляет попытку в список.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Отключённый вебхук показан с причиной; предупреждение в шапке ведёт на экран.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks apps/web/src/layout/webhook-alert-banner.test.tsx` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] Все тексты есть в uk и ru (проверка ключей переводов); экран работает на 375 px (снимок в отчёте).
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks apps/web/src/i18n` exit 0; снимки 375 px в отчёте · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 5f256f8e11b006e0389b59b0cd45266500f3e3c5
+
+## Результат
+
+Ветка `crm-api/07`. Экран — `apps/web/src/routes/settings/webhooks/` (`webhooks-page.tsx`, клиент `webhooks-api.ts`, подставной клиент `fake-webhooks-api.ts`, тесты `webhooks-page.test.tsx`, стили `webhooks.css`), маршрут `/p/<код>/settings/webhooks` в `apps/web/src/router.tsx`, пункт меню в `routes/settings/settings-page.tsx`, тексты — пространство `webhooks` в `locales/{uk,ru}/webhooks.json`. Предупреждение в шапке (`layout/webhook-alert-banner.tsx`) теперь ссылка на экран; его текст переведён на термин «вебхук» и называет раздел «Налаштування → Вебхуки» / «Настройки → Вебхуки».
+
+Журнал доставок раскрывается внутри карточки вебхука: фильтр по состоянию и типу события, подгрузка курсором («Показати ще»), раскрытая доставка — попытки (время, код или ошибка, длительность, начало ответа) и тело события. Пока в открытом журнале есть ожидающие доставки, он перечитывается раз в 5 секунд: после «надіслати ще раз» доставка возвращается в «очікує», а попытку добавляет фоновая задача. Повторы отключённому вебхуку недоступны — кнопки неактивны, рядом подсказка «увімкніть його».
+
+Изменения сервера (мелкие, внутри `apps/api/src/webhook-endpoints/routes.ts` и `packages/shared/src/events/webhooks.ts`, без миграции):
+
+- `GET /api/v1/webhook-endpoints` отдаёт `WebhookEndpointListItem` — прежний `WebhookEndpointSummary` и `deliveries24h: { finished, failed }`. Остальные ответы (один вебхук, создание, изменение) — прежний `WebhookEndpointSummary` без сводки.
+- В журнале доставок (`WebhookDeliveryView`) новое поле `event` — тело события из `webhook_event.body`, как его получает приёмник.
+- Тесты: `apps/api/src/webhook-endpoints/webhook-endpoints.test.ts`, раздел «сводка доставок и тело события для экрана «Вебхуки» (тикет 07)» — подсчёт, исключения, изоляция проектов.
+
+Решено без владельца — подтвердить:
+
+- Доля неудачных доставок за 24 часа — по доставкам, а не по попыткам: завершённые — `succeeded` и `failed`, чьё состояние изменилось (`updated_at`) за последние 24 часа; неудачные — `failed` из них. Ожидающие и отменённые (`cancelled` — при отключении вебхука) не считаются. На экране — «2 з 10 (20 %)», без доставок — «доставок не було».
+- Тело события в раскрытой доставке — целиком, как его получил приёмник; берётся через доставку этого вебхука под row-level security проекта, событие другого проекта не видно (тест).
+- Экран и пункт меню — по праву «інтеграції: дивитися»; кнопки — по действиям: «Створити вебхук» — `create`; «Змінити», «Змінити секрет», «Увімкнути»/«Вимкнути», «Надіслати ще раз», «Надіслати всі невдалі з дати» — `edit`; «Видалити» — `delete`.
+- Изменение вебхука отправляет только изменённые поля: адрес без изменений не перепроверяется (DNS), сохранение описания не падает из-за адреса.
+- «Надіслати всі невдалі з дати» — с начала выбранного дня по местному времени.
+- Справка о подписи (Standard Webhooks, сырое тело в n8n и Make, повторы с тем же `webhook-id`) — свёрнутым блоком «Як перевірити підпис» на экране и в окне секрета; ссылки — спецификация Standard Webhooks, узел Crypto в n8n, функция `sha256` в Make (исследование `docs/research/webhook-delivery.md`, раздел 3.4, ветка `research/webhook-delivery`).

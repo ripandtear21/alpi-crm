@@ -58,15 +58,23 @@ describe('предупреждение об отключённом адресе 
   it('администратор (право «интеграции») видит адрес и причину', async () => {
     const fetchImpl = fakeFetch('admin', [ALERT])
     await renderApp(fetchImpl as unknown as typeof fetch)
-    const alert = await screen.findByText(/Події не надсилаються на адресу «Тестовий приймач»/)
-    expect(alert.getAttribute('role')).toBe('alert')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Події не надсилаються на вебхук «Тестовий приймач»')
     expect(alert.textContent).toContain('5 діб без жодної успішної доставки')
+  })
+
+  it('предупреждение ведёт на экран «Налаштування → Вебхуки» (тикет crm-api/07)', async () => {
+    const fetchImpl = fakeFetch('admin', [ALERT])
+    await renderApp(fetchImpl as unknown as typeof fetch)
+    const link = await screen.findByRole('link', { name: /Події не надсилаються на вебхук/ })
+    expect(link.getAttribute('href')).toBe('/p/alpi/settings/webhooks')
+    expect(link.textContent).toContain('«Налаштування → Вебхуки»')
   })
 
   it('по-русски — тот же текст на русском, адрес без описания — по URL', async () => {
     const fetchImpl = fakeFetch('admin', [{ ...ALERT, description: null, reason: 'gone_410' }])
     await renderApp(fetchImpl as unknown as typeof fetch, 'ru')
-    const alert = await screen.findByText(/События не отправляются на адрес/)
+    const alert = await screen.findByText(/События не отправляются на вебхук/)
     expect(alert.textContent).toContain('https://hooks.example.test/crm')
     expect(alert.textContent).toContain('приёмник ответил 410 Gone')
   })

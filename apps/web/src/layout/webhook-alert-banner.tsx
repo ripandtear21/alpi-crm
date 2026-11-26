@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import {
   projectQueryKey,
@@ -9,7 +10,8 @@ import type { WebhookAlertsApi } from './webhook-alerts-api.ts'
 
 // Предупреждение под шапкой (тикет crm-api/06): адрес событий, который система отключила (410 или
 // 5 суток без успеха), — пока в CRM нет уведомлений. Видят его только пользователи с правом
-// «интеграции» (webhook-alerts-api.ts); пропадает, когда адрес включат или удалят.
+// «интеграции» (webhook-alerts-api.ts); пропадает, когда вебхук включат или удалят. Текст —
+// ссылка на экран «Налаштування → Вебхуки» (тикет crm-api/07).
 
 /** Как часто перечитывать список, мс: адрес отключает фоновая задача, без действия пользователя. */
 const REFRESH_MS = 5 * 60 * 1000
@@ -18,6 +20,7 @@ export function WebhookAlertBanner({ api }: { api: WebhookAlertsApi }) {
   const { t } = useTranslation('layout')
   const { current } = useCurrentProject()
   const projectId = current?.id ?? ''
+  const code = current?.code ?? ''
   const alerts = useQuery({
     queryKey: projectQueryKey(projectId, 'webhook-alerts'),
     queryFn: () => api.alerts(projectId),
@@ -31,10 +34,12 @@ export function WebhookAlertBanner({ api }: { api: WebhookAlertsApi }) {
     <div className="app-layout__alerts">
       {alerts.data.map((alert) => (
         <Notice key={alert.endpointId} kind="alert">
-          {t('webhookAlert.text', {
-            target: alert.description ?? alert.url,
-            reason: t(`webhookAlert.reason.${alert.reason}`),
-          })}
+          <Link to="/p/$code/settings/webhooks" params={{ code }}>
+            {t('webhookAlert.text', {
+              target: alert.description ?? alert.url,
+              reason: t(`webhookAlert.reason.${alert.reason}`),
+            })}
+          </Link>
         </Notice>
       ))}
     </div>
