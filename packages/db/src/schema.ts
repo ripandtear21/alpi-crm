@@ -699,6 +699,78 @@ export interface WebhookEventTable {
   created_at: ColumnType<Date, Date | string | undefined, never>
 }
 
+/** Состояние адреса автоматизации (migrations/0024_webhook_delivery.ts). */
+export type WebhookEndpointState = 'active' | 'disabled'
+
+/** Почему адрес отключён: ответ 410, 5 суток без успеха или вручную. */
+export type WebhookDisabledReason = 'gone_410' | 'failing_5_days' | 'manual'
+
+/** Состояние доставки события на адрес. */
+export type WebhookDeliveryState = 'pending' | 'succeeded' | 'failed' | 'cancelled'
+
+/** Ошибка попытки без ответа: таймаут, TLS, DNS, адрес запрещён (SSRF), прочая ошибка сети. */
+export type WebhookAttemptError = 'timeout' | 'tls' | 'dns' | 'forbidden_address' | 'network'
+
+/**
+ * Адрес автоматизации (migrations/0024_webhook_delivery.ts). Секрет подписи — только
+ * зашифрованным (apps/api/src/events/secret.ts); виден только в контексте своего проекта.
+ */
+export interface WebhookEndpointTable {
+  id: ColumnType<string, string | undefined, never>
+  project_id: ColumnType<string, string, never>
+  url: string
+  description: string | null
+  event_types: string[]
+  /** `v1.` и base64 от iv, тега и шифротекста AES-256-GCM. */
+  secret_encrypted: string
+  previous_secret_encrypted: string | null
+  /** До какого времени события подписываются и предыдущим секретом. */
+  previous_secret_expires_at: Date | null
+  state: Generated<WebhookEndpointState>
+  disabled_reason: WebhookDisabledReason | null
+  disabled_at: Date | null
+  /**
+   * Первая неудачная попытка серии. Серия начинается заново после успеха, включения адреса и
+   * перерыва без неудач дольше суток (WEBHOOK_FAILING_GAP_HOURS). Отсюда считаются 5 суток без
+   * успеха.
+   */
+  failing_since: Date | null
+  /** Последняя неудачная попытка; успех и включение сбрасывают в null, как и failing_since. */
+  last_failure_at: Date | null
+  last_success_at: Date | null
+  created_by: ColumnType<string, string, never>
+  created_at: ColumnType<Date, never, never>
+  updated_at: Generated<Date>
+}
+
+/** Доставка события на адрес: одна строка на пару «событие × адрес». */
+export interface WebhookDeliveryTable {
+  id: Generated<string>
+  project_id: ColumnType<string, string, never>
+  event_id: ColumnType<string, string, never>
+  endpoint_id: ColumnType<string, string, never>
+  state: Generated<WebhookDeliveryState>
+  attempts: Generated<number>
+  /** Самое раннее время следующей попытки; null — попыток больше не будет. */
+  next_attempt_at: Date | null
+  succeeded_at: Date | null
+  created_at: ColumnType<Date, never, never>
+  updated_at: Generated<Date>
+}
+
+/** Одна попытка доставки. Только добавление. */
+export interface WebhookDeliveryAttemptTable {
+  id: ColumnType<string, never, never>
+  project_id: ColumnType<string, string, never>
+  delivery_id: ColumnType<string, string, never>
+  attempted_at: ColumnType<Date, Date | string | undefined, never>
+  status_code: ColumnType<number | null, number | null, never>
+  error: ColumnType<WebhookAttemptError | null, WebhookAttemptError | null, never>
+  duration_ms: ColumnType<number, number, never>
+  /** Первые 1 КБ тела ответа (UTF-8). */
+  response_body: ColumnType<string | null, string | null, never>
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -741,4 +813,7 @@ export interface Database {
   api_key: ApiKeyTable
   idempotency_record: IdempotencyRecordTable
   webhook_event: WebhookEventTable
+  webhook_endpoint: WebhookEndpointTable
+  webhook_delivery: WebhookDeliveryTable
+  webhook_delivery_attempt: WebhookDeliveryAttemptTable
 }

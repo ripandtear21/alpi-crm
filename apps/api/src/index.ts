@@ -32,10 +32,20 @@ const bulkActions: BulkActionRegistry = new Map([
   [TRANSFER_DEALS_ACTION, transferDeals],
   ...DEAL_BULK_REGISTRY,
 ])
+// Доставка событий на адреса автоматизации (тикет crm-api/06): ключ шифрования секретов подписи
+// и разрешение http/localhost (только тесты; в production API с ним не запускается, config.ts).
+const webhooks = {
+  secretKey: env.webhookSecretKey,
+  allowInsecureUrls: env.webhookAllowInsecureUrls,
+}
+if (webhooks.secretKey === null) {
+  console.warn('WEBHOOK_SECRET_KEY не задана: адреса событий не создаются, события не отправляются')
+}
 const jobs = await startJobs({
   connectionString: env.databaseUrl,
   db,
   bulkActions,
+  webhooks,
   // Корзина: сделки, контакты и организации через 30 дней (тикет 12) — trash/purgers.ts.
   trashPurgers: TRASH_PURGERS,
 })
@@ -52,6 +62,7 @@ const app = createApp({
     now: () => new Date(),
   },
   storage: localDiskStorage(env.storageDir),
+  webhooks,
 })
 
 const server = serve({ fetch: app.fetch, port }, (info) => {

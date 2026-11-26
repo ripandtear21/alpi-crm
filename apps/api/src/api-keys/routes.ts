@@ -20,6 +20,7 @@ import {
   UUID,
 } from '../contacts/http.ts'
 import { loadFieldGroupRefs } from '../fields/access.ts'
+import { omitFromIdempotentReplay } from '../http/idempotency.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { effectivePermissions, type MemberAccess } from '../roles/access.ts'
 import { grantsBeyondOwn } from '../roles/guard.ts'
@@ -256,6 +257,8 @@ export function apiKeysRoutes() {
   const respond = <T>(c: Ctx, outcome: Result<T>, status: 200 | 201 = 200) =>
     outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome)
   const grantRole = requirePermission('users_roles', 'edit')
+  // Создание и перевыпуск показывают секрет один раз: повтор с тем же Idempotency-Key отдаёт
+  // ответ без него (http/idempotency.ts, omitFromIdempotentReplay).
   return new Hono<PermissionsEnv>()
     .get('/', requirePermission('integrations', 'view'), async (c) => {
       const rows = await selectKeys(c.get('db'))
@@ -265,12 +268,14 @@ export function apiKeysRoutes() {
         .execute()
       return c.json<ApiKeySummary[]>(rows.map(keySummary))
     })
-    .post('/', requirePermission('integrations', 'create'), grantRole, async (c) =>
-      respond(c, await createKey(c), 201),
-    )
-    .post('/:id/reissue', requirePermission('integrations', 'edit'), grantRole, async (c) =>
-      respond(c, await reissueKey(c, c.req.param('id'))),
-    )
+    .post('/', requirePermission('integrations', 'create'), grantRole, async (c) => {
+      omitFromIdempotentReplay(c, ['secret'])
+      return respond(c, await createKey(c), 201)
+    })
+    .post('/:id/reissue', requirePermission('integrations', 'edit'), grantRole, async (c) => {
+      omitFromIdempotentReplay(c, ['secret'])
+      return respond(c, await reissueKey(c, c.req.param('id')))
+    })
     .post('/:id/revoke', requirePermission('integrations', 'delete'), grantRole, async (c) =>
       respond(c, await revokeKey(c, c.req.param('id'))),
     )

@@ -4,6 +4,16 @@
  * Только токены из styles/tokens.css.
  */
 
+/* Предупреждения об отключённых адресах событий — полосой под шапкой. Длинный адрес
+ * переносится в любом месте: на узком экране он не выходит за край. */
+.app-layout__alerts {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--gutter);
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
 /* Шапка */
 .app-header {
   position: sticky;

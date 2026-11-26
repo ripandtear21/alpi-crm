@@ -13,7 +13,7 @@ import { enqueueFanout } from './queue.ts'
 
 // Функция записи события (тикет crm-api/05; шаблон transactional outbox) — одна для всех эпиков.
 //
-// - Пишет строку webhook_event и ставит задачу `webhook-fanout` с `{ eventId }` той же
+// - Пишет строку webhook_event и ставит задачу `webhook-fanout` с `{ projectId, eventId }` той же
 //   транзакцией проекта (`author.db`), что и само изменение: откатилось изменение — нет ни
 //   события, ни задачи; зафиксировалось — есть ровно по одной.
 // - Тело — тонкое событие из каталога (packages/shared/src/events): тип, время, id события и
@@ -71,6 +71,6 @@ export async function emitEvent<T extends EventType>(
       actor_id: actor.id,
     })
     .execute()
-  await enqueueFanout(author.db, { eventId: id })
+  await enqueueFanout(author.db, { projectId: author.projectId, eventId: id })
   return id
 }

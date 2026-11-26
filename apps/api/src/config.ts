@@ -13,6 +13,17 @@ export interface ApiEnv {
   trustedProxies: string[]
   /** Каталог файлов на локальном диске (STORAGE_DIR): абсолютный путь вне каталога приложения. */
   storageDir: string
+  /**
+   * Ключ AES-256-GCM, которым в базе зашифрованы секреты подписи адресов событий
+   * (WEBHOOK_SECRET_KEY: base64 от 32 байт). null — не задан: адреса событий не создаются и
+   * события не отправляются (ответ 500 и ошибка в журнале процесса).
+   */
+  webhookSecretKey: Buffer | null
+  /**
+   * WEBHOOK_ALLOW_INSECURE_URLS=1 — только для автотестов и разработки: адреса событий по
+   * `http://` и на loopback (localhost, 127.0.0.1, ::1). С NODE_ENV=production API не запускается.
+   */
+  webhookAllowInsecureUrls: boolean
 }
 
 /** Короче ключ подписи cookie и шифрования секретов 2FA не принимаем. */
@@ -49,6 +60,18 @@ export function readApiEnv(env: NodeJS.ProcessEnv = process.env, appDir = APP_DI
   } else if (isInside(storageDir, appDir)) {
     problems.push(`STORAGE_DIR внутри каталога приложения ${appDir}: его заменяет каждая сборка`)
   }
+  const webhookSecretKey = readWebhookSecretKey(env.WEBHOOK_SECRET_KEY)
+  if (webhookSecretKey === undefined) {
+    problems.push('WEBHOOK_SECRET_KEY: ожидается base64 от 32 байт (openssl rand -base64 32)')
+  }
+  const insecure = env.WEBHOOK_ALLOW_INSECURE_URLS ?? ''
+  if (!['', '0', '1'].includes(insecure)) {
+    problems.push('WEBHOOK_ALLOW_INSECURE_URLS: ожидается 1 или 0')
+  }
+  const webhookAllowInsecureUrls = insecure === '1'
+  if (webhookAllowInsecureUrls && env.NODE_ENV === 'production') {
+    problems.push('WEBHOOK_ALLOW_INSECURE_URLS=1 запрещена при NODE_ENV=production')
+  }
   if (problems.length > 0) {
     throw new Error(`Окружение API не настроено: ${problems.join('; ')}`)
   }
@@ -59,7 +82,18 @@ export function readApiEnv(env: NodeJS.ProcessEnv = process.env, appDir = APP_DI
     secureCookies: env.NODE_ENV !== 'development',
     trustedProxies,
     storageDir: path.resolve(storageDir),
+    webhookSecretKey: webhookSecretKey ?? null,
+    webhookAllowInsecureUrls,
   }
+}
+
+/** Ключ шифрования секретов адресов: не задан — null, не 32 байта base64 — undefined. */
+function readWebhookSecretKey(value: string | undefined): Buffer | null | undefined {
+  const text = value?.trim() ?? ''
+  if (text === '') return null
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(text)) return undefined
+  const key = Buffer.from(text, 'base64')
+  return key.length === 32 ? key : undefined
 }
 
 /** `target` — сам каталог `dir` или внутри него. */

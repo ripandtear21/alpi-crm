@@ -35,6 +35,7 @@ const migrationNames = [
   '0020_idempotency',
   '0021_webhook_events',
   '0023_note_api_key_author',
+  '0024_webhook_delivery',
 ]
 
 const tablesOfMigration = [
@@ -95,6 +96,10 @@ const tablesOfMigration = [
   'idempotency_record',
   // 0021_webhook_events
   'webhook_event',
+  // 0024_webhook_delivery
+  'webhook_endpoint',
+  'webhook_delivery',
+  'webhook_delivery_attempt',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -278,10 +283,11 @@ describe('схема и изоляция проектов', () => {
           removed.push((await note({ author_api_key_id: apiKeyId })).id)
         }
 
-        // Откат ровно последней миграции — 0023.
-        const down = await createMigrator(scratch).migrateDown()
+        // Откат до 0021: сначала 0024 (доставка событий, данных в ней нет), затем 0023.
+        const down = await createMigrator(scratch).migrateTo('0021_webhook_events')
         expect(down.error).toBeUndefined()
         expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
+          ['0024_webhook_delivery', 'Down', 'Success'],
           ['0023_note_api_key_author', 'Down', 'Success'],
         ])
 
@@ -293,6 +299,15 @@ describe('схема и изоляция проектов', () => {
         // Контакты, созданные ключом, откат не трогает — пропадает только колонка создателя-ключа.
         const contacts = await sql<{ count: string }>`select count(*) from contact`.execute(scratch)
         expect(contacts.rows[0]?.count).toBe('2')
+
+        // База, где 0023 уже применена (как рабочая до этой ветки), принимает 0024 следом:
+        // мигратор идёт строго по порядку, номер меньше 0023 он бы отклонил.
+        const to0023 = await createMigrator(scratch).migrateTo('0023_note_api_key_author')
+        expect(to0023.error).toBeUndefined()
+        const latest = await migrateToLatest(scratch)
+        expect(latest.map((r) => [r.migrationName, r.status])).toEqual([
+          ['0024_webhook_delivery', 'Success'],
+        ])
       } finally {
         await scratch.destroy()
       }
@@ -438,6 +453,9 @@ describe('схема и изоляция проектов', () => {
         { table: 'saved_filter', rls: true, policies: 1 },
         { table: 'stage', rls: true, policies: 1 },
         { table: 'team', rls: true, policies: 1 },
+        { table: 'webhook_delivery', rls: true, policies: 1 },
+        { table: 'webhook_delivery_attempt', rls: true, policies: 1 },
+        { table: 'webhook_endpoint', rls: true, policies: 1 },
         { table: 'webhook_event', rls: true, policies: 1 },
       ])
     })

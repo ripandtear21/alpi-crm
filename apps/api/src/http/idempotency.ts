@@ -6,6 +6,7 @@ import {
   IDEMPOTENCY_RETENTION_HOURS,
   IDEMPOTENT_REPLAYED_HEADER,
 } from '@alpi/shared'
+import type { Context } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { type Kysely, sql } from 'kysely'
@@ -32,6 +33,10 @@ import { problem } from './problem.ts'
 //   (уникальный индекс) конца первой транзакции и получает её ответ; дольше WAIT_FOR_FIRST —
 //   409 IDEMPOTENCY_IN_PROGRESS. Ошибка обработчика откатывает транзакцию вместе со строкой.
 // - Сохраняются ответы 2xx и 4xx; ответ 5xx не сохраняется: такой запрос можно повторить.
+// - Секрет, который показывается один раз (секрет адреса событий, ключа API), в
+//   idempotency_record не попадает: маршрут вызывает omitFromIdempotentReplay, и тело сохраняется
+//   без названных полей. Повтор отдаёт тот же код и тело без них: второй адрес или ключ не
+//   создаётся, клиент получает id и при потере секрета выпускает новый (смена секрета, перевыпуск).
 
 const METHODS = new Set(['POST', 'PATCH'])
 
@@ -53,6 +58,35 @@ interface Scope {
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')
+}
+
+/** Поля тела ответа, которые маршрут запретил сохранять для повтора, — по запросу. */
+const notReplayed = new WeakMap<Context, readonly string[]>()
+
+/**
+ * Ответ на этот запрос несёт секрет, который показывается один раз: поля `fields` верхнего
+ * уровня тела JSON не сохраняются в idempotency_record, и повтор с тем же `Idempotency-Key`
+ * отдаёт ответ без них. Вызывается обработчиком маршрута до ответа.
+ */
+export function omitFromIdempotentReplay(c: Context, fields: readonly string[]): void {
+  notReplayed.set(c, fields)
+}
+
+/**
+ * Тело для повтора без полей `fields`. Тело — не объект JSON: не сохраняется вовсе (null) —
+ * убрать из него секрет нельзя.
+ */
+function withoutFields(body: string, fields: readonly string[]): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(parsed).filter(([name]) => !fields.includes(name))),
+  )
 }
 
 /**
@@ -161,12 +195,14 @@ export function idempotency() {
       await db.deleteFrom('idempotency_record').where('id', '=', claimed).execute()
       return
     }
+    const body = await res.clone().text()
+    const omitted = notReplayed.get(c)
     await db
       .updateTable('idempotency_record')
       .set({
         response_status: res.status,
         response_content_type: res.headers.get('content-type'),
-        response_body: await res.clone().text(),
+        response_body: omitted ? withoutFields(body, omitted) : body,
       })
       .where('id', '=', claimed)
       .execute()
