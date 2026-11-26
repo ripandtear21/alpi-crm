@@ -228,6 +228,76 @@ describe('схема и изоляция проектов', () => {
       }
     })
 
+    it('откат 0023_note_api_key_author удаляет только заметки ключей, заметки пользователей остаются', async () => {
+      await sql`create database rollback_0023_check`.execute(owner)
+      const url = new URL(testDb.connectionString)
+      url.pathname = '/rollback_0023_check'
+      const scratch = createDb(url.href)
+      try {
+        await migrateToLatest(scratch)
+        await scratch
+          .insertInto('user')
+          .values({ id: 'author', name: 'Автор', email: 'author@example.test' })
+          .execute()
+        // Два проекта: в каждом контакт, заметка пользователя и заметка ключа.
+        const kept: string[] = []
+        const removed: string[] = []
+        for (const [n, code] of ['alpi', 'franch'].entries()) {
+          const { id: projectId } = await scratch
+            .insertInto('project')
+            .values({ code, name: code })
+            .returning('id')
+            .executeTakeFirstOrThrow()
+          const { id: apiKeyId } = await scratch
+            .insertInto('api_key')
+            .values({
+              project_id: projectId,
+              name: `Ключ ${n}`,
+              secret_hash: String(n).repeat(64),
+              secret_prefix: `prefix0${n}`,
+              created_by: 'author',
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow()
+          const { id: contactId } = await scratch
+            .insertInto('contact')
+            .values({
+              project_id: projectId,
+              first_name: 'Вигадана',
+              created_by_api_key_id: apiKeyId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow()
+          const note = (author: { author_id: string } | { author_api_key_id: string }) =>
+            scratch
+              .insertInto('note')
+              .values({ project_id: projectId, contact_id: contactId, text: 'Нотатка', ...author })
+              .returning('id')
+              .executeTakeFirstOrThrow()
+          kept.push((await note({ author_id: 'author' })).id)
+          removed.push((await note({ author_api_key_id: apiKeyId })).id)
+        }
+
+        // Откат ровно последней миграции — 0023.
+        const down = await createMigrator(scratch).migrateDown()
+        expect(down.error).toBeUndefined()
+        expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
+          ['0023_note_api_key_author', 'Down', 'Success'],
+        ])
+
+        const notes = await sql<{ id: string; author_id: string }>`
+          select id, author_id from note order by id
+        `.execute(scratch)
+        expect(notes.rows).toEqual([...kept].sort().map((id) => ({ id, author_id: 'author' })))
+        expect(removed).toHaveLength(2)
+        // Контакты, созданные ключом, откат не трогает — пропадает только колонка создателя-ключа.
+        const contacts = await sql<{ count: string }>`select count(*) from contact`.execute(scratch)
+        expect(contacts.rows[0]?.count).toBe('2')
+      } finally {
+        await scratch.destroy()
+      }
+    })
+
     it('external_link уникальна по (проект, тип, источник, внешний id)', async () => {
       await expect(
         owner

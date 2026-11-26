@@ -1,14 +1,16 @@
 import { can, type ProjectUser, type TeamSummary } from '@alpi/shared'
 import { OpenAPIHono, z } from '@hono/zod-openapi'
+import { createMiddleware } from 'hono/factory'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { IdSchema, jsonContent, keyRoute } from '../openapi/openapi.ts'
 import { listTeams } from '../teams/teams.ts'
 import { listMembers } from './service.ts'
 
 // Справочники участников и команд для ключа API и интеграций (тикет crm-api/04):
-// `GET /api/v1/users` и `GET /api/v1/teams`, только чтение, право «сделки: смотреть» —
-// автоматизации нужно назначать ответственных и понимать команды. Рядом с прежними `/members` и
-// `/teams` (управление участниками, только сессия; решено без владельца — подтвердить).
+// `GET /api/v1/users` и `GET /api/v1/teams`, только чтение. Ключу — по праву «сделки: смотреть»
+// (автоматизации нужно назначать ответственных и понимать команды), сессии — по «пользователи и
+// роли: смотреть», как прежние `/members` и `/teams` (управление участниками, только сессия;
+// решено без владельца — подтвердить).
 //
 // - Пользователь: id, имя, команда, активен ли. Email — только если у роли есть «пользователи и
 //   роли: смотреть» (персональные данные; решено без владельца — подтвердить). Пароли, 2FA и роли
@@ -44,7 +46,17 @@ const TeamSchema = z
   })
   .openapi('Team')
 
-const view = requirePermission('deals', 'view')
+const keyView = requirePermission('deals', 'view')
+const sessionView = requirePermission('users_roles', 'view')
+
+/**
+ * Ключу API справочник открыт по «сделки: смотреть». Сессии — по прежнему праву
+ * «пользователи и роли: смотреть», как у `/members` и `/teams`: иначе менеджер без этого права
+ * увидел бы всех участников и состав команд.
+ */
+const view = createMiddleware<PermissionsEnv>((c, next) =>
+  c.get('actor').type === 'api_key' ? keyView(c, next) : sessionView(c, next),
+)
 
 export const listUsersRoute = keyRoute({
   method: 'get',

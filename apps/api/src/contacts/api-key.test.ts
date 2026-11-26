@@ -354,6 +354,21 @@ describe('контакты, организации, заметки и справ
         { field: 'language', actor_id: null, actor_api_key_id: full.id },
         { field: 'lastName', actor_id: null, actor_api_key_id: full.id },
       ])
+      // Журнал проекта: каждый изменяющий запрос ключа — api_key.request с автором-ключом
+      // (middleware/project-context.ts, в той же транзакции).
+      const audit = await h.owner
+        .selectFrom('audit_log')
+        .select(['actor_id', 'details'])
+        .where('action', '=', 'api_key.request')
+        .where('actor_api_key_id', '=', full.id)
+        .execute()
+      expect(audit.map((a) => a.details)).toEqual(
+        expect.arrayContaining([
+          { method: 'POST', path: '/v1/contacts', status: 201 },
+          { method: 'PATCH', path: `/v1/contacts/${created.id}`, status: 200 },
+        ]),
+      )
+      expect(audit.every((a) => a.actor_id === null)).toBe(true)
       const invalid = await full.api('PATCH', `/v1/contacts/${created.id}`, {
         body: { phones: ['123'] },
       })
@@ -587,6 +602,22 @@ describe('контакты, организации, заметки и справ
           })
         ).status,
       ).toBe(403)
+      const keyNote = await json<NoteView>(
+        await full.api('POST', `/v1/contacts/${contactA}/notes`, {
+          body: { text: 'Видалить адміністратор' },
+        }),
+        201,
+      )
+      expect(
+        (
+          await admin.api('DELETE', `/v1/contacts/${contactA}/notes/${keyNote.id}`, {
+            project: projectA,
+          })
+        ).status,
+      ).toBe(204)
+      expect(
+        await h.owner.selectFrom('note').select('id').where('id', '=', keyNote.id).execute(),
+      ).toEqual([])
 
       const edited = await json<NoteView>(
         await full.api('PATCH', `/v1/contacts/${contactA}/notes/${created.id}`, {
@@ -713,7 +744,7 @@ describe('контакты, организации, заметки и справ
       ).toBe(team.id)
     })
 
-    it('email участников — только с «пользователи и роли: смотреть»; без «сделки: смотреть» — 403', async () => {
+    it('email участников — только с «пользователи и роли: смотреть»; без «сделки: смотреть» — 403; сессии без «пользователи и роли: смотреть» — 403', async () => {
       const users = await json<ProjectUser[]>(await noUsersView.api('GET', '/v1/users'))
       expect(users.length).toBeGreaterThan(0)
       for (const user of users) {
@@ -729,6 +760,14 @@ describe('контакты, организации, заметки и справ
         const res = await noDeals.api('GET', path)
         expect([path, res.status]).toEqual([path, 403])
         expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
+      }
+      // Сессии справочник участников и команд — по «пользователи и роли: смотреть», как
+      // /members и /teams: менеджер («сделки: смотреть» есть, этого права нет) — 403.
+      for (const path of ['/v1/users', '/v1/teams']) {
+        const res = await manager.api('GET', path, { project: projectA })
+        expect([path, res.status]).toEqual([path, 403])
+        expect(await problemOf(res)).toEqual({ code: 'PERMISSION_DENIED' })
+        expect((await admin.api('GET', path, { project: projectA })).status).toBe(200)
       }
       // Изменение справочников ключу не открыто.
       const change = await full.api('POST', '/v1/pipelines', { body: { name: 'Нова' } })
