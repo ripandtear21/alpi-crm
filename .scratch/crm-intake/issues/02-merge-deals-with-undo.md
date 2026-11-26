@@ -60,6 +60,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 - [ ] Экран: «Об'єднати з…», «Скасувати об'єднання», страница слитой сделки; тексты uk и ru; работает на 375 px.
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `gate fast` exit 0, `pnpm verify` exit 0 · windows - · a939724
+  - evidence: gate pass · `gate fast` exit 0, `pnpm verify` exit 0 · windows - · 58066a967e37f963706efeab6afb9f19d9865256
 
 ## Результат
 
