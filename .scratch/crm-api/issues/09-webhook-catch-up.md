@@ -42,8 +42,10 @@ apps/api/src/webhook-endpoints/** (запрос), apps/api/src/events/** (соз
   - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints/catch-up.test.ts` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
 - [ ] Кнопка на экране вебхуков работает; тексты есть в uk и ru.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks/webhooks-page.test.tsx` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/webhooks/webhooks-page.test.tsx` exit 0 · windows - · a5f3d7b030ab97f68b9b3e9079eb432af6674563
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · windows - · 85dc7058c78ee52f28d0ceeadedad52bc7805ad0
+  - evidence: gate pass · `gate fast` exit 0 · windows - · a5f3d7b030ab97f68b9b3e9079eb432af6674563
 
 ## Результат
 
@@ -54,7 +56,7 @@ apps/api/src/webhook-endpoints/** (запрос), apps/api/src/events/** (соз
 - Гонки: строка вебхука блокируется (`for update`) — второй «догнать», повтор и ручное отключение ждут конца транзакции. Рассылка нового события (`events/fanout.ts`) вставляет доставку с тем же `on conflict (event_id, endpoint_id) do nothing`: пару создаёт и ставит в очередь тот, кто вставил первым. Тест «гонка» запускает два «догнать» и рассылку пяти событий одновременно: пять доставок, пять отправок.
 - Журнал проекта: новое действие `webhook_endpoint.caught_up` (`packages/shared/src/audit.ts`), автор — пользователь, `details: { url, since, queued }`; на экране журнала — «Наздогнано події вебхука» / «Вебхук догнал события» и строка «адрес: події з <дата>, у черзі: N». Отказ в журнал не пишется.
 - Экран «Налаштування → Вебхуки», журнал доставок вебхука: поле «Події з дати» и кнопка «Наздогнати події з дати» под «Надіслати всі невдалі з дати», подсказка о границах, окно подтверждения, после — «У чергу поставлено подій: N.». У отключённого вебхука кнопка недоступна (подсказка «увімкніть його» — прежняя). Поле не даёт выбрать день раньше создания вебхука и старше 30 дней; в первый доступный день отправляется сама граница (время создания вебхука или «30 дней назад + минута»), а не начало дня — иначе API ответил бы 422. Текст подтверждения включения вебхука теперь называет эту кнопку.
-- Тесты: `apps/api/src/webhook-endpoints/catch-up.test.ts` (настоящие PostgreSQL и pg-boss, приёмник — локальный HTTP-сервер; каждый пункт «Done when» и гонка), `webhook-endpoints.test.ts` (новый маршрут в списке «без права — 403»), `apps/web/src/routes/settings/webhooks/webhooks-page.test.tsx` (дата, подтверждение и отмена, граница первого дня, отказ API, отключённый вебхук), `apps/web/src/routes/settings/audit-page.test.tsx` (строка журнала). Каждое правило проверено мутацией: убранный фильтр состояния, типа, даты, `on conflict`, проверки 422 и 409, запись в журнал и на экране — обрезка первого дня, недоступность у отключённого, окно подтверждения — делают тесты красными.
+- Тесты: `apps/api/src/webhook-endpoints/catch-up.test.ts` (настоящие PostgreSQL и pg-boss, приёмник — локальный HTTP-сервер; каждый пункт «Done when» и гонка), `webhook-endpoints.test.ts` (новый маршрут в списке «без права — 403»), `apps/web/src/routes/settings/webhooks/webhooks-page.test.tsx` (дата, подтверждение и отмена, граница первого дня — день создания и «30 дней назад» при остановленных часах, отказ API, отключённый вебхук), `apps/web/src/routes/settings/audit-page.test.tsx` (строка журнала). Каждое правило проверено мутацией: убранный фильтр состояния, типа, даты, `on conflict`, проверки 422 и 409, запись в журнал и на экране — обрезка первого дня, недоступность у отключённого, окно подтверждения — делают тесты красными.
 
 Решено без владельца — подтвердить:
 
