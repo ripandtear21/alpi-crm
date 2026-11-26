@@ -1,0 +1,88 @@
+/* Слияние сделок (тикет crm-intake/02): направление в окне подтверждения, предпросмотр,
+   список слияний в карточке и страница слитой сделки. На узком экране (375 px) — одна
+   колонка, длинные названия переносятся. */
+
+.deal-merge-direction {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+  margin: 0 0 var(--s-3);
+}
+
+.deal-merge-direction__side {
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  min-width: 0;
+}
+
+.deal-merge-direction__side dt {
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+}
+
+.deal-merge-direction__side dd {
+  margin: var(--s-1) 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.deal-merge-direction__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+
+.deal-merge-preview__title {
+  font-size: var(--fs-h3);
+  margin: var(--s-3) 0 var(--s-2);
+}
+
+.deal-merge-preview__list {
+  margin: 0 0 var(--s-3);
+  padding-left: 1.2em;
+  overflow-wrap: anywhere;
+}
+
+.deal-merge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.deal-merge-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  overflow-wrap: anywhere;
+}
+
+.deal-merge-notice {
+  padding: var(--s-4) var(--s-6);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+  overflow-wrap: anywhere;
+}
+
+.deal-merge-mark {
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+}
+
+@media (max-width: 480px) {
+  .deal-merge-direction {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .deal-merge-notice {
+    padding: var(--s-4);
+  }
+}

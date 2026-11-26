@@ -33,6 +33,7 @@ import { teamDirectoryRoutes, usersRoutes } from './members/directory.ts'
 import { membersRoutes } from './members/members.ts'
 import { OPEN_MEMBER_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
 import { memberTransferRoutes } from './members/transfer.ts'
+import { dealMergeRoutes, mergesRoutes } from './merge/deals.ts'
 import { apiKeyAuth } from './middleware/api-key.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
 import { projectContext } from './middleware/project-context.ts'
@@ -148,6 +149,9 @@ function v1Routes({
       .route('/saved-filters', savedFiltersRoutes())
       .route('/trash', trashRoutes())
       .route('/deals', dealsRoutes({ stageRequirements }))
+      // Слияние сделок с откатом (тикет crm-intake/02) и откат слияний: только по сессии.
+      .route('/deals', dealMergeRoutes())
+      .route('/merges', mergesRoutes())
       .route('/pipelines', pipelinesRoutes({ stageDeals }))
       // Агрегаты колонок канбана: /v1/pipelines/:id/aggregates (deals/board.ts).
       .route('/pipelines', pipelineAggregatesRoutes())

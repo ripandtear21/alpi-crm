@@ -17,9 +17,11 @@ import {
 } from './deal-card-api.ts'
 import type { DealCardModel } from './deal-card-page.tsx'
 import { ActionError, useCardErrorText } from './deal-errors.tsx'
+import { DealMerges } from './merge/undo-deal-merge.tsx'
 
 // Левая колонка карточки: поиск по полям, затем сворачиваемые блоки — «Заповніть» (важные
-// пустые поля), «Підсумок», «Деталі», группы пользовательских полей (тикет crm-fields/06),
+// пустые поля), «Підсумок», «Деталі», «Об'єднані угоди» (слияния за 30 дней с откатом, тикет
+// crm-intake/02; без слияний блока нет), группы пользовательских полей (тикет crm-fields/06),
 // «Контакт», «Організація», «Учасники», «Товари» и заглушки «Платежі» и «Реєстрації» до их
 // эпиков.
 
@@ -71,6 +73,12 @@ export function DealSidebar({ card }: { card: DealCardModel }) {
       <Block title={t('details.title')}>
         <Details card={card} matches={matches} />
       </Block>
+      <DealMerges
+        projectId={projectId}
+        dealId={deal.id}
+        canUndo={card.rights.edit}
+        onUndone={card.refresh}
+      />
       <CustomFieldGroups<DealCard>
         entity="deal"
         projectId={projectId}

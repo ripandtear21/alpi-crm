@@ -165,7 +165,9 @@ async function uploadFile(c: Ctx, type: EntityType, storage: FileStorage): Promi
   if (!name) return fail(c, refuse(400, 'INVALID_FILE', { path: 'name' }))
   const declared = c.req.header('content-length')
   if (declared !== undefined && Number(declared) > MAX_FILE_BYTES) return tooLarge(c)
-  const entity = await entityFor(c, type, c.req.param('id') ?? '', 'write')
+  // Вход — без блокировки строки сделки: поток тела (до 25 МБ) идёт долго, и FOR SHARE на всё
+  // это время держал бы правку, этапы, корзину и слияние сделки (FOR UPDATE).
+  const entity = await entityFor(c, type, c.req.param('id') ?? '', 'write', { lock: false })
   if (!entity.ok) return fail(c, entity)
   const body = c.req.raw.body
   if (!body) return fail(c, refuse(422, 'FILE_EMPTY'))
@@ -207,6 +209,15 @@ async function uploadFile(c: Ctx, type: EntityType, storage: FileStorage): Promi
   } catch (error) {
     if (error instanceof TooLarge) return tooLarge(c)
     throw error
+  }
+  // Повторная проверка с блокировкой FOR SHARE до конца транзакции — прямо перед записью строки:
+  // за время потока запись могли слить (тикет crm-intake/02), убрать в корзину или вывести из
+  // охвата. Слияние, начатое раньше, держит сделку FOR UPDATE — проверка ждёт его и получает
+  // 404, файл не остаётся у скрытой сделки.
+  const current = await entityFor(c, type, entity.value.id, 'write')
+  if (!current.ok) {
+    await storage.delete(key)
+    return fail(c, current)
   }
   try {
     await c

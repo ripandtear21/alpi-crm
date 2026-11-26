@@ -77,6 +77,18 @@ export const EVENT_CATALOG = {
     summary: 'Сделка возвращена из архива',
     facts: { deal_id: 'uuid' },
   },
+  'deal.merged': {
+    entity: 'deal',
+    summary:
+      'Две сделки объединены: deal_id — оставшаяся, merged_deal_id — слитая (скрыта, запрос по её id — 404 DEAL_MERGED)',
+    facts: { deal_id: 'uuid', merged_deal_id: 'uuid' },
+  },
+  'deal.unmerged': {
+    entity: 'deal',
+    summary:
+      'Слияние сделок отменено: merged_deal_id снова доступна, ей вернулось то, что перешло к deal_id',
+    facts: { deal_id: 'uuid', merged_deal_id: 'uuid' },
+  },
   'contact.created': {
     entity: 'contact',
     summary: 'Создан контакт',

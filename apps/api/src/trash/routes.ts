@@ -79,6 +79,8 @@ async function trashRows(
         .select(['deal.id', 'deal.title', 'deal.deleted_by'])
         .select(key.text.as('deleted_at'))
         .where('deal.deleted_at', 'is not', null)
+        // Слитая сделка скрыта и в корзине (тикет crm-intake/02).
+        .where('deal.merged_into_id', 'is', null)
         .where(dealInScope(sql.ref('deal.owner_id'), permissions.scopes.deals.read, viewer))
         .orderBy('deal.deleted_at', 'desc')
         .orderBy('deal.id', 'desc')

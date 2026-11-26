@@ -312,7 +312,8 @@ export const getDealRoute = keyRoute({
   path: '/{id}',
   tags: ['Сделки'],
   summary: 'Сделка',
-  description: 'Сделка вне охвата чтения отвечает 404, как несуществующая.',
+  description:
+    'Сделка вне охвата чтения отвечает 404, как несуществующая. Сделка, слитая с другой, — 404 DEAL_MERGED: `details.merged_into_id` — оставшаяся сделка (последняя в цепочке слияний), если она видна ключу, иначе 404 DEAL_NOT_FOUND.',
   middleware: [view],
   request: { params: IdParams },
   responses: dealResponse('Сделка'),

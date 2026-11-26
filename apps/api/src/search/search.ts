@@ -119,16 +119,20 @@ const CONTACT_NAME = sql`contact.first_name || ' ' || coalesce(contact.last_name
 
 export function dealsQuery(db: Kysely<Database>, query: SearchQuery, scope: Scope, viewer: Viewer) {
   if (query.kind !== 'text') return null
-  return db
-    .selectFrom('deal')
-    .select(['id', 'title', 'status', 'archived_at'])
-    .where('id', 'in', candidates('deal_search', textMatch(query)))
-    .where('deleted_at', 'is', null)
-    .where(dealInScope(sql.ref('deal.owner_id'), scope, viewer))
-    .orderBy(sql`word_similarity(${query.q}, title)`, 'desc')
-    .orderBy('title')
-    .orderBy('id')
-    .limit(GROUP_SIZE + 1)
+  return (
+    db
+      .selectFrom('deal')
+      .select(['id', 'title', 'status', 'archived_at'])
+      .where('id', 'in', candidates('deal_search', textMatch(query)))
+      .where('deleted_at', 'is', null)
+      // Слитая сделка скрыта (тикет crm-intake/02).
+      .where('merged_into_id', 'is', null)
+      .where(dealInScope(sql.ref('deal.owner_id'), scope, viewer))
+      .orderBy(sql`word_similarity(${query.q}, title)`, 'desc')
+      .orderBy('title')
+      .orderBy('id')
+      .limit(GROUP_SIZE + 1)
+  )
 }
 
 export function contactsQuery(

@@ -82,6 +82,8 @@ import {
   LOGGED_FIELDS,
   MAX_AMOUNT,
   MAX_TITLE_LENGTH,
+  mergedDealIds,
+  mergedDealRefusal,
   type OpenDealTarget,
   type Result,
   reloadDeal,
@@ -934,6 +936,7 @@ async function takeDeal(ctx: DealContext, id: string): Promise<Result<DealView>>
     .where('id', '=', id)
     .where('owner_id', 'is', null)
     .where('deleted_at', 'is', null)
+    .where('merged_into_id', 'is', null)
     .returning('id')
     .executeTakeFirst()
   if (!taken) {
@@ -944,6 +947,7 @@ async function takeDeal(ctx: DealContext, id: string): Promise<Result<DealView>>
       .select('id')
       .where('id', '=', id)
       .where('deleted_at', 'is', null)
+      .where('merged_into_id', 'is', null)
       .executeTakeFirst()
     return row ? refuse(409, 'DEAL_ALREADY_TAKEN') : refuse(404, 'DEAL_NOT_FOUND')
   }
@@ -1124,26 +1128,55 @@ export interface DealHistoryEntry {
   field: string
   before: unknown
   after: unknown
+  /**
+   * Запись истории сделки, слитой в эту (тикет crm-intake/02): экран помечает её «зі злитої
+   * угоди». null — своя запись.
+   */
+  mergedDealId: string | null
 }
 
-async function visibleDeal(ctx: DealContext, id: string): Promise<DealRow | undefined> {
-  const row = UUID.test(id) ? await findDeal(ctx, id, ctx.scope.read) : undefined
-  return row && row.deleted_at === null ? row : undefined
+/**
+ * Сделка для чтения: в охвате чтения, не в корзине. Слитая — 404 DEAL_MERGED с id оставшейся
+ * (deals/store.ts, mergedDealRefusal), иначе 404 DEAL_NOT_FOUND.
+ */
+async function visibleDeal(ctx: DealContext, id: string): Promise<Result<DealRow>> {
+  if (!UUID.test(id)) return refuse(404, 'DEAL_NOT_FOUND')
+  const row = await findDeal(ctx, id, ctx.scope.read)
+  if (row && row.deleted_at === null) return ok(row)
+  if (row) return refuse(404, 'DEAL_NOT_FOUND')
+  return (
+    (await mergedDealRefusal(ctx.db, id.toLowerCase(), ctx.scope.read, ctx.viewer)) ??
+    refuse(404, 'DEAL_NOT_FOUND')
+  )
 }
 
-/** История сделки: новые сверху, `?limit=` — 1…200, по умолчанию 50. */
+/**
+ * История сделки: новые сверху, `?limit=` — 1…200, по умолчанию 50. Вместе с историей сделок,
+ * слитых в эту (их строки change_log не переносятся): `mergedDealId` у таких записей.
+ */
 async function dealHistory(c: Ctx, ctx: DealContext, id: string) {
   const limit = readLimit(c.req.query('limit'))
   if (limit === undefined) return invalid('limit')
-  if (!(await visibleDeal(ctx, id))) return refuse(404, 'DEAL_NOT_FOUND')
+  const deal = await visibleDeal(ctx, id)
+  if (!deal.ok) return deal
+  const merged = await mergedDealIds(ctx.db, deal.value.id)
   // Изменения пользовательских полей — только тех, что роль видит (тикет crm-fields/03).
   const customFields = await visibleHistoryFields(ctx, 'deal')
   const rows = await ctx.db
     .selectFrom('change_log as l')
     .leftJoin('user as u', 'u.id', 'l.actor_id')
-    .select(['l.id', 'l.occurred_at', 'l.actor_id', 'u.name', 'l.field', 'l.before', 'l.after'])
+    .select([
+      'l.id',
+      'l.occurred_at',
+      'l.actor_id',
+      'u.name',
+      'l.field',
+      'l.before',
+      'l.after',
+      'l.entity_id',
+    ])
     .where('l.entity_type', '=', 'deal')
-    .where('l.entity_id', '=', id)
+    .where('l.entity_id', 'in', [deal.value.id, ...merged])
     .where((eb) =>
       eb.or([
         eb('l.field', 'not like', `${CUSTOM_HISTORY_PREFIX}%`),
@@ -1164,6 +1197,7 @@ async function dealHistory(c: Ctx, ctx: DealContext, id: string) {
         field: r.field,
         before: r.before,
         after: r.after,
+        mergedDealId: r.entity_id === deal.value.id ? null : r.entity_id,
       }),
     ),
   )
@@ -1210,8 +1244,8 @@ export function dealsRoutes({
     async (c) => {
       const ctx = await dealContext(c)
       const row = await visibleDeal(ctx, id(c))
-      if (!row) return typed(fail(c, refuse(404, 'DEAL_NOT_FOUND')))
-      return typed(c.json<DealView>(await dealView(ctx, row)))
+      if (!row.ok) return typed(fail(c, row))
+      return typed(c.json<DealView>(await dealView(ctx, row.value)))
     },
     dealInputHook,
   )

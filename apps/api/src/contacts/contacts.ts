@@ -389,6 +389,7 @@ async function openDealManager(db: Kysely<Database>, contactId: string): Promise
     .where('d.primary_contact_id', '=', contactId)
     .where('d.status', '=', 'open')
     .where('d.deleted_at', 'is', null)
+    .where('d.merged_into_id', 'is', null)
     .orderBy(sql`d.archived_at is null`, 'desc')
     .orderBy('d.created_at', 'desc')
     .limit(1)

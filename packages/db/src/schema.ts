@@ -430,6 +430,12 @@ export interface DealTable {
   /** Значения пользовательских полей по коду (migrations/0016_fields.ts): объект JSON. */
   custom: ColumnType<Record<string, unknown>, string | undefined, string>
   deleted_by: string | null
+  /**
+   * Сделка слита с этой (migrations/0026_merge.ts) и скрыта: нет в канбане, списке, поиске и
+   * корзине; запрос по id — 404 DEAL_MERGED. Вместе с `merged_at`.
+   */
+  merged_into_id: ColumnType<string | null, never, string | null>
+  merged_at: ColumnType<Date | string | null, never, Date | string | null>
 }
 
 /** Участник сделки с ролью; основной контакт сделки здесь не дублируется. */
@@ -801,6 +807,38 @@ export interface IntakeSourceTable {
   last_used_at: Date | null
 }
 
+/**
+ * Слияние двух записей (migrations/0026_merge.ts): контактов (тикет crm-intake/01), сделок
+ * (тикет crm-intake/02). Строка не удаляется; меняются только отметки отката.
+ */
+export interface MergeRecordTable {
+  id: Generated<string>
+  project_id: string
+  /** 'contact' | 'deal'. */
+  entity_type: string
+  survivor_id: string
+  merged_id: string
+  /** Слияние, в том же действии которого объединены и эти записи (сделки — тикет 04). */
+  parent_id: string | null
+  merged_by: string
+  merged_at: Timestamp
+  undo_until: Date | string
+  undone_by: string | null
+  undone_at: Date | string | null
+}
+
+/** Что перешло при слиянии: вид из реестра apps/api/src/merge, id записи, поле и значение. */
+export interface MergeMovedItemTable {
+  id: Generated<string>
+  project_id: string
+  merge_id: string
+  kind: string
+  item_id: string | null
+  field: string | null
+  /** JSON: читается значением, пишется строкой JSON. */
+  value: ColumnType<unknown, string | null, never>
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -847,4 +885,6 @@ export interface Database {
   webhook_delivery: WebhookDeliveryTable
   webhook_delivery_attempt: WebhookDeliveryAttemptTable
   intake_source: IntakeSourceTable
+  merge_record: MergeRecordTable
+  merge_moved_item: MergeMovedItemTable
 }

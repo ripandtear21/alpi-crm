@@ -105,6 +105,10 @@ export const PROJECT_AUDIT_ACTIONS = [
   'intake_source.key_reissued',
   'intake_source.disabled',
   'intake_source.enabled',
+  // Тикет crm-intake/02: слияние сделок с откатом (entity — оставшаяся сделка; details —
+  // mergeId, mergedDealId; у отката ещё — что пропущено).
+  'deal.merged',
+  'deal.unmerged',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 

@@ -66,13 +66,15 @@ export function entityCan(c: Ctx, type: EntityType, action: Action): boolean {
 /**
  * Запись `id` вида `type` для чтения (`need: 'read'`) или изменения (`'write'`). Право на действие
  * с частью системы проверяет requirePermission на маршруте; здесь — существование, корзина и
- * охват.
+ * охват. `lock: false` — проверка изменения без блокировки строки сделки: загрузка файла берёт
+ * её только перед записью строки файла, а не на весь поток тела (files.ts).
  */
 export async function entityFor(
   c: Ctx,
   type: EntityType,
   id: string,
   need: 'read' | 'write',
+  { lock = need === 'write' }: { lock?: boolean } = {},
 ): Promise<Outcome<EntityRef, EntityErrorCode>> {
   const notFound = refuse(404, NOT_FOUND[type])
   if (!UUID.test(id)) return notFound
@@ -92,13 +94,19 @@ export async function entityFor(
   const { permissions } = c.get('access')
   if (type === 'deal') {
     const scope = permissions.scopes.deals
-    const row = await db
+    // Слитая сделка скрыта (тикет crm-intake/02). Для изменения строка блокируется FOR SHARE
+    // до конца транзакции, как контакт в deals.ts (liveContact): одновременное слияние
+    // (FOR UPDATE обеих сделок) переносит только то, что нашло при планировании, — заметка или
+    // файл, добавленные к второй сделке во время слияния, ждут его и потом получают 404, а не
+    // остаются у скрытой сделки.
+    const query = db
       .selectFrom('deal')
       .select('owner_id')
       .where('id', '=', ref.id)
       .where('deleted_at', 'is', null)
+      .where('merged_into_id', 'is', null)
       .where(dealInScope(sql.ref('deal.owner_id'), scope.read, viewer))
-      .executeTakeFirst()
+    const row = await (lock ? query.forShare() : query).executeTakeFirst()
     if (!row) return notFound
     if (need === 'write' && !ownerAllowed(row.owner_id, scope.write, viewer)) {
       return refuse(403, 'PERMISSION_DENIED')

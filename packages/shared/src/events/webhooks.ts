@@ -48,6 +48,8 @@ export const EVENT_TYPE_TITLES: Record<EventType, { uk: string; ru: string }> = 
   },
   'deal.archived': { uk: 'Угоду архівовано', ru: 'Сделка архивирована' },
   'deal.unarchived': { uk: 'Угоду повернуто з архіву', ru: 'Сделка возвращена из архива' },
+  'deal.merged': { uk: "Угоди об'єднано", ru: 'Сделки объединены' },
+  'deal.unmerged': { uk: "Об'єднання угод скасовано", ru: 'Слияние сделок отменено' },
   'contact.created': { uk: 'Контакт створено', ru: 'Контакт создан' },
   'contact.possible_duplicate': {
     uk: 'Контакт позначено як можливий дубль',

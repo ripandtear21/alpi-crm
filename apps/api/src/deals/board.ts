@@ -205,8 +205,9 @@ async function readFilters(c: Ctx, ctx: DealContext): Promise<Result<DealFilters
 }
 
 /**
- * Условие WHERE выдачи: охват, не в корзине, фильтры и дополнительное условие `extra`. Одно на
- * канбан, список, агрегаты, счётчик, выгрузку и выбор массовой операции по фильтру.
+ * Условие WHERE выдачи: охват, не в корзине, не слита с другой (тикет crm-intake/02), фильтры и
+ * дополнительное условие `extra`. Одно на канбан, список, агрегаты, счётчик, выгрузку и выбор
+ * массовой операции по фильтру.
  */
 export function dealsWhere(
   eb: ExpressionBuilder<Database, 'deal'>,
@@ -216,6 +217,7 @@ export function dealsWhere(
 ): Expression<SqlBool> {
   const conditions: Expression<SqlBool>[] = [
     eb('deal.deleted_at', 'is', null),
+    eb('deal.merged_into_id', 'is', null),
     dealInScope(sql.ref('deal.owner_id'), ctx.scope.read, ctx.viewer),
   ]
   if (filters.pipelineId !== undefined) {

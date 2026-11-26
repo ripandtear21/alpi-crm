@@ -66,7 +66,7 @@ async function selectByFilter(
   return rows.map((row) => row.id)
 }
 
-/** Сделки из `ids`, которые инициатор может менять: охват изменения, не в корзине. */
+/** Сделки из `ids`, которые инициатор может менять: охват изменения, не в корзине, не слиты. */
 async function writable(
   trx: Transaction<Database>,
   ids: readonly string[],
@@ -78,6 +78,7 @@ async function writable(
     .select('id')
     .where('id', 'in', [...ids])
     .where('deleted_at', 'is', null)
+    .where('merged_into_id', 'is', null)
     .where(
       dealInScope(sql.ref('deal.owner_id'), ctx.access.permissions.scopes.deals.write, ctx.viewer),
     )
@@ -104,7 +105,10 @@ async function validateFilter(input: {
   return parsed.ok ? null : filterProblem(parsed.error)
 }
 
-/** Сделка под блокировкой до конца порции; в корзине (удалили, пока шла операция) — ошибка. */
+/**
+ * Сделка под блокировкой до конца порции; в корзине или слита с другой (пока шла операция) —
+ * ошибка.
+ */
 async function lockDeal(trx: Transaction<Database>, id: string) {
   const deal = await trx
     .selectFrom('deal')
@@ -119,11 +123,14 @@ async function lockDeal(trx: Transaction<Database>, id: string) {
       'archived_at',
       'deleted_at',
       'custom',
+      'merged_into_id',
     ])
     .where('id', '=', id)
     .forUpdate()
     .executeTakeFirst()
-  if (!deal || deal.deleted_at !== null) throw new BulkRecordError('DEAL_NOT_FOUND')
+  if (!deal || deal.deleted_at !== null || deal.merged_into_id !== null) {
+    throw new BulkRecordError('DEAL_NOT_FOUND')
+  }
   return { ...deal, id }
 }
 
@@ -189,6 +196,7 @@ export const unarchiveDeals: BulkAction = {
         .where('status', '=', 'open')
         .where('archived_at', 'is', null)
         .where('deleted_at', 'is', null)
+        .where('merged_into_id', 'is', null)
         .where('id', '<>', id)
         .executeTakeFirst()
       if (conflict) {

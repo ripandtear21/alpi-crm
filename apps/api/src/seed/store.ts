@@ -604,10 +604,15 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
       const ids = (rows: { id: string }[]) => rows.map((r) => r.id)
 
       // Сделка seed остаётся, если к ней руками добавили заметку, файл, строку товара или
-      // участника: иначе они ушли бы каскадом вместе со сделкой.
+      // участника: иначе они ушли бы каскадом вместе со сделкой. Сделка, в которую слита другая
+      // (тикет crm-intake/02), тоже остаётся: скрытая ссылается на неё без каскада
+      // (deal_merged_into_fkey), удаление сорвало бы сброс проекта.
       const deals = await sql<{ id: string }>`
         delete from deal d
         where d.project_id = ${pid} and ${marked('deal', 'd.id')} and ${notes('deal_id', 'd')}
+          and not exists (
+            select 1 from deal h where h.project_id = d.project_id and h.merged_into_id = d.id
+          )
           and not exists (
             select 1 from deal_product x where x.deal_id = d.id and not ${marked('deal_product', 'x.id')}
           )

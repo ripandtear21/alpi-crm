@@ -28,7 +28,8 @@
     "more": "Інші дії з угодою",
     "archive": "В архів",
     "unarchive": "З архіву",
-    "remove": "Видалити угоду"
+    "remove": "Видалити угоду",
+    "merge": "Об'єднати з…"
   },
   "stages": {
     "label": "Етапи воронки",
@@ -117,11 +118,15 @@
     "archivedAt": "Архів",
     "deletedAt": "Кошик",
     "participants": "Учасники",
-    "createdAt": "Створена"
+    "createdAt": "Створена",
+    "mergedDealId": "Об'єднано з угодою",
+    "mergedIntoId": "Об'єднано в угоду"
   },
   "changes": {
     "unknown": "(видалено)",
-    "record": "інший запис"
+    "record": "інший запис",
+    "deal": "інша угода",
+    "fromMerged": "зі злитої угоди"
   },
   "contact": {
     "title": "Контакт",
@@ -227,5 +232,85 @@
   "fill": {
     "stage": "Заповніть поля для етапу «{{stage}}»",
     "win": "Заповніть поля, щоб виграти угоду"
+  },
+  "merge": {
+    "title": "Об'єднати угоди",
+    "search": "Друга угода",
+    "searchPlaceholder": "Назва угоди",
+    "nothingFound": "Угод не знайдено",
+    "direction": "Що залишиться після об'єднання",
+    "keeps": "Залишиться",
+    "hides": "Буде прихована",
+    "swap": "Поміняти місцями",
+    "another": "Обрати іншу",
+    "previewLoading": "Рахуємо, що перейде…",
+    "previewTitle": "Що перейде",
+    "fills": "Заповниться: {{field}}",
+    "customField": "Поле {{code}}",
+    "products_one": "{{count}} рядок товарів",
+    "products_few": "{{count}} рядки товарів",
+    "products_many": "{{count}} рядків товарів",
+    "products_other": "{{count}} рядка товарів",
+    "participants_one": "{{count}} учасник",
+    "participants_few": "{{count}} учасники",
+    "participants_many": "{{count}} учасників",
+    "participants_other": "{{count}} учасника",
+    "notes_one": "{{count}} нотатка",
+    "notes_few": "{{count}} нотатки",
+    "notes_many": "{{count}} нотаток",
+    "notes_other": "{{count}} нотатки",
+    "files_one": "{{count}} файл",
+    "files_few": "{{count}} файли",
+    "files_many": "{{count}} файлів",
+    "files_other": "{{count}} файлу",
+    "primaryContact": "Контакт другої угоди стане учасником",
+    "converted_one": "{{count}} рядок товарів отримає ціну товару в {{currency}}.",
+    "converted_few": "{{count}} рядки товарів отримають ціну товару в {{currency}}.",
+    "converted_many": "{{count}} рядків товарів отримають ціну товару в {{currency}}.",
+    "converted_other": "{{count}} рядка товарів отримають ціну товару в {{currency}}.",
+    "keepsFields": "Заповнені поля угоди, що залишиться, не змінюються.",
+    "undoHint": "Об'єднання можна скасувати протягом 30 днів.",
+    "submit": "Об'єднати",
+    "listTitle": "Об'єднані угоди",
+    "listItem": "{{title}} — {{date}}, скасувати до {{until}}",
+    "mergedTitle": "Угоду об'єднано",
+    "mergedInto": "Цю угоду об'єднано з іншою:",
+    "survivorLink": "відкрити угоду",
+    "errors": {
+      "PERMISSION_DENIED": "Немає права на цю дію.",
+      "INVALID_MERGE": "Оберіть угоду для об'єднання.",
+      "DEAL_NOT_FOUND": "Угоду не знайдено.",
+      "DEAL_MERGED": "Угоду вже об'єднано з іншою.",
+      "MERGE_SAME_DEAL": "Угоду не можна об'єднати саму з собою.",
+      "MERGE_NOT_FOUND": "Об'єднання не знайдено.",
+      "MERGE_ALREADY_UNDONE": "Об'єднання вже скасовано.",
+      "MERGE_UNDO_EXPIRED": "Минуло 30 днів — об'єднання вже не скасувати.",
+      "MERGE_UNDO_BLOCKED": "Спершу скасуйте пізніше об'єднання з цими угодами.",
+      "MERGE_UNDO_SURVIVOR_TRASHED": "Угода, що залишилася, у кошику — спершу поверніть її.",
+      "MERGE_UNDO_DEAL_CONFLICT": "У контакту вже є відкрита угода в цій воронці — спершу закрийте її.",
+      "CONTACT_IN_TRASH": "Контакт прихованої угоди у кошику — спершу поверніть його.",
+      "STAGE_DELETED": "Етап прихованої угоди видалено — скасувати не вийде."
+    },
+    "undo": {
+      "action": "Скасувати об'єднання",
+      "title": "Скасувати об'єднання?",
+      "text": "«{{title}}» знову стане окремою угодою з тим, що до неї перейшло.",
+      "textUnknown": "Прихована угода знову стане окремою з тим, що до неї перейшло.",
+      "submit": "Скасувати об'єднання",
+      "doneTitle": "Об'єднання скасовано",
+      "done": "«{{title}}» знову окрема угода.",
+      "close": "Закрити",
+      "skippedTitle": "Не повернулося:",
+      "fieldChanged": "{{field}} — змінено після об'єднання, залишено як є",
+      "gone": "{{what}} — видалено",
+      "changed": "{{what}} — змінено після об'єднання",
+      "kinds": {
+        "deal_product": "Рядок товарів",
+        "deal_participant": "Учасник",
+        "primary_participant": "Контакт другої угоди",
+        "note": "Нотатка",
+        "file": "Файл"
+      }
+    }
   }
 }

@@ -16,7 +16,7 @@ export interface StageDealsChecker {
   hasOpenDeals(db: Kysely<Database>, stageId: string): Promise<boolean>
 }
 
-/** Открытые сделки этапа — по таблице deal, в том числе в архиве и в корзине. */
+/** Открытые сделки этапа — по таблице deal, в том числе в архиве и в корзине, кроме слитых. */
 export const OPEN_STAGE_DEALS: StageDealsChecker = {
   async hasOpenDeals(db, stageId) {
     const row = await db
@@ -24,6 +24,9 @@ export const OPEN_STAGE_DEALS: StageDealsChecker = {
       .select('id')
       .where('stage_id', '=', stageId)
       .where('status', '=', 'open')
+      // Слитая сделка скрыта и этап не держит (тикет crm-intake/02): откат слияния открытой
+      // сделки с удалённого этапа отвечает 409 STAGE_DELETED (apps/api/src/merge/deals.ts).
+      .where('merged_into_id', 'is', null)
       .limit(1)
       .executeTakeFirst()
     return row !== undefined

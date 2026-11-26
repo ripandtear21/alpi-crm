@@ -736,4 +736,63 @@ describe('pnpm seed', () => {
     },
     SLOW,
   )
+
+  it(
+    '--reset оставляет сделку seed, в которую слили ручную сделку, — сброс проекта не срывается',
+    async () => {
+      const alpi = await projectId('alpi')
+      if (!alpi) throw new Error('нет проекта')
+      const survivor = await h.owner
+        .selectFrom('deal as d')
+        .innerJoin('external_link as l', (join) =>
+          join.on('l.entity_type', '=', 'deal').on(sql<SqlBool>`l.entity_id = d.id::text`),
+        )
+        .select(['d.id', 'd.pipeline_id', 'd.stage_id', 'd.primary_contact_id'])
+        .where('d.project_id', '=', alpi)
+        .orderBy('d.id')
+        .executeTakeFirstOrThrow()
+      const handContact = await h.owner
+        .insertInto('contact')
+        .values({ project_id: alpi, first_name: 'Злитий' })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      // Ручная сделка, слитая в сделку seed (тикет crm-intake/02): скрыта, ссылается на неё.
+      const hidden = await h.owner
+        .insertInto('deal')
+        .values({
+          project_id: alpi,
+          title: 'Ручна злита',
+          pipeline_id: survivor.pipeline_id,
+          stage_id: survivor.stage_id,
+          primary_contact_id: handContact.id,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      await h.owner
+        .updateTable('deal')
+        .set({ merged_into_id: survivor.id, merged_at: new Date() })
+        .where('id', '=', hidden.id)
+        .execute()
+
+      const log: string[] = []
+      const loud = { log: (m: string) => log.push(m), error: (m: string) => log.push(m) }
+      expect(await runSeed({ ...deps, out: loud }, ['--reset'])).toBe(0)
+
+      expect(await projectId('alpi')).toBe(alpi)
+      const deals = await h.owner
+        .selectFrom('deal')
+        .select(['id', 'merged_into_id'])
+        .where('project_id', '=', alpi)
+        .execute()
+      expect(deals).toHaveLength(2)
+      expect(deals).toEqual(
+        expect.arrayContaining([
+          { id: survivor.id, merged_into_id: null },
+          { id: hidden.id, merged_into_id: survivor.id },
+        ]),
+      )
+      expect(log.join('\n')).toMatch(/Оставлены записи seed[^\n]*сделок 1/)
+    },
+    SLOW,
+  )
 })
