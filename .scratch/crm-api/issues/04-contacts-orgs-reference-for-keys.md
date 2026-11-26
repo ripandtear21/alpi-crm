@@ -41,12 +41,14 @@ apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, 
   - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест прав: без «контакты: создавать / изменять» — 403; без «сделки: смотреть» — 403 на справочники; email участников без «пользователи и роли: смотреть» в ответе отсутствует.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
 - [ ] Тест поиска: `067 123 45 67`, `+380671234567` и `(067) 123-45-67` находят один и тот же выдуманный контакт; email в другом регистре — тоже; контакт вне охвата — ответ «чужой клиент» без имени, телефона и email.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест создания ключом: совпадение по телефону — 409 со ссылкой; только по email — контакт с пометкой «возможный дубль».
   - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест заметок: ключ создаёт заметку, автор — ключ; изменить или удалить чужую заметку — 403; свою — проходит.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
 - [ ] Тест: удаление контакта и организации по ключу — 403 `API_KEY_NOT_ALLOWED`.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Описание OpenAPI содержит все маршруты тикета с выдуманными примерами.
@@ -54,6 +56,8 @@ apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, 
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
   - evidence: gate pass · `gate fast` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
+  - evidence: gate pass · `gate fast` exit 0 · windows - · e1fd16cf64d869ef812bf490efc49ce8e654338c
 
 ## Результат
 
