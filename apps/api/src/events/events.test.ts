@@ -606,10 +606,12 @@ describe('события', () => {
         'deal.archived',
         'deal.created',
         'deal.lost',
+        'deal.merged',
         'deal.owner_changed',
         'deal.reopened',
         'deal.stage_changed',
         'deal.unarchived',
+        'deal.unmerged',
         'deal.won',
       ].sort(),
     )

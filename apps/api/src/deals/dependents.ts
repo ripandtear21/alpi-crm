@@ -18,6 +18,10 @@ import { ownerAllowed } from './scope.ts'
 // основного контакта сделки не бывает), — и удалённые вместе с ним, и удалённые раньше
 // отдельно, вместе с их историей. Из сделок, где он участник, он убирается с записью в их
 // историю (иначе его убрал бы каскад внешнего ключа без следа).
+//
+// Сделки, слитые с другими (тикет crm-intake/02), скрыты: в корзину с контактом не уходят и
+// из неё не возвращаются. Окончательное удаление контакта стирает и их (без основного контакта
+// сделки не бывает) — вместе с записями их слияний, так что откатить такое слияние уже нельзя.
 
 const iso = (value: Date | string) => new Date(value).toISOString()
 
@@ -56,6 +60,7 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
       .select('id')
       .where('primary_contact_id', '=', contactId)
       .where('deleted_at', 'is', null)
+      .where('merged_into_id', 'is', null)
       .orderBy('id')
       .forUpdate()
       .execute()
@@ -64,6 +69,7 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
       .select(['id', 'title', 'owner_id'])
       .where('primary_contact_id', '=', contactId)
       .where('deleted_at', 'is', null)
+      .where('merged_into_id', 'is', null)
       .orderBy('created_at')
       .orderBy('id')
       .execute()
@@ -84,6 +90,7 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
       })
       .where('primary_contact_id', '=', contactId)
       .where('deleted_at', 'is', null)
+      .where('merged_into_id', 'is', null)
       .returning(['id', 'deleted_at'])
       .execute()
     for (const deal of trashed) {
@@ -98,6 +105,7 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
       .selectFrom('deal')
       .select(['id', 'deleted_at', 'owner_id'])
       .where('primary_contact_id', '=', contactId)
+      .where('merged_into_id', 'is', null)
       .where(
         'deleted_at',
         '=',
@@ -161,14 +169,25 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
       .execute()
     const deals = await actor.db
       .selectFrom('deal')
-      .select(['id', 'owner_id'])
+      .select(['id', 'owner_id', 'merged_into_id'])
       .where('primary_contact_id', '=', contactId)
       .orderBy('id')
       .forUpdate()
       .execute()
     if (deals.length > 0 && !deletable(actor, deals)) return { code: 'PERMISSION_DENIED' }
-    for (const deal of deals) {
-      await purgeFromTrash(actor, { type: 'deal', id: deal.id })
+    // Сначала сделки в корзине: каждая уносит и слитые в неё. Потом скрытые сделки контакта,
+    // слитые в чужие сделки, — те, что ещё остались.
+    const ordered = [
+      ...deals.filter((deal) => deal.merged_into_id === null),
+      ...deals.filter((deal) => deal.merged_into_id !== null),
+    ]
+    for (const deal of ordered) {
+      const left = await actor.db
+        .selectFrom('deal')
+        .select('id')
+        .where('id', '=', deal.id)
+        .executeTakeFirst()
+      if (left) await purgeFromTrash(actor, { type: 'deal', id: deal.id })
     }
     // Сделки, где контакт участник: строки сделок блокируются (как при изменении участников в
     // deals.ts), чтобы «было» в истории не устарело до записи.

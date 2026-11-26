@@ -41,7 +41,8 @@ export function readTransferParams(params: Record<string, unknown>): TransferPar
 
 /**
  * Открытые сделки ответственного `ownerId` в текущем проекте (`db` — транзакция проекта):
- * статус open, в том числе архивные (архив — отметка, а не статус), без удалённых в корзину.
+ * статус open, в том числе архивные (архив — отметка, а не статус), без удалённых в корзину и
+ * слитых с другой сделкой (тикет crm-intake/02: скрытая сделка не мешает отключить участника).
  */
 export function openDealsOf(db: Kysely<Database>, ownerId: string) {
   return db
@@ -49,6 +50,7 @@ export function openDealsOf(db: Kysely<Database>, ownerId: string) {
     .where('owner_id', '=', ownerId)
     .where('status', '=', 'open')
     .where('deleted_at', 'is', null)
+    .where('merged_into_id', 'is', null)
 }
 
 function params(ctx: { params: Record<string, unknown> }): TransferParams {
@@ -111,13 +113,19 @@ export const transferDeals: BulkAction = {
         'lost_reason_id',
         'archived_at',
         'deleted_at',
+        'merged_into_id',
       ])
       .where('id', '=', id)
       .forUpdate()
       .executeTakeFirst()
     // Пока операция шла, сделку закрыли, удалили или уже передали другому: у участника её
     // больше нет — делать нечего, чужую передачу не перебиваем.
-    if (deal?.status !== 'open' || deal.deleted_at !== null || deal.owner_id !== fromUserId) {
+    if (
+      deal?.status !== 'open' ||
+      deal.deleted_at !== null ||
+      deal.merged_into_id !== null ||
+      deal.owner_id !== fromUserId
+    ) {
       return
     }
     if (toUserId !== null) {

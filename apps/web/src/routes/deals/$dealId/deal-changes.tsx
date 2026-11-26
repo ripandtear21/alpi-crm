@@ -6,6 +6,9 @@ import type { TimelineItem } from '../../../components/timeline/timeline-api.ts'
 // Строка «було → стало» в ленте сделки: поле — подписью карточки, id этапа, воронки, причины и
 // ответственного — названиями, даты и суммы — по языку интерфейса. Поле, которого карточка не
 // знает, показывается как есть.
+//
+// Изменения сделки, слитой в эту (тикет crm-intake/02), лента оставшейся показывает с пометкой
+// «зі злитої угоди»: API отдаёт их с `change.mergedDealId`.
 
 type Change = NonNullable<TimelineItem['change']>
 
@@ -26,6 +29,8 @@ const KNOWN_FIELDS = [
   'archivedAt',
   'deletedAt',
   'participants',
+  'mergedDealId',
+  'mergedIntoId',
 ] as const
 type KnownField = (typeof KNOWN_FIELDS)[number]
 
@@ -85,6 +90,9 @@ export function useDescribeChange({
       case 'primaryContactId':
       case 'organizationId':
         return t('changes.record')
+      case 'mergedDealId':
+      case 'mergedIntoId':
+        return t('changes.deal')
       default:
         return text
     }
@@ -106,4 +114,26 @@ export function useDescribeChange({
       </>
     )
   }
+}
+
+/** id сделки, слитой в эту, из изменения которой строка; null — своё изменение. */
+function mergedFrom(change: Change): string | null {
+  // Поле ленты сделки (apps/api/src/timeline/timeline.ts); общий тип ленты его не описывает.
+  const id = (change as Change & { mergedDealId?: unknown }).mergedDealId
+  return typeof id === 'string' ? id : null
+}
+
+/** Строка изменения с пометкой «зі злитої угоди», если изменение — слитой сделки. */
+export function withMergedMark(change: Change, text: ReactNode): ReactNode {
+  if (mergedFrom(change) === null) return text
+  return (
+    <>
+      {text} <MergedMark />
+    </>
+  )
+}
+
+function MergedMark() {
+  const { t } = useTranslation('deal-card')
+  return <span className="deal-merge-mark">({t('changes.fromMerged')})</span>
 }

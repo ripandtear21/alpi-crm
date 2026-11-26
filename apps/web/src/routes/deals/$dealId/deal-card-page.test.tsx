@@ -32,6 +32,12 @@ import {
   UPSELL_PIPELINE_ID,
   USER_ID,
 } from './fake-deal-card-api.ts'
+import { DealMergesApiError, DealMergesApiProvider } from './merge/deal-merges-api.tsx'
+import {
+  type FakeDealMergesApi,
+  fakeDealMergesApi,
+  sampleDealMerge,
+} from './merge/fake-deal-merges-api.ts'
 
 // Карточка сделки в настоящем дереве маршрутов: вошедший пользователь user-1 «Власник»,
 // подставные API сделки и ленты.
@@ -83,6 +89,7 @@ async function renderCard({
   kanban = fakeDealsApi(),
   path = `/p/alpi/deals/${dealId}`,
   fields = fakeCustomFieldsApi(),
+  merges = fakeDealMergesApi({ cards: api }),
 }: {
   api?: FakeDealCardApi
   timeline?: FakeTimelineApi
@@ -92,6 +99,8 @@ async function renderCard({
   path?: string
   /** Пользовательские поля (тикет crm-fields/06); по умолчанию — ни одного. */
   fields?: FakeCustomFieldsApi
+  /** Слияние сделок (тикет crm-intake/02); по умолчанию — над сделками `api`. */
+  merges?: FakeDealMergesApi
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -107,13 +116,15 @@ async function renderCard({
     <I18nextProvider i18n={createI18n('uk')}>
       <QueryClientProvider client={queryClient}>
         <CustomFieldsApiProvider api={fields}>
-          <RouterProvider router={router} />
+          <DealMergesApiProvider api={merges}>
+            <RouterProvider router={router} />
+          </DealMergesApiProvider>
         </CustomFieldsApiProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )
   await screen.findByRole('heading', { level: 1 })
-  return { api, timeline, router }
+  return { api, timeline, router, merges }
 }
 
 const historyList = () => screen.findByRole('list', { name: 'Історія' })
@@ -375,7 +386,7 @@ describe('карточка сделки: права', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
-    ).toEqual(['В архів'])
+    ).toEqual(['В архів', "Об'єднати з…"])
     // Свою заметку менеджер удаляет, чужую — нет.
     const notes = within(await historyList()).getAllByRole('article', { name: 'Нотатка' })
     const own = notes.find((note) => note.textContent?.includes('Своя нотатка'))
@@ -695,5 +706,157 @@ describe('карточка сделки: пользовательские пол
         'Зручний час: Ранок → Вечір',
       ),
     )
+  })
+})
+
+describe('карточка сделки: слияние (тикет crm-intake/02)', () => {
+  const SECOND_ID = '00000000-0000-4000-9200-0000000000b2'
+  const SECOND = 'Петро — консультація'
+  const twoDeals = () =>
+    fakeDealCardApi({ deals: [sampleDeal(), sampleDeal({ id: SECOND_ID, title: SECOND })] })
+
+  async function openMergeDialog() {
+    fireEvent.click(screen.getByRole('button', { name: 'Інші дії з угодою' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: "Об'єднати з…" }))
+    const dialog = await screen.findByRole('dialog', { name: "Об'єднати угоди" })
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Друга угода' }), {
+      target: { value: 'Петро' },
+    })
+    fireEvent.mouseDown(await within(dialog).findByRole('option', { name: new RegExp(SECOND) }))
+    return dialog
+  }
+
+  it("«Об'єднати з…»: направление, «Поміняти місцями», предпросмотр, отказ, слияние и откат из списка", async () => {
+    const api = twoDeals()
+    const merges = fakeDealMergesApi({
+      cards: api,
+      preview: {
+        notes: 2,
+        fields: [{ field: 'amount', value: { amount: 300, currency: 'EUR' } }],
+        convertedProducts: 1,
+      },
+    })
+    await renderCard({ api, merges })
+    const dialog = await openMergeDialog()
+    const direction = () =>
+      within(dialog).getByLabelText("Що залишиться після об'єднання").textContent
+    expect(direction()).toBe(`Залишиться${TITLE}Буде прихована${SECOND}`)
+    const preview = await within(dialog).findByRole('region', { name: 'Що перейде' })
+    expect(
+      within(preview)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Заповниться: Сума: 300 EUR',
+      '0 рядків товарів',
+      '0 учасників',
+      '2 нотатки',
+      '0 файлів',
+    ])
+    expect(within(preview).getByRole('status').textContent).toBe(
+      '1 рядок товарів отримає ціну товару в EUR.',
+    )
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Поміняти місцями' }))
+    expect(direction()).toBe(`Залишиться${SECOND}Буде прихована${TITLE}`)
+    await waitFor(() => expect(merges.calls).toContain(`preview ${SECOND_ID} ${DEAL_ID}`))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Поміняти місцями' }))
+    await within(dialog).findByRole('region', { name: 'Що перейде' })
+
+    merges.fail = new DealMergesApiError(404, 'DEAL_MERGED')
+    fireEvent.click(within(dialog).getByRole('button', { name: "Об'єднати" }))
+    expect((await within(dialog).findByRole('alert')).textContent).toBe(
+      "Угоду вже об'єднано з іншою.",
+    )
+    fireEvent.click(within(dialog).getByRole('button', { name: "Об'єднати" }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(merges.calls.filter((call) => call.startsWith('merge '))).toEqual([
+      `merge ${DEAL_ID} ${SECOND_ID}`,
+      `merge ${DEAL_ID} ${SECOND_ID}`,
+    ])
+
+    const list = await screen.findByRole('region', { name: "Об'єднані угоди" })
+    expect(within(list).getByRole('listitem').textContent).toContain(SECOND)
+    merges.skipped = [
+      { kind: 'note', itemId: 'n-1', field: null, value: null, reason: 'gone' },
+      { kind: 'field', itemId: null, field: 'amount', value: 300, reason: 'changed' },
+    ]
+    fireEvent.click(within(list).getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    expect(confirm.textContent).toContain(`«${SECOND}» знову стане окремою угодою`)
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    const done = await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    expect(within(done).getByRole('status').textContent).toBe(`«${SECOND}» знову окрема угода.`)
+    expect(
+      within(within(done).getByRole('list', { name: 'Не повернулося:' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Нотатка — видалено', "Сума — змінено після об'єднання, залишено як є"])
+    fireEvent.click(within(done).getAllByRole('button', { name: 'Закрити' }).at(-1) as HTMLElement)
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: "Об'єднані угоди" })).toBeNull(),
+    )
+  })
+
+  it('слияние, где остаётся вторая сделка, ведёт в её карточку', async () => {
+    const api = twoDeals()
+    const { merges } = await renderCard({ api })
+    const dialog = await openMergeDialog()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Поміняти місцями' }))
+    await within(dialog).findByRole('region', { name: 'Що перейде' })
+    fireEvent.click(within(dialog).getByRole('button', { name: "Об'єднати" }))
+    await screen.findByRole('heading', { level: 1, name: SECOND })
+    expect(merges.calls).toContain(`merge ${SECOND_ID} ${DEAL_ID}`)
+  })
+
+  it("ссылка на слитую сделку: «Угоду об'єднано» со ссылкой на оставшуюся и откатом", async () => {
+    const api = twoDeals()
+    const merges = fakeDealMergesApi({ cards: api })
+    await merges.merge('p', DEAL_ID, SECOND_ID)
+    await renderCard({ api, merges, dealId: SECOND_ID })
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe("Угоду об'єднано")
+    const link = await screen.findByRole('link', { name: TITLE })
+    expect(link.getAttribute('href')).toBe(`/p/alpi/deals/${DEAL_ID}`)
+
+    fireEvent.click(screen.getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    const done = await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    fireEvent.click(within(done).getAllByRole('button', { name: 'Закрити' }).at(-1) as HTMLElement)
+    await screen.findByRole('heading', { level: 1, name: SECOND })
+  })
+
+  it('срок отката прошёл — на странице слитой сделки кнопки отката нет', async () => {
+    const api = twoDeals()
+    api.mergedInto[SECOND_ID] = {
+      merged_into_id: DEAL_ID,
+      merge_id: sampleDealMerge().id,
+      undo_until: '2020-01-01T00:00:00.000Z',
+    }
+    await renderCard({ api, dealId: SECOND_ID })
+    await screen.findByRole('link', { name: TITLE })
+    expect(screen.queryByRole('button', { name: "Скасувати об'єднання" })).toBeNull()
+  })
+
+  it('изменения слитой сделки в ленте оставшейся — с пометкой «зі злитої угоди»', async () => {
+    const merged: TimelineItem = {
+      kind: 'change',
+      id: '00000000-0000-4000-9300-100000000009',
+      occurredAt: '2026-11-06T10:00:00.000Z',
+      actorId: USER_ID,
+      actorName: 'Власник',
+      change: {
+        field: 'title',
+        before: 'Стара',
+        after: 'Нова',
+        mergedDealId: SECOND_ID,
+      } as NonNullable<TimelineItem['change']>,
+    }
+    await renderCard({ timeline: fakeTimelineApi([...timelineItems(), merged]) })
+    const all = await historyList()
+    await waitFor(() => expect(within(all).getAllByRole('listitem')).toHaveLength(5))
+    const marks = within(all).getAllByText('(зі злитої угоди)')
+    expect(marks).toHaveLength(1)
+    expect(marks[0]?.parentElement?.textContent).toContain('Назва: Стара → Нова (зі злитої угоди)')
   })
 })

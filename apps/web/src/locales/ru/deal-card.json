@@ -28,7 +28,8 @@
     "more": "Другие действия со сделкой",
     "archive": "В архив",
     "unarchive": "Из архива",
-    "remove": "Удалить сделку"
+    "remove": "Удалить сделку",
+    "merge": "Объединить с…"
   },
   "stages": {
     "label": "Этапы воронки",
@@ -117,11 +118,15 @@
     "archivedAt": "Архив",
     "deletedAt": "Корзина",
     "participants": "Участники",
-    "createdAt": "Создана"
+    "createdAt": "Создана",
+    "mergedDealId": "Объединена со сделкой",
+    "mergedIntoId": "Объединена в сделку"
   },
   "changes": {
     "unknown": "(удалено)",
-    "record": "другая запись"
+    "record": "другая запись",
+    "deal": "другая сделка",
+    "fromMerged": "из слитой сделки"
   },
   "contact": {
     "title": "Контакт",
@@ -227,5 +232,85 @@
   "fill": {
     "stage": "Заполните поля для этапа «{{stage}}»",
     "win": "Заполните поля, чтобы выиграть сделку"
+  },
+  "merge": {
+    "title": "Объединить сделки",
+    "search": "Вторая сделка",
+    "searchPlaceholder": "Название сделки",
+    "nothingFound": "Сделок не найдено",
+    "direction": "Что останется после объединения",
+    "keeps": "Останется",
+    "hides": "Будет скрыта",
+    "swap": "Поменять местами",
+    "another": "Выбрать другую",
+    "previewLoading": "Считаем, что перейдёт…",
+    "previewTitle": "Что перейдёт",
+    "fills": "Заполнится: {{field}}",
+    "customField": "Поле {{code}}",
+    "products_one": "{{count}} строка товаров",
+    "products_few": "{{count}} строки товаров",
+    "products_many": "{{count}} строк товаров",
+    "products_other": "{{count}} строки товаров",
+    "participants_one": "{{count}} участник",
+    "participants_few": "{{count}} участника",
+    "participants_many": "{{count}} участников",
+    "participants_other": "{{count}} участника",
+    "notes_one": "{{count}} заметка",
+    "notes_few": "{{count}} заметки",
+    "notes_many": "{{count}} заметок",
+    "notes_other": "{{count}} заметки",
+    "files_one": "{{count}} файл",
+    "files_few": "{{count}} файла",
+    "files_many": "{{count}} файлов",
+    "files_other": "{{count}} файла",
+    "primaryContact": "Контакт второй сделки станет участником",
+    "converted_one": "{{count}} строка товаров получит цену товара в {{currency}}.",
+    "converted_few": "{{count}} строки товаров получат цену товара в {{currency}}.",
+    "converted_many": "{{count}} строк товаров получат цену товара в {{currency}}.",
+    "converted_other": "{{count}} строки товаров получат цену товара в {{currency}}.",
+    "keepsFields": "Заполненные поля остающейся сделки не меняются.",
+    "undoHint": "Объединение можно отменить в течение 30 дней.",
+    "submit": "Объединить",
+    "listTitle": "Объединённые сделки",
+    "listItem": "{{title}} — {{date}}, отменить до {{until}}",
+    "mergedTitle": "Сделка объединена",
+    "mergedInto": "Эта сделка объединена с другой:",
+    "survivorLink": "открыть сделку",
+    "errors": {
+      "PERMISSION_DENIED": "Нет права на это действие.",
+      "INVALID_MERGE": "Выберите сделку для объединения.",
+      "DEAL_NOT_FOUND": "Сделка не найдена.",
+      "DEAL_MERGED": "Сделка уже объединена с другой.",
+      "MERGE_SAME_DEAL": "Сделку нельзя объединить саму с собой.",
+      "MERGE_NOT_FOUND": "Объединение не найдено.",
+      "MERGE_ALREADY_UNDONE": "Объединение уже отменено.",
+      "MERGE_UNDO_EXPIRED": "Прошло 30 дней — объединение уже не отменить.",
+      "MERGE_UNDO_BLOCKED": "Сначала отмените более позднее объединение с этими сделками.",
+      "MERGE_UNDO_SURVIVOR_TRASHED": "Оставшаяся сделка в корзине — сначала верните её.",
+      "MERGE_UNDO_DEAL_CONFLICT": "У контакта уже есть открытая сделка в этой воронке — сначала закройте её.",
+      "CONTACT_IN_TRASH": "Контакт скрытой сделки в корзине — сначала верните его.",
+      "STAGE_DELETED": "Этап скрытой сделки удалён — отменить не получится."
+    },
+    "undo": {
+      "action": "Отменить объединение",
+      "title": "Отменить объединение?",
+      "text": "«{{title}}» снова станет отдельной сделкой с тем, что к ней перешло.",
+      "textUnknown": "Скрытая сделка снова станет отдельной с тем, что к ней перешло.",
+      "submit": "Отменить объединение",
+      "doneTitle": "Объединение отменено",
+      "done": "«{{title}}» снова отдельная сделка.",
+      "close": "Закрыть",
+      "skippedTitle": "Не вернулось:",
+      "fieldChanged": "{{field}} — изменено после объединения, оставлено как есть",
+      "gone": "{{what}} — удалено",
+      "changed": "{{what}} — изменено после объединения",
+      "kinds": {
+        "deal_product": "Строка товаров",
+        "deal_participant": "Участник",
+        "primary_participant": "Контакт второй сделки",
+        "note": "Заметка",
+        "file": "Файл"
+      }
+    }
   }
 }

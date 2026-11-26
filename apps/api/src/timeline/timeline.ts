@@ -3,6 +3,7 @@ import { OpenAPIHono } from '@hono/zod-openapi'
 import { Hono } from 'hono'
 import { sql } from 'kysely'
 import { type Ctx, fail, type Outcome, ok, readLimit, refuse } from '../contacts/http.ts'
+import { mergedDealIds } from '../deals/store.ts'
 import { CUSTOM_HISTORY_PREFIX, visibleHistoryFields } from '../fields/access.ts'
 import { filesRoutes } from '../files/files.ts'
 import { decodePageCursor, encodePageCursor } from '../filters/page.ts'
@@ -23,6 +24,10 @@ import {
 // `?cursor=` — из next_cursor прошлой страницы. Регистрации, задачи, платежи и звонки добавят их
 // эпики — новой веткой в timelineRows. Экраны ленты — тикеты 13 и 14.
 //
+// Лента сделки показывает и изменения сделок, слитых в неё (тикет crm-intake/02; строки change_log
+// не переносятся — таблица только добавляется): у таких строк `mergedDealId`, экран помечает их
+// «зі злитої угоди». После отката слияния — снова только свои.
+//
 // Порядок — (время, id) по убыванию; курсор — эта пара у последней строки страницы, время с
 // точностью базы (микросекунды): следующая страница начинается строго после неё, без повторов и
 // пропусков, даже если у нескольких строк одно время.
@@ -42,7 +47,8 @@ export interface TimelineItem {
   /** Сделал ключ API (тикет crm-api/04): тогда `actorName` — название ключа. */
   actorApiKeyId: string | null
   actorName: string | null
-  change?: { field: string; before: unknown; after: unknown }
+  /** `mergedDealId` — изменение сделки, слитой в эту (тикет crm-intake/02); нет — своё. */
+  change?: { field: string; before: unknown; after: unknown; mergedDealId?: string }
   note?: { text: string; updatedAt: string }
   file?: { name: string; contentType: string; size: number }
 }
@@ -67,6 +73,7 @@ interface TimelineRow {
   name: string | null
   content_type: string | null
   size: string | null
+  merged_deal_id: string | null
 }
 
 /**
@@ -86,7 +93,13 @@ function readKinds(raw: string | undefined): TimelineKind[] | undefined {
  * Ветка запроса ленты на каждый вид: одинаковые столбцы с именами и типами в каждой ветке (первой
  * может оказаться любая — по фильтру `type`), недостающие — null.
  */
-function branch(kind: TimelineKind, type: EntityType, id: string, customFields: string[]) {
+function branch(
+  kind: TimelineKind,
+  type: EntityType,
+  id: string,
+  customFields: string[],
+  mergedIds: readonly string[],
+) {
   switch (kind) {
     case 'change':
       // Изменения пользовательских полей — только тех, что роль видит (тикет crm-fields/03).
@@ -94,23 +107,27 @@ function branch(kind: TimelineKind, type: EntityType, id: string, customFields: 
         select 'change'::text as kind, l.id, l.occurred_at, l.actor_id, l.actor_api_key_id,
           l.field, l.before, l.after,
           null::text as text, null::timestamptz as updated_at, null::text as name,
-          null::text as content_type, null::bigint as size
+          null::text as content_type, null::bigint as size,
+          case when l.entity_id = ${id}::uuid then null else l.entity_id end as merged_deal_id
         from change_log l
-        where l.entity_type = ${type} and l.entity_id = ${id}
+        where l.entity_type = ${type}
+          and l.entity_id = any(${[id, ...mergedIds]}::uuid[])
           and (l.field not like ${`${CUSTOM_HISTORY_PREFIX}%`}
             or l.field = any(${customFields}::text[]))`
     case 'note':
       return sql`
         select 'note'::text as kind, n.id, n.created_at as occurred_at, n.author_id as actor_id,
           n.author_api_key_id as actor_api_key_id, null::text as field, null::jsonb as before, null::jsonb as after, n.text, n.updated_at,
-          null::text as name, null::text as content_type, null::bigint as size
+          null::text as name, null::text as content_type, null::bigint as size,
+          null::uuid as merged_deal_id
         from note n
         where ${sql.ref(`n.${ENTITY_COLUMN[type]}`)} = ${id}`
     case 'file':
       return sql`
         select 'file'::text as kind, f.id, f.created_at as occurred_at, f.author_id as actor_id,
           null::uuid as actor_api_key_id, null::text as field, null::jsonb as before, null::jsonb as after, null::text as text,
-          null::timestamptz as updated_at, f.name, f.content_type, f.size
+          null::timestamptz as updated_at, f.name, f.content_type, f.size,
+          null::uuid as merged_deal_id
         from file f
         where ${sql.ref(`f.${ENTITY_COLUMN[type]}`)} = ${id}`
   }
@@ -127,7 +144,15 @@ function item(row: TimelineRow): TimelineItem {
   }
   switch (row.kind) {
     case 'change':
-      return { ...base, change: { field: row.field ?? '', before: row.before, after: row.after } }
+      return {
+        ...base,
+        change: {
+          field: row.field ?? '',
+          before: row.before,
+          after: row.after,
+          ...(row.merged_deal_id === null ? {} : { mergedDealId: row.merged_deal_id }),
+        },
+      }
     case 'note':
       return {
         ...base,
@@ -165,11 +190,15 @@ async function timeline(
         type,
       )
     : []
+  const mergedIds =
+    type === 'deal' && kinds.includes('change')
+      ? await mergedDealIds(c.get('db'), entity.value.id)
+      : []
   const { rows } = await sql<TimelineRow>`
     select t.*, coalesce(u.name, k.name) as actor_name,
       to_char(t.occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_at
     from (${sql.join(
-      kinds.map((kind) => branch(kind, type, entity.value.id, customFields)),
+      kinds.map((kind) => branch(kind, type, entity.value.id, customFields, mergedIds)),
       sql` union all `,
     )}) t
     left join "user" u on u.id = t.actor_id

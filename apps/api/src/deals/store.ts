@@ -4,7 +4,7 @@ import { type Kysely, sql } from 'kysely'
 import { requestAuthor } from '../api-keys/actor.ts'
 import type { ChangeAuthor } from '../change-log/record.ts'
 import type { ContactsErrorCode } from '../contacts/contacts.ts'
-import { type Ctx, type Outcome, ok, refuse } from '../contacts/http.ts'
+import { type Ctx, type Outcome, ok, type Refusal, refuse } from '../contacts/http.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
@@ -34,6 +34,11 @@ export type DealsErrorCode =
   /** Тело запроса не той формы: `details.path` — какое поле. */
   | 'INVALID_DEAL'
   | 'DEAL_NOT_FOUND'
+  /**
+   * Сделка слита с другой и скрыта (тикет crm-intake/02): `details.merged_into_id` — последняя
+   * оставшаяся в цепочке слияний, `merge_id` и `undo_until` — слияние, которое её скрыло.
+   */
+  | 'DEAL_MERGED'
   | 'PIPELINE_NOT_FOUND'
   /** В архивную воронку новые сделки не ставятся. */
   | 'PIPELINE_ARCHIVED'
@@ -211,6 +216,7 @@ function selectDeals(db: Kysely<Database>) {
       'updated_at',
       'deleted_at',
       'custom',
+      'merged_into_id',
     ])
     .select(
       sql<string | null>`to_char(expected_close_date, 'YYYY-MM-DD')`.as('expected_close_date'),
@@ -219,12 +225,111 @@ function selectDeals(db: Kysely<Database>) {
 
 export type DealRow = Awaited<ReturnType<ReturnType<typeof selectDeals>['executeTakeFirstOrThrow']>>
 
-/** Сделка `id` в охвате `scope` (в корзине или нет); `lock` — заблокировать строку. */
+/**
+ * Сделка `id` в охвате `scope` (в корзине или нет; слитая — нет); `lock` — заблокировать строку.
+ * Блокировка ждёт одновременное слияние (оно блокирует обе сделки) и после него перечитывает
+ * условие: сделку, которую только что слили, действие не найдёт — ничего не добавится к скрытой.
+ */
 export function findDeal(ctx: DealContext, id: string, scope: Scope, lock = false) {
   const query = selectDeals(ctx.db)
     .where('id', '=', id)
+    .where('merged_into_id', 'is', null)
     .where(dealInScope(sql.ref('deal.owner_id'), scope, ctx.viewer))
   return (lock ? query.forUpdate() : query).executeTakeFirst()
+}
+
+/**
+ * Сделки `ids` под блокировкой до конца транзакции, в одном порядке (по id): одновременные
+ * слияния и откаты не сцепятся. Без охвата, в том числе слитые и в корзине: проверяет вызывающий.
+ */
+export function lockDeals(db: Kysely<Database>, ids: readonly string[]): Promise<DealRow[]> {
+  return selectDeals(db)
+    .where('id', 'in', [...ids])
+    .orderBy('id')
+    .forUpdate()
+    .execute()
+}
+
+/** Наибольшая длина цепочки слияний, которую идём до конца: защита от цикла в данных. */
+const MAX_MERGE_CHAIN = 100
+
+/** Подробности ответа 404 DEAL_MERGED. */
+export interface DealMergedDetails {
+  /** Последняя оставшаяся сделка цепочки. */
+  merged_into_id: string
+  /** Слияние, которое скрыло запрошенную сделку. */
+  merge_id: string | null
+  /** До какого времени слияние можно откатить (ISO 8601); null — слияния нет. */
+  undo_until: string | null
+}
+
+/**
+ * Отказ для сделки `id`, если она слита с другой (тикет crm-intake/02; по образцу пункта 25):
+ * 404 DEAL_MERGED с id последней оставшейся в цепочке (A слита в B, B потом в C — C), если та
+ * в охвате чтения `scope`; иначе 404 DEAL_NOT_FOUND — ответ не выдаёт ни слияния, ни id чужой
+ * сделки (решено без владельца — подтвердить). null — сделка не слита или её нет.
+ */
+export async function mergedDealRefusal(
+  db: Kysely<Database>,
+  id: string,
+  scope: Scope,
+  viewer: Viewer,
+): Promise<Refusal<'DEAL_MERGED' | 'DEAL_NOT_FOUND'> | null> {
+  const row = await db
+    .selectFrom('deal')
+    .select('merged_into_id')
+    .where('id', '=', id)
+    .executeTakeFirst()
+  if (!row?.merged_into_id) return null
+  let last = row.merged_into_id
+  for (let step = 0; step < MAX_MERGE_CHAIN; step++) {
+    const next = await db
+      .selectFrom('deal')
+      .select('merged_into_id')
+      .where('id', '=', last)
+      .executeTakeFirst()
+    if (!next?.merged_into_id) break
+    last = next.merged_into_id
+  }
+  const visible = await db
+    .selectFrom('deal')
+    .select('id')
+    .where('id', '=', last)
+    .where(dealInScope(sql.ref('deal.owner_id'), scope, viewer))
+    .executeTakeFirst()
+  if (!visible) return refuse(404, 'DEAL_NOT_FOUND')
+  const merge = await db
+    .selectFrom('merge_record')
+    .select(['id', 'undo_until'])
+    .where('entity_type', '=', 'deal')
+    .where('merged_id', '=', id)
+    .where('undone_at', 'is', null)
+    .orderBy('merged_at', 'desc')
+    .limit(1)
+    .executeTakeFirst()
+  const details: DealMergedDetails = {
+    merged_into_id: last,
+    merge_id: merge?.id ?? null,
+    undo_until: merge ? new Date(merge.undo_until).toISOString() : null,
+  }
+  return refuse(404, 'DEAL_MERGED', { ...details })
+}
+
+/**
+ * Сделки, слитые в сделку `id` (по всей цепочке) и ещё не откаченные: их история показывается
+ * в ленте и истории оставшейся с пометкой «зі злитої угоди» (строки change_log не переносятся —
+ * таблица только добавляется, ADR 0003).
+ */
+export async function mergedDealIds(db: Kysely<Database>, id: string): Promise<string[]> {
+  const { rows } = await sql<{ id: string }>`
+    with recursive chain(id) as (
+      select d.id from deal d where d.merged_into_id = ${id}
+      union
+      select d.id from deal d join chain on d.merged_into_id = chain.id
+    )
+    select id from chain order by id
+  `.execute(db)
+  return rows.map((row) => row.id)
 }
 
 export async function reloadDeal(ctx: DealContext, id: string): Promise<DealRow> {
@@ -366,6 +471,7 @@ async function openDealExists(ctx: DealContext, target: OpenDealTarget): Promise
     .where('d.status', '=', 'open')
     .where('d.archived_at', 'is', null)
     .where('d.deleted_at', 'is', null)
+    .where('d.merged_into_id', 'is', null)
   if (target.excludeId !== undefined) query = query.where('d.id', '<>', target.excludeId)
   const conflict = await query.executeTakeFirst()
   if (!conflict) return refuse(409, 'OPEN_DEAL_EXISTS')

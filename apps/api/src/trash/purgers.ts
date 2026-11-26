@@ -28,6 +28,8 @@ export const DEAL_PURGER: TrashPurger = {
       .selectFrom('deal')
       .select('id')
       .where('deleted_at', '<', cutoff)
+      // Скрытые сделки уходят вместе с оставшейся (purge_from_trash, migrations/0026_merge.ts).
+      .where('merged_into_id', 'is', null)
       .orderBy('id')
       .execute()
     return purgeEach(

@@ -15,10 +15,25 @@ import { type AuditApi, AuditApiError } from './audit-api.ts'
 import './audit.css'
 import './settings.css'
 import { Button } from '../../ui/button.tsx'
+import { UndoDealMergeDialog } from '../deals/$dealId/merge/undo-deal-merge.tsx'
 
 // Настройки → журнал: опасные действия в текущем проекте, новые сверху, с фильтром по
 // действию и пользователю; следующая страница — кнопкой «Показати ще». Право — «доступ до
 // налаштувань проєкту» (у шаблонов — только администратор); без него API отвечает 403.
+// У слияния сделок (тикет crm-intake/02) — «Скасувати об'єднання» 30 дней: можно ли его ещё
+// откатить, решает API (уже откачено, позднее слияние — отказ с объяснением).
+
+/** Сколько дней слияние сделок можно откатить (apps/api/src/merge/store.ts, UNDO_DAYS). */
+const DEAL_MERGE_UNDO_DAYS = 30
+
+/** Слияние сделок из записи журнала, которое ещё может откатиться; null — нет. */
+function undoableDealMerge(entry: AuditEntry<ProjectAuditAction>, now: number): string | null {
+  if (entry.action !== 'deal.merged') return null
+  const mergeId = entry.details.mergeId
+  if (typeof mergeId !== 'string') return null
+  const age = now - Date.parse(entry.occurredAt)
+  return age < DEAL_MERGE_UNDO_DAYS * 24 * 60 * 60 * 1000 ? mergeId : null
+}
 
 export function AuditPage({ api }: { api: AuditApi }) {
   const { t } = useTranslation('audit')
@@ -90,6 +105,13 @@ function useSummary() {
       case 'organization.purged':
       case 'deal.purged':
         return entry.entityId ?? ''
+      // Тикет crm-intake/02: слияние сделок и его откат — id оставшейся и слитой.
+      case 'deal.merged':
+      case 'deal.unmerged':
+        return t(entry.action === 'deal.merged' ? 'summary.dealMerged' : 'summary.dealUnmerged', {
+          merged: text(entry.details.mergedDealId),
+          survivor: entry.entityId ?? '',
+        })
       // Тикет crm-deals/12: выгрузка списка в CSV.
       case 'export.downloaded':
         return text(entry.details.list)
@@ -211,6 +233,7 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
   const { t, i18n } = useTranslation('audit')
   const summary = useSummary()
   const [action, setAction] = useState<ProjectAuditAction | ''>('')
+  const [undoingDealMerge, setUndoingDealMerge] = useState<string | null>(null)
   const [actor, setActor] = useState('')
   const filter = { ...(action ? { action } : {}), ...(actor ? { actor } : {}) }
 
@@ -313,13 +336,36 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
                         : t('system')}
                   </td>
                   <td>{t(`actions.${entry.action}`)}</td>
-                  <td>{summary(entry)}</td>
+                  <td>
+                    {summary(entry)}
+                    {undoableDealMerge(entry, Date.now()) !== null && (
+                      <>
+                        {' '}
+                        <Button
+                          size="sm"
+                          type="button"
+                          onClick={() => setUndoingDealMerge(undoableDealMerge(entry, Date.now()))}
+                        >
+                          {t('undoDealMerge')}
+                        </Button>
+                      </>
+                    )}
+                  </td>
                   <td>{entry.ip ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {undoingDealMerge && (
+        <UndoDealMergeDialog
+          projectId={projectId}
+          mergeId={undoingDealMerge}
+          mergedTitle={null}
+          onClose={() => setUndoingDealMerge(null)}
+          onUndone={() => void log.refetch()}
+        />
       )}
       {log.hasNextPage && (
         <Button

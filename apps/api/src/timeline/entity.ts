@@ -92,13 +92,19 @@ export async function entityFor(
   const { permissions } = c.get('access')
   if (type === 'deal') {
     const scope = permissions.scopes.deals
-    const row = await db
+    // Слитая сделка скрыта (тикет crm-intake/02). Для изменения строка блокируется FOR SHARE
+    // до конца транзакции, как контакт в deals.ts (liveContact): одновременное слияние
+    // (FOR UPDATE обеих сделок) переносит только то, что нашло при планировании, — заметка или
+    // файл, добавленные к второй сделке во время слияния, ждут его и потом получают 404, а не
+    // остаются у скрытой сделки.
+    const query = db
       .selectFrom('deal')
       .select('owner_id')
       .where('id', '=', ref.id)
       .where('deleted_at', 'is', null)
+      .where('merged_into_id', 'is', null)
       .where(dealInScope(sql.ref('deal.owner_id'), scope.read, viewer))
-      .executeTakeFirst()
+    const row = await (need === 'write' ? query.forShare() : query).executeTakeFirst()
     if (!row) return notFound
     if (need === 'write' && !ownerAllowed(row.owner_id, scope.write, viewer)) {
       return refuse(403, 'PERMISSION_DENIED')

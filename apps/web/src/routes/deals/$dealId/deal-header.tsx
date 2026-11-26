@@ -1,5 +1,6 @@
 import type { RequiredFieldsMissing } from '@alpi/shared'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CopyLinkButton } from '../../../components/copy-link/copy-link-button.tsx'
@@ -10,6 +11,7 @@ import {
 } from '../../../components/custom-fields/custom-fields-api.tsx'
 import { readRequiredFieldsMissing } from '../../../components/custom-fields/required-fields.ts'
 import { RequiredFieldsDialog } from '../../../components/custom-fields/required-fields-form.tsx'
+import { useProjectCode } from '../../../components/project-switcher/current-project.tsx'
 import { Badge } from '../../../ui/badge.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { cx } from '../../../ui/cx.ts'
@@ -19,6 +21,8 @@ import { type DealCard, DealCardApiError } from './deal-card-api.ts'
 import type { DealCardModel } from './deal-card-page.tsx'
 import { DeleteDialog, LoseDialog, MoveDialog, UpsellDialog } from './deal-dialogs.tsx'
 import { ActionError } from './deal-errors.tsx'
+import { MergeDealDialog } from './merge/merge-deal-dialog.tsx'
+import { dealMergesQueryKey } from './merge/undo-deal-merge.tsx'
 
 // Шапка карточки на всю ширину, три строки: 1) название (правится на месте), ответственный,
 // «Виграно» / «Програно» или статус с «Відкрити знову» и «Створити допродаж», «…» (архив,
@@ -31,7 +35,7 @@ const DAY_MS = 86_400_000
 /** Значение списка ответственных «в общую очередь». */
 const QUEUE = ''
 
-type Opened = 'lose' | 'upsell' | 'move' | 'remove' | null
+type Opened = 'lose' | 'upsell' | 'move' | 'remove' | 'merge' | null
 
 /** Действие, которое может потребовать обязательные поля: значения формы уходят с ним. */
 type Placing = (custom?: CustomValues) => Promise<DealCard>
@@ -50,6 +54,9 @@ export function DealHeader({ card }: { card: DealCardModel }) {
   const [error, setError] = useState<unknown>(null)
   const [filling, setFilling] = useState<Filling | null>(null)
   const close = () => setOpened(null)
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const code = useProjectCode()
   const fieldsApi = useCustomFieldsApi()
   const fields = useQuery({
     queryKey: fieldsQueryKey(card.projectId, 'deal'),
@@ -98,7 +105,19 @@ export function DealHeader({ card }: { card: DealCardModel }) {
             label: t('actions.unarchive'),
             onSelect: () => run(() => api.unarchive(projectId, id)),
           },
+      { id: 'merge', label: t('actions.merge'), onSelect: () => setOpened('merge') },
     )
+  }
+
+  /** Слияние прошло: осталась эта — перечитать её; осталась вторая — перейти к ней. */
+  const merged = (survivorId: string) => {
+    close()
+    if (survivorId === id) {
+      card.refresh()
+      void queryClient.invalidateQueries({ queryKey: dealMergesQueryKey(projectId, id) })
+    } else {
+      void navigate({ to: '/p/$code/deals/$dealId', params: { code, dealId: survivorId } })
+    }
   }
   if (rights.remove) {
     more.push({
@@ -163,6 +182,9 @@ export function DealHeader({ card }: { card: DealCardModel }) {
       {opened === 'upsell' && <UpsellDialog card={card} onClose={close} />}
       {opened === 'move' && <MoveDialog card={card} onClose={close} />}
       {opened === 'remove' && <DeleteDialog card={card} onClose={close} />}
+      {opened === 'merge' && (
+        <MergeDealDialog projectId={projectId} deal={deal} onClose={close} onMerged={merged} />
+      )}
       {filling && (
         <RequiredFieldsDialog
           // Новый отказ — новая форма: черновики берутся из нового списка полей.

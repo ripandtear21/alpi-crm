@@ -1,8 +1,9 @@
-import type {
-  LostReasonGroupSummary,
-  MemberSummary,
-  PipelineSummary,
-  RolePermissions,
+import {
+  can,
+  type LostReasonGroupSummary,
+  type MemberSummary,
+  type PipelineSummary,
+  type RolePermissions,
 } from '@alpi/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -21,10 +22,11 @@ import {
   type DealCardApi,
   DealCardApiError,
 } from './deal-card-api.ts'
-import { useDescribeChange } from './deal-changes.tsx'
+import { useDescribeChange, withMergedMark } from './deal-changes.tsx'
 import { DealHeader } from './deal-header.tsx'
 import { type DealRights, dealRights } from './deal-rights.ts'
 import { DealSidebar } from './deal-sidebar.tsx'
+import { MergedDealNotice } from './merge/undo-deal-merge.tsx'
 import './deal-card.css'
 
 // Карточка сделки (тикет crm-deals/13; spec.md MVP, раздел 5.2): раскладка Pipedrive в стиле
@@ -37,7 +39,8 @@ import './deal-card.css'
 // сделка — сразу встаёт в кэш, лента перечитывается.
 //
 // Сделка вне охвата, удалённая и несуществующая — один экран «немає доступу» без её данных:
-// API отвечает на всё это одинаковым 404.
+// API отвечает на всё это одинаковым 404. Сделка, слитая с другой (тикет crm-intake/02), —
+// экран «Угоду об'єднано з Y» со ссылкой на оставшуюся и откатом (ответ 404 DEAL_MERGED).
 
 export interface CardUser {
   id: string
@@ -69,6 +72,8 @@ export interface DealCardModel {
   act: (action: () => Promise<DealCard | undefined>) => Promise<unknown>
   /** Сделка из ответа правки пользовательского поля: в кэш, лента перечитывается. */
   replace: (changed: DealCard) => void
+  /** Перечитать сделку и ленту: после слияния и отката. */
+  refresh: () => void
   busy: boolean
 }
 
@@ -164,6 +169,11 @@ function DealCardScreen({
     ownerName: (ownerId) => ownerName(ownerId),
   })
 
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: dealKey })
+    void queryClient.invalidateQueries({ queryKey: timelineQueryKey(projectId, 'deals', dealId) })
+  }
+
   function ownerName(ownerId: string | null): string {
     if (ownerId === null) return t('owner.queue')
     if (ownerId === user.id) return user.name
@@ -171,8 +181,19 @@ function DealCardScreen({
   }
 
   if (deal.isError) {
-    const status = deal.error instanceof DealCardApiError ? deal.error.status : 0
-    if (status === 404 || status === 403) return <NoAccess />
+    const failure = deal.error instanceof DealCardApiError ? deal.error : null
+    if (failure?.status === 404 && failure.code === 'DEAL_MERGED') {
+      return (
+        <MergedDealNotice
+          api={api}
+          projectId={projectId}
+          details={failure.details ?? {}}
+          canUndo={access.data ? can(access.data.permissions, 'deals', 'edit') : false}
+          onUndone={refresh}
+        />
+      )
+    }
+    if (failure?.status === 404 || failure?.status === 403) return <NoAccess />
     return (
       <p className="ui-notice" role="alert">
         {t('errors.unknown')}
@@ -214,6 +235,7 @@ function DealCardScreen({
         queryKey: timelineQueryKey(projectId, 'deals', dealId),
       })
     },
+    refresh,
     busy: action.isPending,
   }
 
@@ -231,7 +253,9 @@ function DealCardScreen({
             currentUserId={user.id}
             canWrite={model.rights.edit}
             canDeleteOthers={model.rights.remove}
-            describeChange={(change) => describeCustom(change) ?? describeChange(change)}
+            describeChange={(change) =>
+              withMergedMark(change, describeCustom(change) ?? describeChange(change))
+            }
             focus={
               <section className="deal-card__focus" aria-labelledby="deal-focus">
                 <h2 id="deal-focus" className="deal-card__focus-title">

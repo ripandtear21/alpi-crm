@@ -32,13 +32,15 @@ export const CREATED_BY_RULE: ContactScopeRule = (eb, scope, viewer) =>
 
 /**
  * Контакт — основной или участник в сделке, доступной в том же охвате (её ответственный —
- * пользователь, его команда или никто). Сделка не в корзине — или ушла в корзину вместе с
+ * пользователь, его команда или никто); слитая сделка скрыта и охвата не даёт (тикет
+ * crm-intake/02). Сделка не в корзине — или ушла в корзину вместе с
  * этим контактом (та же отметка deleted_at): так контакт в корзине виден тем же, кому был
  * виден до удаления, и они могут его восстановить.
  */
 export const DEAL_RULE: ContactScopeRule = (_eb, scope, viewer) => sql<SqlBool>`exists (
     select 1 from deal d
     where (d.deleted_at is null or d.deleted_at = contact.deleted_at)
+      and d.merged_into_id is null
       and ${dealInScope(sql.ref('d.owner_id'), scope, viewer)}
       and (d.primary_contact_id = contact.id or exists (
         select 1 from deal_participant p where p.deal_id = d.id and p.contact_id = contact.id

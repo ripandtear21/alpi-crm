@@ -55,6 +55,11 @@ export interface FakeDealCardApi extends DealCardApi {
   required: Record<string, string[]>
   /** Значения `custom`, ушедшие со сменой этапа, выигрышем и допродажей. */
   sentCustom: Record<string, unknown>[]
+  /**
+   * Слитые сделки (тикет crm-intake/02): id → подробности ответа 404 DEAL_MERGED
+   * (`merged_into_id`, `merge_id`, `undo_until`), как API.
+   */
+  mergedInto: Record<string, Record<string, unknown>>
 }
 
 let counter = 0
@@ -118,6 +123,8 @@ export function fakeDealCardApi({
   deals?: DealCard[]
 } = {}): FakeDealCardApi {
   function deal(id: string): DealCard {
+    const merged = api.mergedInto[id]
+    if (merged) throw new DealCardApiError(404, 'DEAL_MERGED', structuredClone(merged))
     const found = api.deals.find((item) => item.id === id && item.deletedAt === null)
     // Чужая (вне охвата), удалённая и несуществующая — одинаковый 404 без данных.
     if (!found) throw new DealCardApiError(404, 'DEAL_NOT_FOUND')
@@ -162,6 +169,7 @@ export function fakeDealCardApi({
 
   const api: FakeDealCardApi = {
     deals: structuredClone(deals),
+    mergedInto: {},
     contacts: [
       {
         id: CONTACT_ID,

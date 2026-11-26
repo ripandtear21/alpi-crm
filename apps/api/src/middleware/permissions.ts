@@ -30,7 +30,7 @@ export type PermissionsEnv = {
  * проекта один раз на запрос (на каждом запросе заново: смена прав роли действует сразу) и
  * кладётся в `c.var.access`. null — участие или ключ пропали в этой же транзакции.
  */
-async function requestAccess(c: Context<PermissionsEnv>): Promise<MemberAccess | null> {
+export async function requestAccess(c: Context<PermissionsEnv>): Promise<MemberAccess | null> {
   const cached = c.get('access') as MemberAccess | undefined
   if (cached) return cached
   const actor = c.get('actor')
