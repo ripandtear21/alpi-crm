@@ -63,6 +63,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 
 - [ ] Миграция применяется на чистую базу и откатывается.
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` (в составе pnpm verify) exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
 - [ ] Тест изоляции: адреса, доставки и попытки проекта A не видны в контексте B; событие проекта A не уходит на адрес проекта B.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/api/src/webhook-endpoints` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест прав: без `integrations` — 403 на все запросы адресов; запрос по ключу API — 403 `API_KEY_NOT_ALLOWED`.
@@ -75,6 +76,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест отключения: `410` отключает адрес сразу; 5 суток без успеха (время подменено в тесте) отключают адрес, пишут журнал и показывают предупреждение пользователю с правом «интеграции» и не показывают менеджеру.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/web/src/layout/webhook-alert-banner.test.tsx` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
 - [ ] Тест SSRF: `http://`, `https://127.0.0.1`, `https://10.0.0.5`, `https://169.254.169.254`, `https://[::1]` и имя, которое разрешается в частный адрес, — 422 при сохранении; имя, которое после сохранения стало разрешаться в частный адрес, — отправка отклонена, попытка записана с причиной; без переменной для тестов `http://localhost` отклоняется; с ней при `NODE_ENV=production` API не запускается.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/ssrf.test.ts apps/api/src/webhook-endpoints apps/api/src/events/delivery.test.ts apps/api/src/config.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест секрета: секрет показан один раз; в базе он не лежит открытым текстом; в логах и журнале его нет.
@@ -86,6 +88,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
   - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · 8f6fec7b4957fffb77a4306597a5dea897c20c11
+  - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
 
 ## Результат
 
