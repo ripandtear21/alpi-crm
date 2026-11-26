@@ -62,7 +62,7 @@ apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, 
 
 ## Результат
 
-Ветка `crm-api/04`. Маршруты, открытые ключу, объявлены через `keyRoute`: контакты и организации — `apps/api/src/contacts/openapi.ts`, заметки — `apps/api/src/notes/openapi.ts`, воронки и причины проигрыша — `apps/api/src/pipelines/openapi.ts`, участники и команды — `apps/api/src/members/directory.ts`. Те же маршруты обслуживают и сессию apps/web. Тесты — `apps/api/src/contacts/api-key.test.ts`. Миграция `0023_note_api_key_author` (номер 0022 занят веткой тикета 06; пропуск мигратор принимает).
+Ветка `crm-api/04`. Маршруты, открытые ключу, объявлены через `keyRoute`: контакты и организации — `apps/api/src/contacts/openapi.ts`, заметки — `apps/api/src/notes/openapi.ts`, воронки и причины проигрыша — `apps/api/src/pipelines/openapi.ts`, участники и команды — `apps/api/src/members/directory.ts`. Те же маршруты обслуживают и сессию apps/web. Тесты — `apps/api/src/contacts/api-key.test.ts`. Миграция `0023_note_api_key_author` (номер 0022 тогда был занят веткой тикета 06, она смержена с 0024; пропуск мигратор принимает).
 
 Открыто ключу: `GET /contacts?phone=&email=`, `GET /contacts/:id`, `POST /contacts`, `PATCH /contacts/:id`; `GET /organizations?name=`, `GET /organizations/:id`, `POST /organizations`, `PATCH /organizations/:id`; `GET|POST /{deals|contacts|organizations}/:id/notes`, `PATCH|DELETE …/notes/:noteId`; `GET /pipelines`, `GET /pipelines/:id/stages`, `GET /lost-reasons`, `GET /users`, `GET /teams`. Удаление, восстановление и `PUT` контактов, организаций и заметок, файлы, списки `/list` — 403 `API_KEY_NOT_ALLOWED`.
 
@@ -92,5 +92,5 @@ PR #33, squash 599ca39.
 
 Noted:
 - [low] debt: тест отката (`packages/db/src/project-isolation.test.ts:283-285`) ждёт, что `migrateDown()` откатит именно 0023 — упадёт с первой следующей миграцией; откатывать через `migrateTo` до предыдущей.
-- [low] миграции идут строго по порядку (`packages/db/src/migrate.ts:13`, без `allowUnorderedMigrations`): тикету 06 (PR #32, миграция 0022) нужен номер больше 0023.
+- [low] миграции идут строго по порядку (`packages/db/src/migrate.ts:13`, без `allowUnorderedMigrations`): тикету 06 (PR #32, миграция 0022) нужен номер больше 0023. Закрыто: 06 смержен с миграцией 0024 (PR #32).
 - [low] вне тикета: карточка сделки в `apps/web` берёт участников из `/members` (нужно «пользователи и роли: смотреть»), у шаблона «менеджер» этого права нет — не проверено, как карточка ведёт себя для менеджера.
