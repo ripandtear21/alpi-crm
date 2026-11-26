@@ -25,14 +25,15 @@ import { enqueueFanout } from './queue.ts'
 // отказ (4xx фиксирует транзакцию запроса, middleware/project-context.ts) не оставил события.
 
 /**
- * Автор события из автора изменения: ключ API, иначе пользователь. Без автора событие не
- * пишется — у каждого изменения в CRM есть тот, кто его сделал (для фоновой задачи — её
- * инициатор).
+ * Автор события из автора изменения: ключ API, источник регистраций, иначе пользователь. Без
+ * автора событие не пишется — у каждого изменения в CRM есть тот, кто его сделал (для фоновой
+ * задачи — её инициатор).
  */
 export function eventActor(author: ChangeAuthor): EventActor {
   if (author.actorApiKeyId) return { type: 'api_key', id: author.actorApiKeyId }
+  if (author.actorIntakeSourceId) return { type: 'intake_source', id: author.actorIntakeSourceId }
   if (author.actorId) return { type: 'user', id: author.actorId }
-  throw new Error('событие без автора: нет ни пользователя, ни ключа API')
+  throw new Error('событие без автора: нет ни пользователя, ни ключа API, ни источника')
 }
 
 /**

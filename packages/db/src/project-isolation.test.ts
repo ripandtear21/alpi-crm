@@ -36,6 +36,7 @@ const migrationNames = [
   '0021_webhook_events',
   '0023_note_api_key_author',
   '0024_webhook_delivery',
+  '0025_intake_sources',
 ]
 
 const tablesOfMigration = [
@@ -100,6 +101,8 @@ const tablesOfMigration = [
   'webhook_endpoint',
   'webhook_delivery',
   'webhook_delivery_attempt',
+  // 0025_intake_sources
+  'intake_source',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -283,10 +286,12 @@ describe('схема и изоляция проектов', () => {
           removed.push((await note({ author_api_key_id: apiKeyId })).id)
         }
 
-        // Откат до 0021: сначала 0024 (доставка событий, данных в ней нет), затем 0023.
+        // Откат до 0021: сначала 0025 и 0024 (источники и доставка событий, данных в них нет),
+        // затем 0023.
         const down = await createMigrator(scratch).migrateTo('0021_webhook_events')
         expect(down.error).toBeUndefined()
         expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
+          ['0025_intake_sources', 'Down', 'Success'],
           ['0024_webhook_delivery', 'Down', 'Success'],
           ['0023_note_api_key_author', 'Down', 'Success'],
         ])
@@ -307,6 +312,7 @@ describe('схема и изоляция проектов', () => {
         const latest = await migrateToLatest(scratch)
         expect(latest.map((r) => [r.migrationName, r.status])).toEqual([
           ['0024_webhook_delivery', 'Success'],
+          ['0025_intake_sources', 'Success'],
         ])
       } finally {
         await scratch.destroy()
@@ -441,6 +447,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'field_required_stage', rls: true, policies: 1 },
         { table: 'file', rls: true, policies: 1 },
         { table: 'idempotency_record', rls: true, policies: 1 },
+        { table: 'intake_source', rls: true, policies: 1 },
         { table: 'lost_reason', rls: true, policies: 1 },
         { table: 'lost_reason_group', rls: true, policies: 1 },
         { table: 'note', rls: true, policies: 1 },

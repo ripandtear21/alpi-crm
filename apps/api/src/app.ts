@@ -26,6 +26,8 @@ import { savedFiltersRoutes } from './filters/saved.ts'
 import { idempotency } from './http/idempotency.ts'
 import { problem } from './http/problem.ts'
 import { createRateLimiter, type RateLimitOptions } from './http/rate-limit.ts'
+import { intakeRoutes } from './intake/auth.ts'
+import { intakeSourcesRoutes } from './intake/sources.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { teamDirectoryRoutes, usersRoutes } from './members/directory.ts'
 import { membersRoutes } from './members/members.ts'
@@ -89,7 +91,10 @@ export interface AppDeps {
    * без очереди окончательное удаление поля с данными — ошибка 500.
    */
   fields?: FieldsDeps
-  /** Лимит запросов ключа API (http/rate-limit.ts): по умолчанию 600 в минуту, часы — Date.now. */
+  /**
+   * Лимит запросов ключа API и, отдельным счётчиком, ключа источника регистраций
+   * (http/rate-limit.ts): по умолчанию 600 в минуту, часы — Date.now.
+   */
   rateLimit?: RateLimitOptions
   /**
    * Адреса событий (тикет crm-api/06): ключ шифрования секретов, разрешение http/localhost
@@ -165,11 +170,14 @@ function v1Routes({
       .route('/api-keys', apiKeysRoutes())
       // Адреса событий и журнал доставок (тикет crm-api/06): только по сессии.
       .route('/webhook-endpoints', webhookEndpointsRoutes(webhooks))
+      // Источники регистраций и их ключи (тикет crm-intake/03): только по сессии.
+      .route('/intake-sources', intakeSourcesRoutes())
   )
 }
 
 /**
- * Приложение API. Открыт без входа только /health; всё, что зарегистрировано после
+ * Приложение API. Открыт без входа только /health; /intake (приём регистраций) — только по
+ * ключу источника регистраций (intake/auth.ts). Всё, что зарегистрировано после
  * accessGuard, требует сессию с включённой 2FA (исключения — в access-guard.ts) или ключ API
  * (`Authorization: Bearer`, middleware/api-key.ts) — и тогда только на маршрутах с отметкой
  * apiKeyRoute.
@@ -219,6 +227,9 @@ export function createApp({
       .use('*', (c, next) =>
         isFileUpload(c.req.method, c.req.path) ? next() : jsonBodyLimit(c, next),
       )
+      // Приём регистраций (/api/intake, эпик crm-intake): только ключ источника — до проверки
+      // ключа API и сессии; проект и воронку запросу даёт источник (intake/auth.ts).
+      .route('/intake', intakeRoutes(db, rateLimit))
       // Запрос с ключом API: ключ и маршрут проверены здесь, сессия (cookie) не читается.
       .use('*', apiKeyAuth(db, auth, createRateLimiter(rateLimit)))
       .use('*', (c, next) => (c.get('apiKey') ? next() : sessionGuard(c, next)))

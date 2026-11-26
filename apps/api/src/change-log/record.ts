@@ -44,10 +44,15 @@ export function diffFields<T extends object>(
 export interface ChangeAuthor {
   db: Kysely<Database>
   projectId: string
-  /** `user.id`; null — ключ API или система. */
+  /** `user.id`; null — ключ API, источник регистраций или система. */
   actorId: string | null
   /** Автор — ключ API (тикет crm-api/01); тогда `actorId` — null. */
   actorApiKeyId?: string | null
+  /**
+   * Автор — источник регистраций (тикет crm-intake/03): изменения приёма регистраций; тогда
+   * `actorId` и `actorApiKeyId` — null.
+   */
+  actorIntakeSourceId?: string | null
 }
 
 /**
@@ -67,6 +72,7 @@ export async function recordChanges(
         project_id: author.projectId,
         actor_id: author.actorId,
         actor_api_key_id: author.actorApiKeyId ?? null,
+        actor_intake_source_id: author.actorIntakeSourceId ?? null,
         entity_type: entity.type,
         entity_id: entity.id,
         field: change.field,

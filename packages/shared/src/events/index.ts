@@ -114,9 +114,12 @@ export type EventFacts<T extends EventType> = {
   >
 }
 
-/** Автор события: пользователь (id Better Auth) или ключ API (uuid). Без имени. */
+/**
+ * Автор события: пользователь (id Better Auth), ключ API (uuid) или источник регистраций (uuid,
+ * тикет crm-intake/03 — изменения приёма регистраций). Без имени.
+ */
 export interface EventActor {
-  type: 'user' | 'api_key'
+  type: 'user' | 'api_key' | 'intake_source'
   id: string
 }
 
@@ -184,8 +187,10 @@ function actorProblem(value: unknown): string | null {
   const keys = keysProblem(value, ['type', 'id'], 'data.actor')
   if (keys) return keys
   if (value.type === 'user') return isUserId(value.id) ? null : 'data.actor.id: ожидается id'
-  if (value.type === 'api_key') return isUuid(value.id) ? null : 'data.actor.id: ожидается uuid'
-  return 'data.actor.type: ожидается user или api_key'
+  if (value.type === 'api_key' || value.type === 'intake_source') {
+    return isUuid(value.id) ? null : 'data.actor.id: ожидается uuid'
+  }
+  return 'data.actor.type: ожидается user, api_key или intake_source'
 }
 
 /**
@@ -249,11 +254,15 @@ function factSchema(kind: EventFactKind): JsonSchema {
 /** Схема автора события — общая для всех типов. */
 export const EVENT_ACTOR_SCHEMA: JsonSchema = {
   type: 'object',
-  description: 'Кто сделал изменение: пользователь или ключ API. Только тип и id, без имени',
+  description:
+    'Кто сделал изменение: пользователь, ключ API или источник регистраций. Только тип и id, без имени',
   required: ['type', 'id'],
   properties: {
-    type: { type: 'string', enum: ['user', 'api_key'] },
-    id: { type: 'string', description: 'id пользователя или id ключа API (uuid)' },
+    type: { type: 'string', enum: ['user', 'api_key', 'intake_source'] },
+    id: {
+      type: 'string',
+      description: 'id пользователя, id ключа API (uuid) или id источника регистраций (uuid)',
+    },
   },
 }
 

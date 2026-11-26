@@ -183,6 +183,12 @@ function useSummary() {
         return text(entry.details.url)
       case 'webhook_endpoint.updated':
         return text(after.url)
+      // Тикет crm-intake/03: источники регистраций — название (ключа в подробностях нет).
+      case 'intake_source.created':
+      case 'intake_source.key_reissued':
+      case 'intake_source.disabled':
+      case 'intake_source.enabled':
+        return text(entry.details.name)
       // Тикет crm-api/09: «догнать события с даты» — адрес, дата и сколько событий поставлено.
       case 'webhook_endpoint.caught_up': {
         const since = Date.parse(text(entry.details.since))
