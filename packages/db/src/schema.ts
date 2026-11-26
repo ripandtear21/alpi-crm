@@ -699,7 +699,7 @@ export interface WebhookEventTable {
   created_at: ColumnType<Date, Date | string | undefined, never>
 }
 
-/** Состояние адреса автоматизации (migrations/0022_webhook_delivery.ts). */
+/** Состояние адреса автоматизации (migrations/0024_webhook_delivery.ts). */
 export type WebhookEndpointState = 'active' | 'disabled'
 
 /** Почему адрес отключён: ответ 410, 5 суток без успеха или вручную. */
@@ -712,7 +712,7 @@ export type WebhookDeliveryState = 'pending' | 'succeeded' | 'failed' | 'cancell
 export type WebhookAttemptError = 'timeout' | 'tls' | 'dns' | 'forbidden_address' | 'network'
 
 /**
- * Адрес автоматизации (migrations/0022_webhook_delivery.ts). Секрет подписи — только
+ * Адрес автоматизации (migrations/0024_webhook_delivery.ts). Секрет подписи — только
  * зашифрованным (apps/api/src/events/secret.ts); виден только в контексте своего проекта.
  */
 export interface WebhookEndpointTable {
@@ -729,8 +729,11 @@ export interface WebhookEndpointTable {
   state: Generated<WebhookEndpointState>
   disabled_reason: WebhookDisabledReason | null
   disabled_at: Date | null
-  /** Создание или последнее включение: отсюда считаются 5 суток без успеха. */
-  enabled_at: Generated<Date>
+  /**
+   * Первая неудачная попытка серии — после последнего успеха или включения; успех и включение
+   * сбрасывают в null. Отсюда считаются 5 суток без успеха.
+   */
+  failing_since: Date | null
   last_success_at: Date | null
   created_by: ColumnType<string, string, never>
   created_at: ColumnType<Date, never, never>

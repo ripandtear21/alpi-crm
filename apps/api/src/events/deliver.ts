@@ -25,8 +25,8 @@ import { checkWebhookUrl, type HostLookup } from './ssrf.ts'
 //    - 2xx — succeeded, у адреса — время последнего успеха.
 //    - 410 — адрес отключается сразу (gone_410), его ожидающие доставки — cancelled.
 //    - Любое другое (3xx, 429, 5xx, таймаут, ошибка сети, адрес запрещён) — неудача. Если у
-//      адреса 5 суток нет успеха (от последнего успеха или включения) — отключается
-//      (failing_5_days). Иначе последняя попытка — доставка failed; не последняя — обработчик
+//      адреса неудачи идут 5 суток подряд (от первой неудачи после последнего успеха или
+//      включения) — отключается (failing_5_days). Иначе последняя попытка — доставка failed; не последняя — обработчик
 //      бросает ошибку, и pg-boss ставит повтор (настройки — queue.ts).
 // Отключение системой пишет журнал проекта (без автора) — по нему же предупреждение в шапке.
 //
@@ -245,9 +245,10 @@ async function recordAttempt(
     await delivery
       .set({ ...bump, state: 'succeeded', succeeded_at: sql<Date>`now()`, next_attempt_at: null })
       .execute()
+    // Успех обрывает серию неудач: 5 суток считаются заново от следующей неудачи.
     await trx
       .updateTable('webhook_endpoint')
-      .set({ last_success_at: sql<Date>`now()` })
+      .set({ last_success_at: sql<Date>`now()`, failing_since: null })
       .where('id', '=', row.endpoint_id)
       .execute()
     return 'done'
@@ -259,22 +260,23 @@ async function recordAttempt(
     await disableEndpoint(trx, projectId, row.endpoint_id, 'gone_410')
     return 'done'
   }
-  // 5 суток без успеха: от последнего успеха или от создания (включения) адреса.
+  // 5 суток без успеха — от первой неудачи серии (после последнего успеха или включения), а не
+  // от самого успеха: адрес, на который давно ничего не отправлялось, первая неудача не
+  // отключает. Первая неудача серии пишется одним UPDATE: блокировка строки адреса
+  // упорядочивает параллельные доставки, и вторая видит время, записанное первой.
   const endpoint = await trx
-    .selectFrom('webhook_endpoint')
-    .select(['state', 'enabled_at', 'last_success_at'])
+    .updateTable('webhook_endpoint')
+    .set({ failing_since: sql<Date>`coalesce(failing_since, ${now})` })
     .where('id', '=', row.endpoint_id)
-    .forUpdate()
+    .where('state', '=', 'active')
+    .returning('failing_since')
     .executeTakeFirst()
-  if (endpoint?.state === 'active') {
-    const since = Math.max(
-      new Date(endpoint.enabled_at).getTime(),
-      endpoint.last_success_at === null ? 0 : new Date(endpoint.last_success_at).getTime(),
-    )
-    if (now.getTime() - since >= WEBHOOK_FAILING_DAYS * DAY_MS) {
-      await disableEndpoint(trx, projectId, row.endpoint_id, 'failing_5_days')
-      return 'done'
-    }
+  if (
+    endpoint?.failing_since != null &&
+    now.getTime() - new Date(endpoint.failing_since).getTime() >= WEBHOOK_FAILING_DAYS * DAY_MS
+  ) {
+    await disableEndpoint(trx, projectId, row.endpoint_id, 'failing_5_days')
+    return 'done'
   }
   if (job.retryCount >= job.retryLimit) {
     await delivery.set({ state: 'failed', next_attempt_at: null }).execute()

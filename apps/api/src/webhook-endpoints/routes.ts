@@ -282,8 +282,8 @@ async function enableEndpoint(c: Ctx, id: string): Promise<Result<WebhookEndpoin
         state: 'active',
         disabled_reason: null,
         disabled_at: null,
-        // 5 суток без успеха считаются заново — от включения.
-        enabled_at: sql<Date>`now()`,
+        // 5 суток без успеха считаются заново — от первой неудачи после включения.
+        failing_since: null,
         updated_at: sql<Date>`now()`,
       })
       .where('id', '=', id)

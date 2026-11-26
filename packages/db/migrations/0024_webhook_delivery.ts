@@ -7,8 +7,10 @@ import { type Kysely, sql } from 'kysely'
 // - webhook_endpoint — адрес автоматизации: URL, на какие типы событий подписан, секрет подписи
 //   (зашифрован AES-256-GCM ключом из окружения — его нужно читать, чтобы подписывать; открытым
 //   текстом секрет в базе не лежит), предыдущий секрет на 24 часа после смены, состояние и
-//   причина отключения. `enabled_at` — создание или последнее включение: от него и от последнего
-//   успеха считаются «5 суток без успешной доставки».
+//   причина отключения. `failing_since` — время первой неудачной попытки текущей серии (после
+//   последнего успеха или включения адреса); успех и включение её сбрасывают. От неё считаются
+//   «5 суток без успешной доставки»: адрес, на который давно ничего не отправлялось, первая
+//   неудача не отключает.
 // - webhook_delivery — событие × адрес: одна строка на пару, попытки копятся в ней.
 // - webhook_delivery_attempt — одна попытка: код ответа или ошибка сети, длительность, первые
 //   1 КБ тела ответа. Только добавление.
@@ -43,7 +45,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       state text not null default 'active' check (state in ('active', 'disabled')),
       disabled_reason text check (disabled_reason in ('gone_410', 'failing_5_days', 'manual')),
       disabled_at timestamptz,
-      enabled_at timestamptz not null default now(),
+      failing_since timestamptz,
       last_success_at timestamptz,
       created_by text not null references "user" (id),
       created_at timestamptz not null default now(),
