@@ -1,7 +1,7 @@
-import type { EventType } from './index.ts'
+import type { EventBody, EventType } from './index.ts'
 
 // Адреса автоматизации и доставка событий (тикет crm-api/06): общие типы API
-// `/api/v1/webhook-endpoints` и экрана «Налаштування → Події» (тикет 07), описания типов событий
+// `/api/v1/webhook-endpoints` и экрана «Налаштування → Вебхуки» (тикет 07), описания типов событий
 // на украинском и русском.
 
 /** Начало секрета подписи (Standard Webhooks); дальше — base64 от 32 случайных байт. */
@@ -98,6 +98,15 @@ export interface WebhookEndpointSummary {
   createdBy: { id: string; name: string }
 }
 
+/**
+ * Вебхук в ответе `GET /api/v1/webhook-endpoints` (список): со сводкой доставок за последние
+ * 24 часа для экрана «Налаштування → Вебхуки» (тикет 07). Завершённые — успешные и неудачные
+ * доставки, чьё состояние изменилось за 24 часа; ожидающие и отменённые не считаются.
+ */
+export interface WebhookEndpointListItem extends WebhookEndpointSummary {
+  deliveries24h: { finished: number; failed: number }
+}
+
 /** Ответ на создание адреса и смену секрета: секрет показывается только здесь, один раз. */
 export interface WebhookEndpointWithSecret {
   endpoint: WebhookEndpointSummary
@@ -133,6 +142,8 @@ export interface WebhookDeliveryView {
   nextAttemptAt: string | null
   succeededAt: string | null
   attemptLog: WebhookAttemptView[]
+  /** Тело события — то, что получает приёмник (тикет 07: показ в раскрытой доставке). */
+  event: EventBody
 }
 
 /** Отключённый системой адрес: предупреждение в шапке для пользователей с правом «интеграции». */

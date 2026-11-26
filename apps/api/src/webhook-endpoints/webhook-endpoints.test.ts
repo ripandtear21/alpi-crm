@@ -4,6 +4,8 @@ import {
   type ApiKeyWithSecret,
   EVENT_TYPES,
   PROJECT_HEADER,
+  type WebhookDeliveryView,
+  type WebhookEndpointListItem,
   type WebhookEndpointSummary,
   type WebhookEndpointWithSecret,
   type WebhookEventTypeInfo,
@@ -506,6 +508,149 @@ describe('адреса событий', () => {
           expect([method, suffix, id, res.status]).toEqual([method, suffix, id, 404])
         }
       }
+    })
+  })
+
+  describe('сводка доставок и тело события для экрана «Вебхуки» (тикет 07)', () => {
+    /** Событие проекта `project` прямо в базе; возвращает id и тело. */
+    async function event(project: string) {
+      const id = `evt_${randomUUID()}`
+      const body = {
+        type: 'contact.created',
+        timestamp: '2026-11-25T10:00:00.000Z',
+        data: {
+          event_id: id,
+          project_id: project,
+          contact_id: randomUUID(),
+          actor: { type: 'user', id: admin.id },
+        },
+      }
+      await h.owner
+        .insertInto('webhook_event')
+        .values({
+          id,
+          project_id: project,
+          type: 'contact.created',
+          occurred_at: body.timestamp,
+          entity_type: 'contact',
+          entity_id: body.data.contact_id,
+          body: JSON.stringify(body),
+          actor_type: 'user',
+          actor_id: admin.id,
+        })
+        .execute()
+      return { id, body }
+    }
+
+    /** Доставка события на вебхук: состояние и сколько часов назад она изменилась. */
+    async function delivery(
+      project: string,
+      endpointId: string,
+      eventId: string,
+      state: 'pending' | 'succeeded' | 'failed' | 'cancelled',
+      hoursAgo = 1,
+    ) {
+      const row = await h.owner
+        .insertInto('webhook_delivery')
+        .values({
+          project_id: project,
+          event_id: eventId,
+          endpoint_id: endpointId,
+          state,
+          attempts: state === 'pending' ? 0 : 1,
+          next_attempt_at: null,
+          succeeded_at: state === 'succeeded' ? new Date() : null,
+          updated_at: new Date(Date.now() - hoursAgo * 60 * 60 * 1000),
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      return row.id
+    }
+
+    async function listOf(project: string) {
+      const res = await admin.call(strictApp, 'GET', '/v1/webhook-endpoints', { project })
+      expect(res.status).toBe(200)
+      return (await res.json()) as WebhookEndpointListItem[]
+    }
+
+    it('в списке — сколько доставок завершилось за 24 часа и сколько из них неудачных; ожидающие, отменённые и старые не считаются', async () => {
+      const a = await created({ description: 'Зведення' })
+      const quiet = await created({ description: 'Без доставок' })
+      for (const [state, hoursAgo] of [
+        ['succeeded', 1],
+        ['succeeded', 2],
+        ['failed', 3],
+        ['failed', 30],
+        ['succeeded', 26],
+        ['pending', 1],
+        ['cancelled', 1],
+      ] as const) {
+        const { id } = await event(projectA)
+        await delivery(projectA, a.endpoint.id, id, state, hoursAgo)
+      }
+      const list = await listOf(projectA)
+      expect(list.find((e) => e.id === a.endpoint.id)?.deliveries24h).toEqual({
+        finished: 3,
+        failed: 1,
+      })
+      expect(list.find((e) => e.id === quiet.endpoint.id)?.deliveries24h).toEqual({
+        finished: 0,
+        failed: 0,
+      })
+      // Один вебхук — та же форма, что в списке, без сводки.
+      const one = (await (
+        await admin.call(strictApp, 'GET', `/v1/webhook-endpoints/${a.endpoint.id}`, {
+          project: projectA,
+        })
+      ).json()) as WebhookEndpointSummary
+      expect(one).not.toHaveProperty('deliveries24h')
+    })
+
+    it('журнал доставок отдаёт тело события; доставки и события другого проекта не видны', async () => {
+      const a = await created({ description: 'Тіло А' })
+      const b = await created({ description: 'Тіло Б' }, projectB)
+      const ownEvent = await event(projectA)
+      const foreignEvent = await event(projectB)
+      const ownDelivery = await delivery(projectA, a.endpoint.id, ownEvent.id, 'failed')
+      await h.owner
+        .insertInto('webhook_delivery_attempt')
+        .values({
+          project_id: projectA,
+          delivery_id: ownDelivery,
+          status_code: 500,
+          error: null,
+          duration_ms: 120,
+          response_body: 'boom',
+        })
+        .execute()
+      await delivery(projectB, b.endpoint.id, foreignEvent.id, 'failed')
+
+      const res = await admin.call(
+        strictApp,
+        'GET',
+        `/v1/webhook-endpoints/${a.endpoint.id}/deliveries`,
+        { project: projectA },
+      )
+      expect(res.status).toBe(200)
+      const { data } = (await res.json()) as { data: WebhookDeliveryView[] }
+      expect(data.map((d) => d.eventId)).toEqual([ownEvent.id])
+      expect(data[0]?.event).toEqual(ownEvent.body)
+      expect(data[0]?.attemptLog.map((attempt) => attempt.statusCode)).toEqual([500])
+
+      // Журнал вебхука проекта B из контекста A — 404; сводка B своя.
+      const foreign = await admin.call(
+        strictApp,
+        'GET',
+        `/v1/webhook-endpoints/${b.endpoint.id}/deliveries`,
+        { project: projectA },
+      )
+      expect(foreign.status).toBe(404)
+      const listB = await listOf(projectB)
+      expect(listB.find((e) => e.id === b.endpoint.id)?.deliveries24h).toEqual({
+        finished: 1,
+        failed: 1,
+      })
+      expect(JSON.stringify(await listOf(projectA))).not.toContain(foreignEvent.id)
     })
   })
 

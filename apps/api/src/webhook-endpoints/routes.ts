@@ -4,6 +4,7 @@ import {
   EVENT_CATALOG,
   EVENT_TYPE_TITLES,
   EVENT_TYPES,
+  type EventBody,
   type EventType,
   MAX_WEBHOOK_DESCRIPTION_LENGTH,
   WEBHOOK_DELIVERY_STATES,
@@ -13,6 +14,7 @@ import {
   type WebhookDeliveryState,
   type WebhookDeliveryView,
   type WebhookDisabledReason,
+  type WebhookEndpointListItem,
   type WebhookEndpointState,
   type WebhookEndpointSummary,
   type WebhookEndpointsErrorCode,
@@ -137,6 +139,37 @@ function summary(row: EndpointRow): WebhookEndpointSummary {
 
 async function endpointById(db: Kysely<Database>, id: string): Promise<WebhookEndpointSummary> {
   return summary(await selectEndpoints(db).where('e.id', '=', id).executeTakeFirstOrThrow())
+}
+
+/**
+ * Сводка для экрана «Вебхуки» (тикет 07): по вебхукам проекта — сколько доставок завершилось
+ * (успехом или неудачей) за последние 24 часа и сколько из них неудачных. Время завершения —
+ * `updated_at` доставки: в succeeded и failed доставка больше не меняется до ручного повтора.
+ * Проект — из контекста транзакции (row-level security), как у остальных запросов.
+ * shortcut: индекса по `updated_at` нет — запрос просматривает доставки проекта за весь срок
+ * хранения (30 дней), когда ответ списка вебхуков заметно замедлится — частичный индекс
+ * (project_id, updated_at) по succeeded и failed.
+ */
+async function deliveries24h(
+  db: Kysely<Database>,
+): Promise<Map<string, WebhookEndpointListItem['deliveries24h']>> {
+  const rows = await db
+    .selectFrom('webhook_delivery')
+    .select((eb) => [
+      'endpoint_id',
+      eb.fn.countAll<string>().as('finished'),
+      eb.fn.count<string>('id').filterWhere('state', '=', 'failed').as('failed'),
+    ])
+    .where('state', 'in', ['succeeded', 'failed'])
+    .where('updated_at', '>=', sql<Date>`now() - interval '24 hours'`)
+    .groupBy('endpoint_id')
+    .execute()
+  return new Map(
+    rows.map((row) => [
+      row.endpoint_id,
+      { finished: Number(row.finished), failed: Number(row.failed) },
+    ]),
+  )
 }
 
 /** Адрес `id` текущего проекта, заблокированный до конца транзакции; нет — 404. */
@@ -436,10 +469,14 @@ interface DeliveryRow {
   attempts: number
   next_attempt_at: Date | null
   succeeded_at: Date | null
+  body: EventBody
   cursor_at: string
 }
 
-/** Журнал доставок адреса: новые сверху, с попытками; фильтр по состоянию, типу и событию. */
+/**
+ * Журнал доставок адреса: новые сверху, с попытками и телом события; фильтр по состоянию, типу
+ * и событию. Событие — через доставку этого вебхука, под row-level security проекта.
+ */
 async function listDeliveries(
   c: Ctx,
   endpointId: string,
@@ -469,7 +506,7 @@ async function listDeliveries(
 
   const { rows } = await sql<DeliveryRow>`
     select d.id, d.event_id, ev.type as event_type, ev.occurred_at, d.state, d.attempts,
-      d.next_attempt_at, d.succeeded_at,
+      d.next_attempt_at, d.succeeded_at, ev.body,
       to_char(d.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_at
     from webhook_delivery d
     join webhook_event ev on ev.id = d.event_id
@@ -527,6 +564,7 @@ async function listDeliveries(
           durationMs: attempt.duration_ms,
           responseBody: attempt.response_body,
         })),
+      event: row.body,
     })),
     next_cursor:
       rows.length > limit && last
@@ -575,11 +613,18 @@ export function webhookEndpointsRoutes(deps: WebhookDeliveryOptions = NO_WEBHOOK
         )
       })
       .get('/', view, async (c) => {
-        const rows = await selectEndpoints(c.get('db'))
+        const db = c.get('db')
+        const rows = await selectEndpoints(db)
           .orderBy('e.created_at', 'desc')
           .orderBy('e.id')
           .execute()
-        return c.json<WebhookEndpointSummary[]>(rows.map(summary))
+        const counts = await deliveries24h(db)
+        return c.json<WebhookEndpointListItem[]>(
+          rows.map((row) => ({
+            ...summary(row),
+            deliveries24h: counts.get(row.id) ?? { finished: 0, failed: 0 },
+          })),
+        )
       })
       // Секрет показывается один раз: повтор с тем же Idempotency-Key отдаёт ответ без него.
       .post('/', requirePermission('integrations', 'create'), async (c) => {

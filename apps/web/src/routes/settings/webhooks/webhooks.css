@@ -1,0 +1,215 @@
+/* Экран «Вебхуки»: карточки вебхуков, журнал доставок внутри карточки. На телефоне (375 px)
+   длинные адреса, id событий и тело события переносятся или прокручиваются внутри своего блока,
+   страница вбок не прокручивается. */
+.webhooks__name {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.webhooks__name > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.webhooks__card--disabled > .webhooks__name > span {
+  color: var(--ink-2);
+}
+
+.webhooks__facts {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--s-1) var(--s-3);
+  margin: 0;
+}
+
+.webhooks__facts dt {
+  color: var(--ink-2);
+}
+
+.webhooks__facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* На телефоне подпись над значением: в две колонки длинные подписи сжимали значения до слова. */
+@media (max-width: 40rem) {
+  .webhooks__facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .webhooks__facts dd + dt {
+    margin-top: var(--s-2);
+  }
+}
+
+.webhooks code {
+  overflow-wrap: anywhere;
+}
+
+.webhooks__help {
+  max-width: 60rem;
+}
+
+.webhooks__help summary {
+  cursor: pointer;
+  color: var(--accent-text);
+}
+
+.webhooks__help p,
+.webhooks__help ul {
+  margin: var(--s-2) 0 0;
+}
+
+.webhooks__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+/* Секрет целиком виден и выделяется одним нажатием; моноширинный, чтобы не путать l и I. */
+.webhooks__secret {
+  width: 100%;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.webhooks__types,
+.webhooks__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.webhooks__types > legend,
+.webhooks__group > legend {
+  padding: 0;
+  margin-bottom: var(--s-2);
+  font-weight: 600;
+}
+
+.webhooks__group {
+  padding-left: var(--s-3);
+}
+
+.webhooks__type code {
+  color: var(--ink-3);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.webhooks__log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line);
+}
+
+.webhooks__log > h3 {
+  margin: 0;
+}
+
+.webhooks__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.webhooks__filters > * {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.webhooks__filters > button {
+  flex: 0 1 auto;
+}
+
+.webhooks__deliveries,
+.webhooks__attempts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.webhooks__delivery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.webhooks__delivery-head,
+.webhooks__delivery-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  align-items: center;
+  min-width: 0;
+}
+
+.webhooks__delivery-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.webhooks__delivery-meta {
+  color: var(--ink-2);
+  font-size: 0.9em;
+}
+
+.webhooks__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  padding-left: var(--s-3);
+  border-left: 2px solid var(--line);
+}
+
+.webhooks__details h4 {
+  margin: 0;
+}
+
+.webhooks__attempts li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  min-width: 0;
+}
+
+.webhooks__response {
+  flex-basis: 100%;
+  min-width: 0;
+  color: var(--ink-2);
+}
+
+/* Тело события — JSON с отступами: длинные строки прокручиваются внутри блока. */
+.webhooks__body {
+  max-width: 100%;
+  max-height: 20rem;
+  margin: 0;
+  padding: var(--s-2);
+  overflow: auto;
+  background: var(--raised);
+  border-radius: var(--r-inner);
+  font-size: 0.85em;
+}

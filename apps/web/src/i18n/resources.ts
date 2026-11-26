@@ -12,6 +12,7 @@ import ruLists from '../locales/ru/lists.json'
 import ruOrganizationCard from '../locales/ru/organization-card.json'
 import ruSettings from '../locales/ru/settings.json'
 import ruTimeline from '../locales/ru/timeline.json'
+import ruWebhooks from '../locales/ru/webhooks.json'
 import ukAudit from '../locales/uk/audit.json'
 import ukAuth from '../locales/uk/auth.json'
 import ukCommon from '../locales/uk/common.json'
@@ -26,6 +27,7 @@ import ukLists from '../locales/uk/lists.json'
 import ukOrganizationCard from '../locales/uk/organization-card.json'
 import ukSettings from '../locales/uk/settings.json'
 import ukTimeline from '../locales/uk/timeline.json'
+import ukWebhooks from '../locales/uk/webhooks.json'
 
 // Переводы разложены по разделам интерфейса (namespace i18next): один файл — один раздел.
 const uk = {
@@ -43,6 +45,7 @@ const uk = {
   lists: ukLists,
   'custom-fields': ukCustomFields,
   'fields-settings': ukFieldsSettings,
+  webhooks: ukWebhooks,
 }
 
 // Русский обязан повторять структуру украинского: пропущенный ключ — ошибка typecheck.
@@ -61,6 +64,7 @@ const ru: typeof uk = {
   lists: ruLists,
   'custom-fields': ruCustomFields,
   'fields-settings': ruFieldsSettings,
+  webhooks: ruWebhooks,
 }
 
 export const resources = { uk, ru }
