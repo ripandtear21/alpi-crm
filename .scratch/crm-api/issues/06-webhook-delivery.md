@@ -62,32 +62,19 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
-  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` (в составе pnpm verify) exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
 - [ ] Тест изоляции: адреса, доставки и попытки проекта A не видны в контексте B; событие проекта A не уходит на адрес проекта B.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/api/src/webhook-endpoints` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест прав: без `integrations` — 403 на все запросы адресов; запрос по ключу API — 403 `API_KEY_NOT_ALLOWED`.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест подписи: `verify()` пакета `standardwebhooks` принимает отправленное событие; изменённое тело, чужой секрет и время старше 5 минут — отклоняет; в первые 24 часа после смены секрета принимаются и старый, и новый секрет, потом только новый.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/sign.test.ts apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест подписки: адрес получает только подписанные типы; отключённый адрес не получает ничего, его доставки `cancelled`.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест повторов (с укороченными паузами): ответ 500 и таймаут дают повтор с тем же `webhook-id`; 3xx — неудача без перехода по редиректу; успех только на 2xx; после последней попытки — `failed`.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест отключения: `410` отключает адрес сразу; 5 суток без успеха (время подменено в тесте) отключают адрес, пишут журнал и показывают предупреждение пользователю с правом «интеграции» и не показывают менеджеру.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/web/src/layout/webhook-alert-banner.test.tsx` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
 - [ ] Тест SSRF: `http://`, `https://127.0.0.1`, `https://10.0.0.5`, `https://169.254.169.254`, `https://[::1]` и имя, которое разрешается в частный адрес, — 422 при сохранении; имя, которое после сохранения стало разрешаться в частный адрес, — отправка отклонена, попытка записана с причиной; без переменной для тестов `http://localhost` отклоняется; с ней при `NODE_ENV=production` API не запускается.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/ssrf.test.ts apps/api/src/webhook-endpoints apps/api/src/events/delivery.test.ts apps/api/src/config.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест секрета: секрет показан один раз; в базе он не лежит открытым текстом; в логах и журнале его нет.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints apps/api/src/api-keys` (в составе pnpm verify) exit 0 · windows - · 8f6fec7b4957fffb77a4306597a5dea897c20c11
 - [ ] Тест ручного повтора: повтор одной доставки и «всё неудачное с даты» отправляют заново с тем же `webhook-id`, попытки видны в журнале.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест хранения: записи старше 30 дней удаляются задачей, новее — остаются.
-  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] `pnpm verify` зелёный.
-  - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
-  - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · 8f6fec7b4957fffb77a4306597a5dea897c20c11
   - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
 
 ## Результат
@@ -102,7 +89,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 - SSRF: только `https://`, без учётных данных и `#`; все IP имени должны быть публичными (IPv4 — блок-лист частных, loopback, link-local, CGNAT, multicast, документационных и зарезервированных; IPv6 — только 2000::/3 без служебных подсетей; IPv4 внутри IPv6 проверяется как IPv4). Проверка при сохранении (422: `WEBHOOK_URL_NOT_HTTPS`, `WEBHOOK_URL_FORBIDDEN_ADDRESS`, `WEBHOOK_URL_UNRESOLVABLE`, `WEBHOOK_URL_INVALID`) и перед каждой отправкой; соединение — на проверенный IP, имя остаётся в SNI и проверке сертификата; редиректы не выполняются; тело ответа — не больше 64 КБ, хранится 1 КБ. `WEBHOOK_ALLOW_INSECURE_URLS=1` разрешает `http://` и только loopback; с `NODE_ENV=production` API не запускается.
 - Уведомление администратору — предупреждение под шапкой (`apps/web/src/layout/webhook-alert-banner.tsx`) для пользователей с правом «интеграции: смотреть»: адреса, отключённые системой (`gone_410`, `failing_5_days`), до включения или удаления. Плюс запись `webhook_endpoint.disabled` в журнал проекта без автора.
 - «Всё неудачное с даты» (`POST /api/v1/webhook-endpoints/:id/retry-failed`, `{ since }`) берёт доставки адреса в состоянии `failed` и `cancelled`, созданные не раньше `since`. Повтор отключённому адресу — 409 `WEBHOOK_ENDPOINT_DISABLED`.
-- «5 суток без успеха» считаются от первой неудачной попытки серии — после последнего успеха или включения адреса (колонка `failing_since`; успех и включение её сбрасывают). Раунд 1 считал от последнего успеха или включения (`enabled_at`) — см. «Доработка, раунд 2».
+- «5 суток без успеха» считаются от первой неудачной попытки серии (колонка `failing_since`). Серия начинается заново после успеха, включения адреса и перерыва без неудач дольше 24 часов (решение владельца, 2026-11-26; колонка `last_failure_at`). Раунд 1 считал от последнего успеха или включения (`enabled_at`) — см. «Доработка, раунд 2» и «Доработка, раунд 3».
 
 Ещё:
 - Задача `webhook-fanout` теперь несёт `projectId` (обработчик работает в `withProject`); задачи из очереди без него (поставленные до этой ветки) падают и уходят в ошибки pg-boss.
@@ -130,6 +117,12 @@ Consider (долги, в раунде 2 не делались):
 
 Доработка, раунд 2 (PR #32, после max-review):
 - «5 суток без успеха» — колонка адреса `failing_since` вместо `enabled_at`: время первой неудачной попытки серии. Неудача пишет её одним `UPDATE … set failing_since = coalesce(failing_since, <время попытки>)` под блокировкой строки адреса, и адрес отключается (`failing_5_days`), если от неё до текущей неудачи прошло ≥5 суток. Успех и включение адреса сбрасывают её в `null`. «Тихий» адрес (последний успех давно, попыток не было) первая неудача больше не отключает — доставка уходит на повтор. Отвергнутый вариант — `min(attempted_at)` неудачных попыток после последнего успеха: на каждой неудаче нужен запрос по попыткам всех доставок адреса, и всё равно нужна отметка включения адреса, чтобы неудачи до отключения не попадали в новую серию.
-- Гонка, оставленная как есть: неудача, отправленная раньше успеха другой доставки, но записанная после него, начинает новую серию со своего времени попытки — то есть на время запроса (до 15 с) раньше успеха.
-- Перерыв без попыток серию не обрывает (решено без владельца — подтвердить): адрес, неудачи на который были 6 суток назад, затем тишина, отключится на первой же следующей неудаче — попытки в эти 5 суток были, и все неудачные.
+- Гонка: неудача, отправленная раньше успеха другой доставки, но записанная после него, начинала новую серию со своего времени попытки — на время запроса (до 15 с) раньше успеха. Исправлено в раунде 3.
+- Перерыв без попыток серию не обрывал. Заменено решением владельца в раунде 3.
 - Миграция `0022_webhook_delivery` → `0024_webhook_delivery`; колонка `failing_since` — внутри неё. Тест отката 0023 (`packages/db/src/project-isolation.test.ts`) откатывает теперь 0024 и 0023 и проверяет, что база с уже применённой 0023 принимает 0024 следом.
+
+Доработка, раунд 3 (PR #32, после второго REJECTED; дополнительный раунд одобрен владельцем):
+- Решение владельца (2026-11-26): серия неудач начинается заново, если с последней неудачи на этот адрес прошло больше 24 часов. Пока доставка повторяется, попытки идут не реже чем раз в 6 часов (`retryDelayMax: 21600`), поэтому перерыв дольше суток значит, что попыток не было. Константа `WEBHOOK_FAILING_GAP_HOURS = 24` — рядом с `WEBHOOK_FAILING_DAYS` (`packages/shared/src/events/webhooks.ts`).
+- Колонка адреса `last_failure_at` (в той же миграции `0024_webhook_delivery`) — время последней неудачи. Неудача одним `UPDATE` ставит `failing_since` = время попытки, если `last_failure_at` пусто или старше 24 часов, иначе `coalesce(failing_since, время попытки)`, и `last_failure_at` = время попытки. Успех и включение адреса сбрасывают обе колонки.
+- `failing_since` не раньше `last_success_at` (`greatest`): время попытки берётся до запроса, и неудача, записанная после успеха другой доставки, больше не начинает серию раньше этого успеха.
+- Сценарий проверки: адрес не отвечал ~3 суток, потом починен, событий не было; на 30-е сутки разовый 503 на первой попытке нового события — раньше адрес отключался сразу, теперь серия начинается заново, доставка повторяется. Тест «5 суток неудач подряд» теперь шлёт неудачи каждые 20 часов: прежние неудачи на сутки 0 и 4 — перерыв больше суток — по новому правилу серию обрывают.

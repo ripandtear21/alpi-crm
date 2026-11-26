@@ -1,6 +1,7 @@
 import { type Database, withProject } from '@alpi/db'
 import {
   WEBHOOK_FAILING_DAYS,
+  WEBHOOK_FAILING_GAP_HOURS,
   type WebhookAttemptError,
   type WebhookDisabledReason,
 } from '@alpi/shared'
@@ -248,7 +249,7 @@ async function recordAttempt(
     // Успех обрывает серию неудач: 5 суток считаются заново от следующей неудачи.
     await trx
       .updateTable('webhook_endpoint')
-      .set({ last_success_at: sql<Date>`now()`, failing_since: null })
+      .set({ last_success_at: sql<Date>`now()`, failing_since: null, last_failure_at: null })
       .where('id', '=', row.endpoint_id)
       .execute()
     return 'done'
@@ -260,13 +261,26 @@ async function recordAttempt(
     await disableEndpoint(trx, projectId, row.endpoint_id, 'gone_410')
     return 'done'
   }
-  // 5 суток без успеха — от первой неудачи серии (после последнего успеха или включения), а не
-  // от самого успеха: адрес, на который давно ничего не отправлялось, первая неудача не
-  // отключает. Первая неудача серии пишется одним UPDATE: блокировка строки адреса
-  // упорядочивает параллельные доставки, и вторая видит время, записанное первой.
+  // 5 суток без успеха — от первой неудачи серии, а не от последнего успеха: адрес, на который
+  // давно ничего не отправлялось, первая неудача не отключает. Серия начинается заново после
+  // успеха, включения адреса и перерыва без неудач дольше WEBHOOK_FAILING_GAP_HOURS (решение
+  // владельца: 5 суток считаются только при попытках в это время). Всё — одним UPDATE:
+  // блокировка строки адреса упорядочивает параллельные доставки, и вторая видит то, что
+  // записала первая; в SET справа — значения строки до изменения.
+  // `now` взят до запроса, поэтому неудача, записанная после успеха другой доставки, может быть
+  // «раньше» его (до таймаута запроса): начало серии — не раньше последнего успеха (greatest
+  // пропускает null).
+  const gap = sql`make_interval(hours => ${WEBHOOK_FAILING_GAP_HOURS})`
   const endpoint = await trx
     .updateTable('webhook_endpoint')
-    .set({ failing_since: sql<Date>`coalesce(failing_since, ${now})` })
+    .set({
+      failing_since: sql<Date>`greatest(
+        case when last_failure_at >= ${now}::timestamptz - ${gap}
+          then coalesce(failing_since, ${now}) else ${now} end,
+        last_success_at
+      )`,
+      last_failure_at: now,
+    })
     .where('id', '=', row.endpoint_id)
     .where('state', '=', 'active')
     .returning('failing_since')

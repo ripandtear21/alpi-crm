@@ -730,10 +730,13 @@ export interface WebhookEndpointTable {
   disabled_reason: WebhookDisabledReason | null
   disabled_at: Date | null
   /**
-   * Первая неудачная попытка серии — после последнего успеха или включения; успех и включение
-   * сбрасывают в null. Отсюда считаются 5 суток без успеха.
+   * Первая неудачная попытка серии. Серия начинается заново после успеха, включения адреса и
+   * перерыва без неудач дольше суток (WEBHOOK_FAILING_GAP_HOURS). Отсюда считаются 5 суток без
+   * успеха.
    */
   failing_since: Date | null
+  /** Последняя неудачная попытка; успех и включение сбрасывают в null, как и failing_since. */
+  last_failure_at: Date | null
   last_success_at: Date | null
   created_by: ColumnType<string, string, never>
   created_at: ColumnType<Date, never, never>

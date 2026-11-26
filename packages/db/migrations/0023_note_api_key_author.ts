@@ -10,8 +10,8 @@ import { type Kysely, sql } from 'kysely'
 //   команды, поэтому охват контактов «свои» и «команда» у ключа — контакты, созданные этим ключом
 //   (apps/api/src/contacts/scope.ts; решено без владельца — подтвердить). Создатель —
 //   пользователь или ключ, не оба сразу.
-// - Номер 0022 занят веткой тикета crm-api/06; пропуск номера мигратор Kysely принимает (0013
-//   пропущен так же).
+// - Номер 0022 пропущен: его занимала ветка тикета crm-api/06, теперь её миграция — 0024;
+//   пропуск номера мигратор Kysely принимает (0013 пропущен так же).
 
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`alter table note alter column author_id drop not null`.execute(db)

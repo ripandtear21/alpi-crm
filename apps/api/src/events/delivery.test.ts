@@ -26,7 +26,8 @@ import type { HostLookup } from './ssrf.ts'
 // и «24 часа» — подменой часов доставки, без ожиданий. Разрешение имён — подставная таблица.
 // Все данные — выдуманные.
 
-const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
 
 interface Received {
   path: string
@@ -498,13 +499,17 @@ describe('доставка событий', () => {
     return states
   }
 
-  async function failingSince(endpointId: string): Promise<Date | null> {
-    const row = await h.owner
+  /** Серия неудач адреса: первая и последняя неудача, последний успех. */
+  async function series(endpointId: string) {
+    return h.owner
       .selectFrom('webhook_endpoint')
-      .select('failing_since')
+      .select(['failing_since', 'last_failure_at', 'last_success_at'])
       .where('id', '=', endpointId)
       .executeTakeFirstOrThrow()
-    return row.failing_since
+  }
+
+  async function failingSince(endpointId: string): Promise<Date | null> {
+    return (await series(endpointId)).failing_since
   }
 
   it('5 суток без успеха: «тихий» адрес (последний успех 6 суток назад) первая неудача не отключает — повтор доходит', async () => {
@@ -516,7 +521,50 @@ describe('доставка событий', () => {
     expect(await endpointRow(quiet.endpoint.id)).toEqual({ state: 'active', disabled_reason: null })
     expect(requestsTo('/quiet')).toHaveLength(2)
     // Успех сбросил серию неудач.
-    expect(await failingSince(quiet.endpoint.id)).toBeNull()
+    expect(await series(quiet.endpoint.id)).toMatchObject({
+      failing_since: null,
+      last_failure_at: null,
+    })
+  })
+
+  it('5 суток без успеха: перерыв без неудач дольше суток начинает серию заново — разовая неудача не отключает, доставка повторяется', async () => {
+    replies.set('/paused', () => ({ status: 503 }))
+    const paused = await endpoint('/paused')
+    let before = 0
+    try {
+      // Сутки 0: адрес не отвечает, все попытки неудачны — серия начата.
+      await contactEvent()
+      expect(await settled(paused.endpoint.id, 1)).toEqual(['failed'])
+      expect(await failingSince(paused.endpoint.id)).not.toBeNull()
+      // Адрес починили, событий не было. Сутки 6: первая попытка нового события — разовый 503.
+      clockOffset = 6 * DAY_MS
+      before = requestsTo('/paused').length
+      replies.set('/paused', (call) => (call === before + 1 ? { status: 503 } : { status: 200 }))
+      await contactEvent()
+      expect(await settled(paused.endpoint.id, 2)).toEqual(['failed', 'succeeded'])
+    } finally {
+      clockOffset = 0
+    }
+    expect(await endpointRow(paused.endpoint.id)).toEqual({ state: 'active', disabled_reason: null })
+    expect(requestsTo('/paused')).toHaveLength(before + 2)
+  })
+
+  it('5 суток без успеха: неудача, записанная после успеха, но с временем попытки раньше него, начинает серию не раньше успеха', async () => {
+    replies.set('/late', () => ({ status: 503 }))
+    const late = await endpoint('/late')
+    // Успех другой доставки записан по часам базы позже, чем взято время попытки этой неудачи
+    // (время берётся до запроса).
+    await sql`
+      update webhook_endpoint set last_success_at = now() + interval '1 hour' where id = ${late.endpoint.id}
+    `.execute(h.owner)
+    await contactEvent()
+    expect(await settled(late.endpoint.id, 1)).toEqual(['failed'])
+    const row = await series(late.endpoint.id)
+    expect(row.last_failure_at).not.toBeNull()
+    expect(row.last_success_at).not.toBeNull()
+    expect(row.last_failure_at?.getTime()).toBeLessThan(row.last_success_at?.getTime() ?? 0)
+    expect(row.failing_since).toEqual(row.last_success_at)
+    expect(await endpointRow(late.endpoint.id)).toEqual({ state: 'active', disabled_reason: null })
   })
 
   it('5 суток без успеха: успех посреди серии неудач начинает отсчёт заново', async () => {
@@ -550,18 +598,20 @@ describe('доставка событий', () => {
     const failing = await endpoint('/failing')
     // Успеха не было 10 суток — это не в счёт: считаются неудачи, а не тишина.
     await lastSuccessDaysAgo(failing.endpoint.id, 10)
+    const failed = (n: number) => Array.from({ length: n }, () => 'failed')
     try {
-      // Сутки 0 и 4: неудачи, адрес активен.
-      await contactEvent()
-      expect(await settled(failing.endpoint.id, 1)).toEqual(['failed'])
-      clockOffset = 4 * DAY_MS
-      await contactEvent()
-      expect(await settled(failing.endpoint.id, 2)).toEqual(['failed', 'failed'])
+      // Неудачи каждые 20 часов (перерыв меньше суток — серия не обрывается): 0–100 ч, адрес
+      // активен.
+      for (let step = 0; step <= 5; step++) {
+        clockOffset = step * 20 * HOUR_MS
+        await contactEvent()
+        expect(await settled(failing.endpoint.id, step + 1)).toEqual(failed(step + 1))
+      }
       expect(await endpointRow(failing.endpoint.id)).toEqual({
         state: 'active',
         disabled_reason: null,
       })
-      // Сутки 5 от первой неудачи: первая же неудача отключает адрес.
+      // 120 ч (5 суток) от первой неудачи: первая же неудача отключает адрес.
       clockOffset = 5 * DAY_MS + 60_000
       const before = requestsTo('/failing').length
       await contactEvent()
@@ -571,8 +621,7 @@ describe('доставка событий', () => {
           disabled_reason: 'failing_5_days',
         })
         expect((await deliveries(failing.endpoint.id)).map((d) => d.state)).toEqual([
-          'failed',
-          'failed',
+          ...failed(6),
           'cancelled',
         ])
       })
@@ -608,16 +657,14 @@ describe('доставка событий', () => {
       { project: projectA },
     )
     expect(enabled.status).toBe(200)
-    expect(await failingSince(failing.endpoint.id)).toBeNull()
+    expect(await series(failing.endpoint.id)).toMatchObject({
+      failing_since: null,
+      last_failure_at: null,
+    })
     clockOffset = 5 * DAY_MS + 120_000
     try {
       await contactEvent()
-      expect(await settled(failing.endpoint.id, 4)).toEqual([
-        'failed',
-        'failed',
-        'cancelled',
-        'failed',
-      ])
+      expect(await settled(failing.endpoint.id, 8)).toEqual([...failed(6), 'cancelled', 'failed'])
     } finally {
       clockOffset = 0
     }
@@ -625,7 +672,7 @@ describe('доставка событий', () => {
       state: 'active',
       disabled_reason: null,
     })
-  })
+  }, 120_000)
 
   it('имя, которое после сохранения стало разрешаться во внутреннюю сеть, — отправка отклонена, попытка с причиной', async () => {
     names.set('hooks.example.test', ['93.184.216.34'])
