@@ -78,12 +78,14 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 - [ ] Тест SSRF: `http://`, `https://127.0.0.1`, `https://10.0.0.5`, `https://169.254.169.254`, `https://[::1]` и имя, которое разрешается в частный адрес, — 422 при сохранении; имя, которое после сохранения стало разрешаться в частный адрес, — отправка отклонена, попытка записана с причиной; без переменной для тестов `http://localhost` отклоняется; с ней при `NODE_ENV=production` API не запускается.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/ssrf.test.ts apps/api/src/webhook-endpoints apps/api/src/events/delivery.test.ts apps/api/src/config.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест секрета: секрет показан один раз; в базе он не лежит открытым текстом; в логах и журнале его нет.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints apps/api/src/api-keys` (в составе pnpm verify) exit 0 · windows - · 8f6fec7b4957fffb77a4306597a5dea897c20c11
 - [ ] Тест ручного повтора: повтор одной доставки и «всё неудачное с даты» отправляют заново с тем же `webhook-id`, попытки видны в журнале.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] Тест хранения: записи старше 30 дней удаляются задачей, новее — остаются.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · c30c736789a2302ff799a40d55fb4f0061aa45b2
+  - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · 8f6fec7b4957fffb77a4306597a5dea897c20c11
 
 ## Результат
 
