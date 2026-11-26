@@ -1,7 +1,8 @@
 # Источники регистраций и ключи источников
 
 Type: task
-Status: claimed 2026-11-26T14:49Z
+Status: done 2026-11-26T15:44Z
+PR: #38
 Risk: high
 Blocked by: —
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 1, 10, 11, 18, 35); docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Источник регистраций», «Ключ источника», «Ключ API»); .scratch/crm-mvp/spec.md, разделы 3.2 (`intake_source`), 6.1; .scratch/crm-api/issues/01-api-keys.md (образец ключа); .scratch/crm-intake/spec.md
@@ -68,3 +69,19 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 - `last_used_at` обновляется при запросе с принятым ключом, не превысившем лимит, не чаще раза в минуту.
 - Откат миграции удаляет события с автором-источником (`webhook_event`), а строки `change_log` с автором-источником оставляет без автора.
 - Вне раздела «Where in code» (вынуждено проверкой типов): подписи новых действий журнала в `apps/web/src/routes/settings/audit-page.tsx` и `apps/web/src/locales/{uk,ru}/audit.json`; списки миграций и таблиц в `packages/db/src/project-isolation.test.ts`.
+
+### Итог (2026-11-26)
+
+Смержено: PR #38, коммит 28fa153. Проверка: VERIFIED с первого круга (https://github.com/ripandtear21/alpi-crm/pull/38#issuecomment-7196247118); MAX-REVIEW: VERIFIED — две линзы (корректность, упрощение) на двух моделях, находок high/med нет (https://github.com/ripandtear21/alpi-crm/pull/38#issuecomment-7196418754); gate full зелёный; CI на main зелёный.
+
+Долги (Consider):
+- [low] Лента записи (`apps/api/src/timeline/timeline.ts:94`, `:176`) и журнал проекта (`apps/api/src/audit/routes.ts:142`) знают только автора-пользователя и ключ API: изменения от источника покажутся без автора («система»). Починить в тикете 06 (приём регистраций) — первым, кто пишет такие изменения.
+- [low] `apps/api/src/intake/key.ts:17-29` повторяет `apps/api/src/api-keys/secret.ts:19-31` до констант — общая функция выпуска секрета и отпечатка.
+- [low] `apps/api/src/intake/auth.ts:92-95, :113-115` повторяют учёт лимита и заголовки `RateLimit-*` из `apps/api/src/middleware/api-key.ts:106-118`; правило «`last_used_at` не чаще раза в минуту» (`auth.ts:80, :97-110`) — из `apps/api/src/middleware/project-context.ts:98,124-135`. Общие функции — отдельной правкой.
+- [low] На 375 px таблица журнала проекта обрезает столбец «Дія» (`apps/web/src/routes/settings/audit-page.tsx`; так было и до тикета).
+
+Замечено (Noted):
+- [low] `apps/api/src/intake/intake-sources.test.ts:525` — название обещает «счётчик не общий с ключами API», но ключ API тест не отправляет.
+- [low] `apps/api/src/intake/auth.ts:66-77` — `intakeSourceOfRequest` и параметр `code` у `intakeKeyError` лишние; `IntakeSourceCreateInput` (`packages/shared/src/intake/index.ts:58-61`) не используется.
+- Ответы 401 `INTAKE_KEY_INVALID` и 429 на всю группу `/api/intake/*` сделаны здесь, а не в тикете 06: маршрутов приёма пока нет, принятый ключ получает 404; тикет 06 добавляет маршруты внутрь `intakeRoutes` (`apps/api/src/intake/auth.ts`).
+- Вне тикета: `apps/api/src/events/delivery.test.ts:427` («410 отключает адрес сразу») нестабилен по времени — в полном прогоне получил два запроса вместо одного.
