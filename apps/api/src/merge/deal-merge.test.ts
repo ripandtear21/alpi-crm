@@ -20,7 +20,7 @@ import {
 } from '../testing/api-harness.ts'
 import { problemOf } from '../testing/problem.ts'
 import type { TimelinePage } from '../timeline/timeline.ts'
-import { DEAL_PURGER } from '../trash/purgers.ts'
+import { CONTACT_PURGER, DEAL_PURGER } from '../trash/purgers.ts'
 import type { DealMergePreview, DealMergeResult, DealUndoResult } from './deals.ts'
 
 // Слияние сделок с откатом (тикет crm-intake/02; ADR 0005): изоляция проектов, права, что
@@ -903,6 +903,120 @@ describe('слияние сделок', () => {
           .where('entity_id', 'in', ids)
           .execute(),
       ).toEqual([])
+    })
+
+    it('окончательное удаление контакта: его сделка в корзине уносит слитую в неё его же сделку — 204', async () => {
+      const contact = await createContact('Обидві свої')
+      // Две сделки одного контакта — в разных воронках: открытая в воронке у него одна.
+      const s = await createDeal({ pipelineId: (await createPipeline()).id, contactId: contact.id })
+      const m = await createDeal({ pipelineId: (await createPipeline()).id, contactId: contact.id })
+      await json(await merge(s.id, m.id))
+      expect((await call(admin, 'DELETE', `/v1/deals/${s.id}`)).status).toBe(204)
+      expect((await call(admin, 'DELETE', `/v1/contacts/${contact.id}`)).status).toBe(204)
+      // Сделка в корзине стирается первой и уносит скрытую: второй раз её не стирать.
+      expect((await call(admin, 'DELETE', `/v1/contacts/${contact.id}/permanent`)).status).toBe(204)
+      expect(
+        await h.owner.selectFrom('deal').select('id').where('id', 'in', [s.id, m.id]).execute(),
+      ).toEqual([])
+      expect(
+        await h.owner.selectFrom('contact').select('id').where('id', '=', contact.id).execute(),
+      ).toEqual([])
+    })
+
+    it('окончательное удаление контакта стирает его сделку, слитую в сделку другого контакта', async () => {
+      const { survivor, merged } = await pair()
+      const result = await json<DealMergeResult>(await merge(survivor.id, merged.id))
+      const contactId = merged.primaryContactId
+      expect((await call(admin, 'DELETE', `/v1/contacts/${contactId}`)).status).toBe(204)
+      // Скрытая сделка — корень purge_from_trash: она не в корзине, но стирается.
+      expect((await call(admin, 'DELETE', `/v1/contacts/${contactId}/permanent`)).status).toBe(204)
+      expect(
+        await h.owner.selectFrom('deal').select('id').where('id', '=', merged.id).execute(),
+      ).toEqual([])
+      expect(
+        await h.owner
+          .selectFrom('merge_record')
+          .select('id')
+          .where('id', '=', result.merge.id)
+          .execute(),
+      ).toEqual([])
+      expect((await json<DealView>(await call(admin, 'GET', `/v1/deals/${survivor.id}`))).id).toBe(
+        survivor.id,
+      )
+    })
+
+    it('фоновая очистка корзины стирает контакт со скрытыми сделками — вместе с ними', async () => {
+      // Отдельный проект: в корзине A лежат контакты и сделки других проверок.
+      const project = (await h.createProject(admin, 'Злиття В')).id
+      const contact = await createContact('Лише злиті', project)
+      const other = await createContact('Інший', project)
+      const deal = async (contactId: string) =>
+        createDeal({ pipelineId: (await createPipeline(project)).id, contactId }, project)
+      const survivor = await deal(other.id)
+      // Две скрытые сделки контакта цепочкой: младшая по id слита в оставшуюся другого
+      // контакта, старшая — в младшую. Очистка идёт по id: младшая уносит старшую.
+      const [first, second] = [(await deal(contact.id)).id, (await deal(contact.id)).id].sort()
+      if (!first || !second) throw new Error('сделок нет')
+      await json(await merge(first, second, admin, project))
+      await json(await merge(survivor.id, first, admin, project))
+      expect(
+        (await call(admin, 'DELETE', `/v1/contacts/${contact.id}`, undefined, project)).status,
+      ).toBe(204)
+      const deleted = await withProject(h.appDb, project, (trx) =>
+        CONTACT_PURGER.purgeExpired(trx, new Date(Date.now() + 86_400_000)),
+      )
+      expect(deleted).toBe(1)
+      expect(
+        await h.owner.selectFrom('contact').select('id').where('id', '=', contact.id).execute(),
+      ).toEqual([])
+      expect(
+        await h.owner.selectFrom('deal').select('id').where('id', 'in', [first, second]).execute(),
+      ).toEqual([])
+      expect(
+        await h.owner
+          .selectFrom('merge_record')
+          .select('id')
+          .where('project_id', '=', project)
+          .execute(),
+      ).toEqual([])
+      expect(
+        (
+          await json<DealView>(
+            await call(admin, 'GET', `/v1/deals/${survivor.id}`, undefined, project),
+          )
+        ).id,
+      ).toBe(survivor.id)
+    })
+
+    it('фоновая очистка корзины не трогает контакт, у которого есть видимая сделка', async () => {
+      const project = (await h.createProject(admin, 'Злиття Г')).id
+      const contact = await createContact('З угодою', project)
+      const pipeline = await createPipeline(project)
+      const live = await createDeal({ pipelineId: pipeline.id, contactId: contact.id }, project)
+      // Контакт в корзине, а сделку восстановили отдельно: контакт ждёт.
+      expect(
+        (
+          await call(
+            admin,
+            'DELETE',
+            `/v1/contacts/${contact.id}?confirm=${live.id}`,
+            undefined,
+            project,
+          )
+        ).status,
+      ).toBe(204)
+      await h.owner
+        .updateTable('deal')
+        .set({ deleted_at: null })
+        .where('id', '=', live.id)
+        .execute()
+      const deleted = await withProject(h.appDb, project, (trx) =>
+        CONTACT_PURGER.purgeExpired(trx, new Date(Date.now() + 86_400_000)),
+      )
+      expect(deleted).toBe(0)
+      expect(
+        await h.owner.selectFrom('contact').select('id').where('id', '=', contact.id).execute(),
+      ).toEqual([{ id: contact.id }])
     })
 
     it('скрытую сделку напрямую не стереть: API отвечает 404', async () => {

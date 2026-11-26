@@ -43,7 +43,10 @@ export const DEAL_PURGER: TrashPurger = {
 export const CONTACT_PURGER: TrashPurger = {
   async purgeExpired(trx, cutoff) {
     // Контакт, на который ещё ссылается сделка как на основной (сделку удалили позже или
-    // восстановили), ждёт: сделка без основного контакта невозможна.
+    // восстановили), ждёт: сделка без основного контакта невозможна. Скрытые сделки контакта
+    // (слитые в другие, тикет crm-intake/02) не ждут: из корзины они не возвращаются и
+    // стираются вместе с контактом, как при окончательном удалении вручную
+    // (deals/dependents.ts), — иначе такой контакт лежал бы в корзине вечно.
     const rows = await trx
       .selectFrom('contact')
       .select('contact.id')
@@ -54,17 +57,30 @@ export const CONTACT_PURGER: TrashPurger = {
             eb
               .selectFrom('deal')
               .select('deal.id')
-              .whereRef('deal.primary_contact_id', '=', 'contact.id'),
+              .whereRef('deal.primary_contact_id', '=', 'contact.id')
+              .where('deal.merged_into_id', 'is', null),
           ),
         ),
       )
       .orderBy('contact.id')
       .execute()
-    return purgeEach(
-      trx,
-      'contact',
-      rows.map((row) => row.id),
-    )
+    const ids = rows.map((row) => row.id)
+    if (ids.length === 0) return 0
+    // Скрытые сделки блокируются по id, как в deals/dependents.ts; каждая уносит и слитые в
+    // неё, так что сделку, которую уже унесла другая, второй раз не стирать.
+    const hidden = await trx
+      .selectFrom('deal')
+      .select('id')
+      .where('primary_contact_id', 'in', ids)
+      .where('merged_into_id', 'is not', null)
+      .orderBy('id')
+      .forUpdate()
+      .execute()
+    for (const { id } of hidden) {
+      const left = await trx.selectFrom('deal').select('id').where('id', '=', id).executeTakeFirst()
+      if (left) await sql`select purge_from_trash('deal', ${id}::uuid)`.execute(trx)
+    }
+    return purgeEach(trx, 'contact', ids)
   },
 }
 
