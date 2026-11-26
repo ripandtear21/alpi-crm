@@ -46,7 +46,7 @@ function part(details: Record<string, unknown>, key: 'before' | 'after') {
 
 /** Что именно изменилось — одной строкой. */
 function useSummary() {
-  const { t } = useTranslation('audit')
+  const { t, i18n } = useTranslation('audit')
   return (entry: AuditEntry<ProjectAuditAction>): string => {
     const before = part(entry.details, 'before')
     const after = part(entry.details, 'after')
@@ -183,6 +183,20 @@ function useSummary() {
         return text(entry.details.url)
       case 'webhook_endpoint.updated':
         return text(after.url)
+      // Тикет crm-api/09: «догнать события с даты» — адрес, дата и сколько событий поставлено.
+      case 'webhook_endpoint.caught_up': {
+        const since = Date.parse(text(entry.details.since))
+        return t('summary.caughtUp', {
+          url: text(entry.details.url),
+          since: Number.isNaN(since)
+            ? text(entry.details.since)
+            : new Intl.DateTimeFormat(i18n.language, {
+                dateStyle: 'short',
+                timeStyle: 'short',
+              }).format(since),
+          n: typeof entry.details.queued === 'number' ? entry.details.queued : '',
+        })
+      }
     }
   }
 }

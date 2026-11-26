@@ -67,6 +67,29 @@ describe('экран журнала', () => {
     expect((await rows())[0]).toMatch(/^Робот n8n \(ключ API\) \| Зміна через ключ API \| /)
   })
 
+  it('«догнать события с даты» (тикет crm-api/09): адрес, дата и сколько поставлено', async () => {
+    const caughtUp = {
+      id: '00000000-0000-4000-8000-000000000098',
+      occurredAt: '2026-11-26T12:01:00.000Z',
+      actor: null,
+      apiKey: null,
+      ip: null,
+      action: 'webhook_endpoint.caught_up' as const,
+      entityType: 'webhook_endpoint',
+      entityId: '00000000-0000-4000-8000-000000000097',
+      entityName: null,
+      details: {
+        url: 'https://hooks.example.test/n8n',
+        since: '2026-11-21T00:00:00.000Z',
+        queued: 7,
+      },
+    }
+    await renderAudit('uk', fakeAuditApi({ first: [caughtUp] }))
+    expect((await rows())[0]).toMatch(
+      /\| Наздогнано події вебхука \| https:\/\/hooks\.example\.test\/n8n: події з .+, у черзі: 7$/,
+    )
+  })
+
   it('записи новые сверху: кто, действие, «было → стало»', async () => {
     await renderAudit('uk')
     expect(await rows()).toEqual([

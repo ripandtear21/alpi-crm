@@ -8,6 +8,7 @@ import {
   type EventType,
   MAX_WEBHOOK_DESCRIPTION_LENGTH,
   WEBHOOK_DELIVERY_STATES,
+  WEBHOOK_RETENTION_DAYS,
   WEBHOOK_SECRET_OVERLAP_HOURS,
   type WebhookAlert,
   type WebhookAttemptError,
@@ -60,6 +61,8 @@ import { type PermissionsEnv, requirePermission } from '../middleware/permission
 //   (решено без владельца — подтвердить). Повтор возвращает доставку в pending и ставит новую
 //   задачу: попытки добавляются к той же доставке, `webhook-id` — тот же id события. Отключённому
 //   адресу повтор недоступен (409) — сначала включить.
+// - «Догнать события с даты» (тикет 09): события, которых у вебхука нет или которые ему не
+//   доставлены, — обычной доставкой (catchUp ниже). Тоже только включённому вебхуку.
 // - Создание, изменение, удаление, смена секрета, включение и отключение — в журнал проекта.
 
 type Result<T> = Outcome<T, WebhookEndpointsErrorCode>
@@ -79,6 +82,7 @@ const URL_PROBLEM_CODES: Record<UrlProblem, WebhookEndpointsErrorCode> = {
 const DELIVERY_SORT = 'created_at:desc'
 
 const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
 
 /** Нет ключа шифрования — адреса не создаются (ответ 500, причина — в журнале процесса). */
 export const NO_WEBHOOKS: WebhookDeliveryOptions = { secretKey: null, allowInsecureUrls: false }
@@ -178,7 +182,7 @@ async function lockEndpoint(c: Ctx, id: string) {
   return c
     .get('db')
     .selectFrom('webhook_endpoint')
-    .select(['id', 'url', 'state', 'secret_encrypted'])
+    .select(['id', 'url', 'state', 'secret_encrypted', 'event_types', 'created_at'])
     .where('id', '=', id)
     .forUpdate()
     .executeTakeFirst()
@@ -460,6 +464,78 @@ async function retryFailedSince(c: Ctx, endpointId: string): Promise<Result<{ qu
   return ok({ queued })
 }
 
+/**
+ * «Догнать события с даты» (тикет crm-api/09): события проекта, записанные начиная с `since`,
+ * типов, на которые вебхук подписан сейчас, и ещё не доставленные ему успешно, уходят обычной
+ * доставкой тикета 06 (тот же `webhook-id`, повторы, подпись, проверка адреса). Нет доставки —
+ * она создаётся; неудачная или отменённая — возвращается в pending; успешная и ожидающая не
+ * трогаются. `queued` — сколько событий поставлено в отправку (решено без владельца —
+ * подтвердить).
+ *
+ * Гонки: строка вебхука заблокирована (forUpdate) — второй «догнать» и повторы ждут конца
+ * транзакции и видят доставки уже в pending. Рассылка (fanout.ts) вебхук не блокирует, но
+ * вставляет доставку с тем же `on conflict (event_id, endpoint_id) do nothing`: пару создаёт и
+ * ставит в очередь тот, кто вставил первым, второй её пропускает.
+ */
+async function catchUp(c: Ctx, endpointId: string): Promise<Result<{ queued: number }>> {
+  const body = await readBody(c)
+  if (!body) return invalid('')
+  const extra = Object.keys(body).find((key) => key !== 'since')
+  if (extra !== undefined) return invalid(extra)
+  const since = readTime(body.since)
+  if (!since) return invalid('since')
+  const locked = await lockEndpoint(c, endpointId)
+  if (!locked) return notFound()
+  if (locked.state !== 'active') return refuse(409, 'WEBHOOK_ENDPOINT_DISABLED')
+  // Время создания — с точностью до миллисекунды, как его отдаёт API (summary): дата ровно
+  // из ответа API проходит. Рассылка отдаёт вебхуку события не раньше его создания.
+  if (since.getTime() < new Date(locked.created_at).getTime()) {
+    return refuse(422, 'WEBHOOK_CATCH_UP_BEFORE_CREATED', { path: 'since' })
+  }
+  // Старше срока хранения события уже удаляются (jobs/webhook-purge.ts).
+  if (since.getTime() < Date.now() - WEBHOOK_RETENTION_DAYS * DAY_MS) {
+    return refuse(422, 'WEBHOOK_CATCH_UP_TOO_OLD', { path: 'since' })
+  }
+  const db = c.get('db')
+  const projectId = c.get('projectId')
+  const eventTypes = locked.event_types as EventType[]
+  // События с даты нужных типов; проект — явно (индекс (project_id, created_at)) и row-level
+  // security транзакции.
+  const events = db
+    .selectFrom('webhook_event')
+    .where('project_id', '=', projectId)
+    .where('created_at', '>=', since)
+    .where('type', 'in', eventTypes)
+  const requeued = await requeue(c, endpointId, (q) =>
+    q.where('state', 'in', ['failed', 'cancelled']).where('event_id', 'in', events.select('id')),
+  )
+  const created = await db
+    .insertInto('webhook_delivery')
+    .columns(['project_id', 'event_id', 'endpoint_id', 'next_attempt_at'])
+    .expression(
+      events.select((s) => [
+        'project_id',
+        'id',
+        sql<string>`${endpointId}::uuid`.as('endpoint_id'),
+        s.fn<Date>('now').as('next_attempt_at'),
+      ]),
+    )
+    .onConflict((oc) => oc.columns(['event_id', 'endpoint_id']).doNothing())
+    .returning('id')
+    .execute()
+  await enqueueDeliveries(
+    db,
+    created.map(({ id }) => ({ projectId, deliveryId: id })),
+  )
+  const queued = requeued + created.length
+  await recordInRequest(c, {
+    action: 'webhook_endpoint.caught_up',
+    entity: { type: 'webhook_endpoint', id: endpointId },
+    details: { url: locked.url, since: since.toISOString(), queued },
+  })
+  return ok({ queued })
+}
+
 interface DeliveryRow {
   id: string
   event_id: string
@@ -663,6 +739,9 @@ export function webhookEndpointsRoutes(deps: WebhookDeliveryOptions = NO_WEBHOOK
       )
       .post('/:id/retry-failed', edit, async (c) =>
         respond(c, await retryFailedSince(c, c.req.param('id')), 202),
+      )
+      .post('/:id/catch-up', edit, async (c) =>
+        respond(c, await catchUp(c, c.req.param('id')), 202),
       )
   )
 }

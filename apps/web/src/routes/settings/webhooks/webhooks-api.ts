@@ -56,6 +56,11 @@ export interface WebhooksApi {
   ): Promise<{ queued: number }>
   /** Повтор всех неудачных и отменённых доставок вебхука, созданных начиная с `since` (ISO). */
   retryFailed(projectId: string, endpointId: string, since: string): Promise<{ queued: number }>
+  /**
+   * «Наздогнати події з дати» (тикет crm-api/09): события с `since` (ISO), ещё не доставленные
+   * вебхуку успешно, — в отправку; `queued` — сколько поставлено.
+   */
+  catchUp(projectId: string, endpointId: string, since: string): Promise<{ queued: number }>
 }
 
 export function createWebhooksApi(
@@ -106,5 +111,6 @@ export function createWebhooksApi(
       send(projectId, 'POST', `${base}/${id}/deliveries/${deliveryId}/retry`),
     retryFailed: (projectId, id, since) =>
       send(projectId, 'POST', `${base}/${id}/retry-failed`, { since }),
+    catchUp: (projectId, id, since) => send(projectId, 'POST', `${base}/${id}/catch-up`, { since }),
   }
 }

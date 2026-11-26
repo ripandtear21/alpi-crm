@@ -1,7 +1,7 @@
 # Догнать события с даты: события за время, пока вебхук был отключён
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T11:59Z
 Blocked by: 06, 07
 Source: решения владельца 2026-11-26 (опрос по доставке событий; docs/adr/0004-dostavka-sobytiy-vebhukami.md); .scratch/crm-api/issues/06-webhook-delivery.md; .scratch/crm-api/issues/07-events-settings-screen.md
 
