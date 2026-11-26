@@ -7,6 +7,7 @@ import { type FieldType, normalizeFieldValue, normalizePhone } from '@alpi/share
 import { type SqlBool, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildSeedPlan, FRANCH_PRICED_FROM_STAGE } from '../seed/plan.ts'
+import { SEED_SOURCE } from '../seed/store.ts'
 import { readCredentials } from '../seed/users.ts'
 import { type ApiHarness, ORIGIN, startApiHarness } from '../testing/api-harness.ts'
 import { totp } from '../testing/totp.ts'
@@ -801,24 +802,28 @@ describe('pnpm seed', () => {
     async () => {
       const alpi = await projectId('alpi')
       if (!alpi) throw new Error('нет проекта')
-      const survivor = await h.owner
-        .selectFrom('contact as c')
-        .innerJoin('external_link as l', (join) =>
-          join.on('l.entity_type', '=', 'contact').on(sql<SqlBool>`l.entity_id = c.id::text`),
-        )
-        .select('c.id')
-        .where('c.project_id', '=', alpi)
-        .where('c.merged_into_id', 'is', null)
-        // Контакт без сделок: сделку, оставленную прошлой проверкой, сброс не трогает.
-        .where(({ not, exists, selectFrom }) =>
-          not(
-            exists(
-              selectFrom('deal as d').select('d.id').whereRef('d.primary_contact_id', '=', 'c.id'),
-            ),
-          ),
-        )
-        .orderBy('c.id')
-        .executeTakeFirstOrThrow()
+      // Прошлые сбросы уже удалили свободные контакты seed: два контакта с меткой seed — здесь.
+      const seedContact = async (name: string) => {
+        const row = await h.owner
+          .insertInto('contact')
+          .values({ project_id: alpi, first_name: name })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+        await h.owner
+          .insertInto('external_link')
+          .values({
+            project_id: alpi,
+            entity_type: 'contact',
+            entity_id: row.id,
+            source: SEED_SOURCE,
+            external_id: `merge-test-${row.id}`,
+          })
+          .execute()
+        return row
+      }
+      const survivor = await seedContact('Демо, у якого злиття')
+      // Контрольный: такой же контакт seed без слияния сброс удаляет.
+      const free = await seedContact('Демо без злиття')
       // Ручной контакт, слитый в контакт seed (тикет crm-intake/01): скрыт, ссылается на него.
       const hidden = await h.owner
         .insertInto('contact')
@@ -848,6 +853,9 @@ describe('pnpm seed', () => {
         ]),
       )
       expect(contacts).toHaveLength(2)
+      expect(
+        await h.owner.selectFrom('contact').select('id').where('id', '=', free.id).execute(),
+      ).toEqual([])
       expect(log.join('\n')).toMatch(/Оставлены записи seed[^\n]*контактов [1-9]/)
     },
     SLOW,
