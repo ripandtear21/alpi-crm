@@ -1,7 +1,8 @@
 # Приёмка: тестовый приёмник получает подписанные события и двигает сделку ключом без зацикливания
 
 Type: task
-Status: claimed 2026-11-26T11:59Z
+Status: done 2026-11-26T12:46Z
+PR: #36
 Blocked by: 03, 04, 06, 07
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Тикеты», волна 4); .scratch/crm-api/spec.md («Приёмка владельцем»); docs/research/webhook-delivery.md на ветке origin/research/webhook-delivery, разделы 1.3, 3.3; .scratch/crm-deals/issues/16-acceptance-e2e.md
 
@@ -45,6 +46,7 @@ apps/api/src/**/*.acceptance.test.ts или e2e/** (сценарий и тест
 - [ ] Тест падает, если сломать защиту: если убрать автора-ключ из события, шаг 4 становится красным (приёмник зацикливается и упирается в предел запросов теста); если подписывать не тем секретом, шаг 3 становится красным (проверено один раз, результат записан в отчёт).
   - evidence: test-run pass · `pnpm vitest run apps/api/src/acceptance/crm-api.acceptance.test.ts` exit 1 on both mutants: actor api_key->user makes step 4 red, wrong signing key makes step 3 red · windows - · 958694964e9022a2ffe02964918004ad08e61904
 - [ ] Задание CI зелёное на ветке (ссылка на запуск).
+  - evidence: ci-check pass · https://github.com/ripandtear21/alpi-crm/actions/runs/45819316133 (ci-ok success) · windows - · 49f767d4406133ea481b8604ae91c8072e5f6ba4
 - [ ] (manual) Владелец прошёл сценарий руками на `pnpm seed` со своим тестовым приёмником или сценарием n8n/Make и подтвердил приёмку (отметка с датой в этом тикете).
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 (1127 tests) · windows - · 958694964e9022a2ffe02964918004ad08e61904
@@ -69,3 +71,16 @@ apps/api/src/**/*.acceptance.test.ts или e2e/** (сценарий и тест
 - Автотест берёт данные `runSeed` в базе харнесса, а не отдельный запуск `pnpm seed` (тот же код и та же доля 0,05, что у стенда e2e).
 
 Не проверено: ручная приёмка владельцем (пункт manual). CI на ветке — после PR.
+
+### Итог (2026-11-26)
+
+Смержено: PR #36, коммит f490920. Проверка: VERIFIED с первого круга (https://github.com/ripandtear21/alpi-crm/pull/36#issuecomment-7192374949); gate full зелёный. CI ветки: https://github.com/ripandtear21/alpi-crm/actions/runs/45819316133.
+
+Ручная приёмка владельцем (пункт manual) не пройдена — ждёт владельца.
+
+Долги (Consider):
+- [low] `apps/api/src/acceptance/crm-api.acceptance.test.ts:450` — шаг 3 берёт последнюю запись приёмника (`receiver.received.at(-1)`); фоновая доставка `deal.stage_changed` по первой сделке может записаться между ответом 400 и проверкой (окно в несколько миллисекунд) — тест станет нестабильным. Исправление: искать запись по `webhookId === msgId`.
+- [low] `e2e/crm-api-acceptance.spec.ts:235-237` — страница перезагружается сразу после ответа 410 приёмника, а отключение вебхука пишется в базу после этого ответа (`apps/api/src/events/deliver.ts:260-261`); список вебхуков сам не перечитывается. Исправление: перед `page.reload()` дождаться `state: disabled` запросом к API или обернуть перезагрузку и проверку в `expect(...).toPass()`.
+
+Замечено (Noted):
+- В описании PR нет решения «`runSeed` внутри теста вместо отдельного `pnpm seed`» — оно записано выше, в разделе «Решено без владельца», и в шапке теста.
