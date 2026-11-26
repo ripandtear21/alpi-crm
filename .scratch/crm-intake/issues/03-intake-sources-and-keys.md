@@ -39,13 +39,21 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm verify` exit 0 (packages/db/src/project-isolation.test.ts) · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 - [ ] Тест изоляции: источники проекта A не видны в контексте B без фильтра в коде; источник нельзя создать с воронкой другого проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/intake-sources.test.ts` exit 0 · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 - [ ] Тест прав: без `integrations: view` список — 403; без `integrations: create`/`edit` создание, смена ключа, отключение — 403; ключом API — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/intake-sources.test.ts` exit 0 · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 - [ ] Тест ключа: ответ на создание содержит ключ, список — нет; в базе, журнале, `idempotency_record` и логах сервера ключа нет (поиск по строке ключа).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/intake-sources.test.ts` exit 0 · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 - [ ] Тест функции проверки: верный ключ даёт источник, проект и воронку; неизвестный, отключённый ключ и старый ключ после смены — одинаковое «нет»; ключ источника в запросе к `/api/v1` — 401 `API_KEY_INVALID`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/intake-sources.test.ts` exit 0 · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 - [ ] Тест автора: строка `change_log` с автором-источником проходит; с двумя авторами сразу — отклонена базой; событие с `actor.type = "intake_source"` проходит схему каталога.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/intake-sources.test.ts` exit 0 · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 - [ ] Тест журнала: создание, смена ключа, отключение и включение — в журнале проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/intake-sources.test.ts` exit 0 · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 - [ ] `pnpm verify` зелёный.
+  - evidence: gate pass · `gate fast` exit 0, `pnpm verify` exit 0 · windows - · 2ddc0d8102c5f62f5c60c221b7d1e3e5b5147999
 
 ## Результат
 
