@@ -98,6 +98,10 @@ export const PROJECT_AUDIT_ACTIONS = [
    * поставлено в отправку (queued).
    */
   'webhook_endpoint.caught_up',
+  // Тикет crm-intake/01: слияние контактов с откатом (entity — оставшийся контакт; details —
+  // mergeId, mergedContactId; у отката ещё — что пропущено).
+  'contact.merged',
+  'contact.unmerged',
   // Тикет crm-intake/03: источники регистраций (entity — intake_source; details — название и
   // воронка, без ключа).
   'intake_source.created',

@@ -3,6 +3,7 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
+import { ContactsApiError } from '../../../components/contact-form/contacts-api.ts'
 import {
   CONTACT_ID,
   type FakeContactsApi,
@@ -26,6 +27,8 @@ import { createI18n } from '../../../i18n/index.ts'
 import { createAppRouter } from '../../../router.tsx'
 import { fakeAuthApi } from '../../auth/fake-auth-api.ts'
 import { type FakeDealsApi, fakeDealsApi } from '../../deals/fake-deals-api.ts'
+import { type FakeMergesApi, fakeMergesApi, sampleMerge } from '../merge/fake-merges-api.ts'
+import { MergesApiError, MergesApiProvider } from '../merge/merges-api.tsx'
 
 // Карточка контакта (тикет crm-deals/14) в настоящем дереве маршрутов: вошедший пользователь
 // user-1, подставные API контактов, канбана и ленты. Имена и телефоны вымышленные.
@@ -35,12 +38,15 @@ async function renderCard({
   kanban = fakeDealsApi(),
   contactId = CONTACT_ID,
   fields = fakeCustomFieldsApi(),
+  merges = fakeMergesApi({ contacts: () => api.contacts }),
 }: {
   api?: FakeContactsApi
   kanban?: FakeDealsApi
   contactId?: string
   /** Пользовательские поля (тикет crm-fields/06); по умолчанию — ни одного. */
   fields?: FakeCustomFieldsApi
+  /** Слияние (тикет crm-intake/01): по умолчанию — подставной клиент без слияний. */
+  merges?: FakeMergesApi
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -56,13 +62,15 @@ async function renderCard({
     <I18nextProvider i18n={createI18n('uk')}>
       <QueryClientProvider client={queryClient}>
         <CustomFieldsApiProvider api={fields}>
-          <RouterProvider router={router} />
+          <MergesApiProvider api={merges}>
+            <RouterProvider router={router} />
+          </MergesApiProvider>
         </CustomFieldsApiProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )
   await screen.findByRole('heading', { level: 1 })
-  return { api, kanban, router }
+  return { api, kanban, router, merges }
 }
 
 async function openEdit() {
@@ -325,5 +333,131 @@ describe('карточка контакта: пользовательские п
       ),
     )
     expect(fields.saves).toEqual([{ entity: 'contact', id: CONTACT_ID, custom: { hobby: 'Шахи' } }])
+  })
+})
+
+describe('карточка контакта: слияние (тикет crm-intake/01)', () => {
+  const other = () =>
+    sampleContact({ id: OTHER_CONTACT_ID, firstName: 'Олег', lastName: 'Коваль', emails: [] })
+
+  async function chooseOther() {
+    fireEvent.click(screen.getByRole('button', { name: "Об'єднати з…" }))
+    const dialog = await screen.findByRole('dialog', { name: "Об'єднати контакти" })
+    fireEvent.change(within(dialog).getByRole('combobox', { name: "З яким контактом об'єднати" }), {
+      target: { value: 'Олег' },
+    })
+    fireEvent.mouseDown(await within(dialog).findByRole('option', { name: /Олег Коваль/ }))
+    return dialog
+  }
+
+  it("«Об'єднати з…»: направление, «Поміняти місцями», предпросмотр со сделками вне доступа", async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    const merges = fakeMergesApi({
+      contacts: () => api.contacts,
+      preview: { deals: 2, notes: 1, dealsOutOfScope: 1, phones: ['+380671234567'] },
+    })
+    const { router } = await renderCard({ api, merges })
+    const dialog = await chooseOther()
+    const sides = () =>
+      within(dialog)
+        .getAllByRole('definition')
+        .map((d) => d.textContent)
+    expect(sides()).toEqual(['Ірина Мельник', 'Олег Коваль'])
+    expect(
+      await within(dialog).findByText('Угод поза вашим доступом: 1. Вони теж перейдуть.'),
+    ).toBeTruthy()
+    expect(within(dialog).getByText('Угоди, де контакт основний: 2')).toBeTruthy()
+    expect(within(dialog).getByText('Телефон +380 67 123 4567 (не основний)')).toBeTruthy()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Поміняти місцями' }))
+    await waitFor(() => expect(sides()).toEqual(['Олег Коваль', 'Ірина Мельник']))
+    await waitFor(() => expect(merges.calls).toContain(`preview ${OTHER_CONTACT_ID} ${CONTACT_ID}`))
+    const submit = within(dialog).getByRole('button', { name: "Об'єднати" }) as HTMLButtonElement
+    await waitFor(() => expect(submit.disabled).toBe(false))
+    fireEvent.click(submit)
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/p/alpi/contacts/${OTHER_CONTACT_ID}`),
+    )
+    expect(merges.calls).toContain(`merge ${OTHER_CONTACT_ID} ${CONTACT_ID}`)
+  })
+
+  it("конфликт открытых сделок — понятный отказ, «Об'єднати» недоступна", async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    const merges = fakeMergesApi({ contacts: () => api.contacts })
+    merges.preview = async () => {
+      throw new MergesApiError(409, 'MERGE_DEAL_CONFLICT', { pairs: [] })
+    }
+    await renderCard({ api, merges })
+    const dialog = await chooseOther()
+    expect((await within(dialog).findByRole('alert')).textContent).toBe(
+      'В обох контактів є відкриті угоди в одній воронці. Спершу закрийте або перенесіть одну з них.',
+    )
+    const submit = within(dialog).getByRole('button', { name: "Об'єднати" }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    expect(merges.calls.filter((call) => call.startsWith('merge '))).toEqual([])
+  })
+
+  it("слияния за 30 дней в карточке оставшегося: «Скасувати об'єднання», подтверждение и итог", async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    const merges = fakeMergesApi({ contacts: () => api.contacts })
+    merges.merges.push(
+      sampleMerge({
+        survivorId: CONTACT_ID,
+        mergedId: OTHER_CONTACT_ID,
+        mergedContact: { id: OTHER_CONTACT_ID, firstName: 'Олег', lastName: 'Коваль' },
+      }),
+    )
+    merges.skipped = [
+      { kind: 'field', itemId: null, field: 'language', value: 'ru', reason: 'changed' },
+      { kind: 'note', itemId: 'n-1', field: null, value: null, reason: 'gone' },
+    ]
+    await renderCard({ api, merges })
+    const block = await screen.findByRole('region', { name: "Об'єднання" })
+    expect(within(block).getByText(/^Олег Коваль — об'єднано/)).toBeTruthy()
+    fireEvent.click(within(block).getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    expect(within(confirm).getByText(/Контакт «Олег Коваль» знову з'явиться/)).toBeTruthy()
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    const done = await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    const skipped = within(done).getByRole('list', { name: 'Не повернуто:' })
+    expect(
+      within(skipped)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent),
+    ).toEqual([
+      "Мова спілкування: змінили після об'єднання — не чіпали",
+      'Нотатка: видалено остаточно',
+    ])
+    expect(merges.calls).toContain(`undo ${merges.merges[0]?.id}`)
+  })
+
+  it("прямая ссылка на слитый контакт: «Контакт об'єднано» со ссылкой на оставшийся и откатом", async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact()] })
+    const merges = fakeMergesApi({ contacts: () => api.contacts })
+    const original = api.contact.bind(api)
+    api.contact = async (projectId, id) => {
+      if (id !== OTHER_CONTACT_ID) return original(projectId, id)
+      throw new ContactsApiError(404, 'CONTACT_MERGED', {
+        merged_into_id: CONTACT_ID,
+        merge_id: 'm-1',
+        undo_until: new Date(Date.now() + 86_400_000).toISOString(),
+      })
+    }
+    await renderCard({ api, merges, contactId: OTHER_CONTACT_ID })
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe("Контакт об'єднано")
+    const link = await screen.findByRole('link', { name: 'Ірина Мельник' })
+    expect(link.getAttribute('href')).toBe(`/p/alpi/contacts/${CONTACT_ID}`)
+    expect(await screen.findByRole('button', { name: "Скасувати об'єднання" })).toBeTruthy()
+  })
+
+  it("без права «змінювати» нет ни «Об'єднати з…», ни отката", async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    api.me.permissions.actions.contacts = ['view']
+    const merges = fakeMergesApi({ contacts: () => api.contacts })
+    merges.merges.push(sampleMerge({ survivorId: CONTACT_ID, mergedId: OTHER_CONTACT_ID }))
+    await renderCard({ api, merges })
+    await screen.findByRole('region', { name: "Об'єднання" })
+    expect(screen.queryByRole('button', { name: "Об'єднати з…" })).toBeNull()
+    expect(screen.queryByRole('button', { name: "Скасувати об'єднання" })).toBeNull()
   })
 })

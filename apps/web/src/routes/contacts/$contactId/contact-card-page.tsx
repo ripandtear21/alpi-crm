@@ -30,6 +30,8 @@ import { Dialog } from '../../../ui/dialog.tsx'
 import { Skeleton } from '../../../ui/feedback.tsx'
 import type { DealsApi } from '../../deals/deals-api.ts'
 import { NewDealDialog } from '../../deals/new-deal-dialog.tsx'
+import { MergeContactDialog } from '../merge/merge-dialog.tsx'
+import { ContactMerges, MergedContactNotice } from '../merge/undo-merge.tsx'
 import '../../../components/contact-form/record-card.css'
 
 // Карточка контакта (тикет crm-deals/14; spec.md MVP, раздел 5.2): шапка с именем, пометкой
@@ -40,6 +42,10 @@ import '../../../components/contact-form/record-card.css'
 //
 // Контакт меняется только действием пользователя (ADR 0003). Контакт вне охвата, удалённый и
 // несуществующий — один экран «немає доступу» без его данных: API отвечает на всё это 404.
+//
+// Слияние (тикет crm-intake/01): «Об'єднати з…» в шапке, слияния в этот контакт за 30 дней с
+// «Скасувати об'єднання» слева; слитый контакт (404 CONTACT_MERGED) — страница «Контакт
+// об'єднано з X» со ссылкой на оставшийся и кнопкой отката.
 
 export interface CardUser {
   id: string
@@ -75,7 +81,7 @@ export function ContactCardPage({
   )
 }
 
-type OpenDialog = 'edit' | 'remove' | 'deal' | null
+type OpenDialog = 'edit' | 'remove' | 'deal' | 'merge' | null
 
 function ContactCardScreen({
   api,
@@ -135,8 +141,32 @@ function ContactCardScreen({
   })
   const describeCustom = useDescribeCustomChange(projectId, 'contact')
 
+  const refreshAll = () => {
+    for (const key of [
+      contactKey,
+      dealsKey,
+      projectQueryKey(projectId, 'contact-merges', contactId),
+    ]) {
+      void queryClient.invalidateQueries({ queryKey: key })
+    }
+    void queryClient.invalidateQueries({
+      queryKey: timelineQueryKey(projectId, 'contacts', contactId),
+    })
+  }
+
   if (contact.isError) {
     const status = contact.error instanceof ContactsApiError ? contact.error.status : 0
+    if (contact.error instanceof ContactsApiError && contact.error.code === 'CONTACT_MERGED') {
+      return (
+        <MergedContactNotice
+          contacts={api}
+          projectId={projectId}
+          details={contact.error.details}
+          canUndo={access.data ? recordRights(access.data).contactEdit : false}
+          onUndone={refreshAll}
+        />
+      )
+    }
     if (status === 404 || status === 403) return <NoAccess />
     return (
       <p className="ui-notice" role="alert">
@@ -188,6 +218,11 @@ function ContactCardScreen({
               {t('actions.edit')}
             </Button>
           )}
+          {rights.contactEdit && (
+            <Button size="sm" onClick={() => setDialog('merge')}>
+              {t('actions.merge')}
+            </Button>
+          )}
           {rights.contactDelete && (
             <Button
               variant="danger"
@@ -231,6 +266,12 @@ function ContactCardScreen({
               failed={contactDeals.isError}
             />
           </section>
+          <ContactMerges
+            projectId={projectId}
+            contactId={record.id}
+            canUndo={rights.contactEdit}
+            onUndone={refreshAll}
+          />
         </aside>
         <div className="record-card__main">
           <Timeline
@@ -269,6 +310,26 @@ function ContactCardScreen({
           onRemoved={() => {
             queryClient.removeQueries({ queryKey: contactKey })
             void navigate({ to: '/p/$code/contacts', params: { code } })
+          }}
+        />
+      )}
+      {dialog === 'merge' && (
+        <MergeContactDialog
+          contacts={api}
+          projectId={projectId}
+          contact={record}
+          onClose={() => setDialog(null)}
+          onMerged={(survivorId) => {
+            setDialog(null)
+            if (survivorId === record.id) {
+              refreshAll()
+            } else {
+              queryClient.removeQueries({ queryKey: contactKey })
+              void navigate({
+                to: '/p/$code/contacts/$contactId',
+                params: { code, contactId: survivorId },
+              })
+            }
           }}
         />
       )}

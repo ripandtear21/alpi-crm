@@ -622,9 +622,14 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
           )
         returning d.id
       `.execute(db)
+      // Контакт, в который слит другой (тикет crm-intake/01), остаётся, как сделка выше:
+      // скрытый ссылается на него без каскада (contact_merged_into_fkey).
       const contacts = await sql<{ id: string }>`
         delete from contact c
         where c.project_id = ${pid} and ${marked('contact', 'c.id')} and ${notes('contact_id', 'c')}
+          and not exists (
+            select 1 from contact h where h.project_id = c.project_id and h.merged_into_id = c.id
+          )
           and not exists (select 1 from deal d where d.primary_contact_id = c.id)
           and not exists (select 1 from deal_participant p where p.contact_id = c.id)
         returning c.id

@@ -165,8 +165,8 @@ async function uploadFile(c: Ctx, type: EntityType, storage: FileStorage): Promi
   if (!name) return fail(c, refuse(400, 'INVALID_FILE', { path: 'name' }))
   const declared = c.req.header('content-length')
   if (declared !== undefined && Number(declared) > MAX_FILE_BYTES) return tooLarge(c)
-  // Вход — без блокировки строки сделки: поток тела (до 25 МБ) идёт долго, и FOR SHARE на всё
-  // это время держал бы правку, этапы, корзину и слияние сделки (FOR UPDATE).
+  // Вход — без блокировки строки сделки или контакта: поток тела (до 25 МБ) идёт долго, и
+  // FOR SHARE на всё это время держал бы правку, этапы, корзину и слияние записи (FOR UPDATE).
   const entity = await entityFor(c, type, c.req.param('id') ?? '', 'write', { lock: false })
   if (!entity.ok) return fail(c, entity)
   const body = c.req.raw.body
@@ -211,9 +211,9 @@ async function uploadFile(c: Ctx, type: EntityType, storage: FileStorage): Promi
     throw error
   }
   // Повторная проверка с блокировкой FOR SHARE до конца транзакции — прямо перед записью строки:
-  // за время потока запись могли слить (тикет crm-intake/02), убрать в корзину или вывести из
-  // охвата. Слияние, начатое раньше, держит сделку FOR UPDATE — проверка ждёт его и получает
-  // 404, файл не остаётся у скрытой сделки.
+  // за время потока запись могли слить (тикеты crm-intake/01 и 02), убрать в корзину или вывести
+  // из охвата. Слияние, начатое раньше, держит запись FOR UPDATE — проверка ждёт его и получает
+  // 404, файл не остаётся у скрытой сделки или скрытого контакта.
   const current = await entityFor(c, type, entity.value.id, 'write')
   if (!current.ok) {
     await storage.delete(key)

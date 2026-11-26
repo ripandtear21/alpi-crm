@@ -57,6 +57,7 @@ import {
   UUID,
 } from './http.ts'
 import { findContactMatch } from './match.ts'
+import { mergedContactRefusal } from './merged.ts'
 import {
   createContactRoute,
   getContactRoute,
@@ -80,7 +81,9 @@ import { contactScopePredicate } from './scope.ts'
 //   без каких-либо его данных («чужой клиент»): только имя менеджера его открытой сделки
 //   («клиент уже в работе у <менеджер>», spec.md, раздел 4), если такая сделка есть.
 //   Совпал только email — контакт пишется с отметкой «возможный дубль» (решено без владельца,
-//   подтвердить).
+//   подтвердить) и ссылкой на найденный контакт (`possibleDuplicateOf`, тикет crm-intake/01).
+// - Контакт, слитый с другим (тикет crm-intake/01, merge/), скрыт: любой запрос к нему по id —
+//   404 CONTACT_MERGED с id оставшегося (contacts/merged.ts).
 // - Контакт, основной в сделках, уходит в корзину только вместе с ними: первый запрос отвечает
 //   409 CONTACT_HAS_DEALS со списком сделок, второй с подтверждением (`?confirm=<id сделок>`)
 //   удаляет. Восстановление контакта возвращает сделки, удалённые вместе с ним.
@@ -98,6 +101,8 @@ export type ContactsErrorCode =
   | 'INVALID_PHONE'
   | 'INVALID_EMAIL'
   | 'CONTACT_NOT_FOUND'
+  /** Контакт слит с другим: `details.merged_into_id` — оставшийся (contacts/merged.ts). */
+  | 'CONTACT_MERGED'
   /** Телефон уже у видимого контакта: `details.contactId`. */
   | 'CONTACT_EXISTS'
   /** Телефон у контакта вне охвата: без его данных, `details.managerName` — если он в работе. */
@@ -129,6 +134,8 @@ export interface ContactView {
   language: ContactLanguage | null
   organizationId: string | null
   possibleDuplicate: boolean
+  /** С каким контактом совпал email при отметке «возможный дубль»; null — не известно. */
+  possibleDuplicateOf: string | null
   /** E.164, основной — первым. */
   phones: string[]
   /** В нижнем регистре, основной — первым. */
@@ -141,7 +148,7 @@ export interface ContactView {
 }
 
 /** Поля, изменения которых пишутся в журнал изменений. */
-const LOGGED_FIELDS = [
+export const LOGGED_FIELDS = [
   'firstName',
   'lastName',
   'language',
@@ -266,7 +273,7 @@ async function contactContext(c: Ctx, dependents: ContactDependents): Promise<Co
   }
 }
 
-type ContactRow = Selectable<ContactTable>
+export type ContactRow = Selectable<ContactTable>
 
 /** Контакт `id` в охвате `scope` (в корзине или нет); `lock` — заблокировать строку. */
 function findContact(ctx: ContactContext, id: string, scope: Scope, lock = false) {
@@ -285,20 +292,58 @@ function findContact(ctx: ContactContext, id: string, scope: Scope, lock = false
 async function writableContact(ctx: ContactContext, id: string): Promise<Result<ContactRow>> {
   if (!UUID.test(id)) return refuse(404, 'CONTACT_NOT_FOUND')
   const row = await findContact(ctx, id, ctx.scope.read, true)
-  if (!row) return refuse(404, 'CONTACT_NOT_FOUND')
+  if (!row) return notFound(ctx, id)
   if (ctx.scope.write !== ctx.scope.read && !(await findContact(ctx, id, ctx.scope.write))) {
     return refuse(403, 'PERMISSION_DENIED')
   }
   return ok(row)
 }
 
+/** Контакта нет для пользователя: слитый — 404 CONTACT_MERGED, иначе CONTACT_NOT_FOUND. */
+async function notFound(ctx: ContactContext, id: string): Promise<Result<never>> {
+  return (
+    (await mergedContactRefusal(ctx.db, id, ctx.scope.read, ctx.viewer)) ??
+    refuse(404, 'CONTACT_NOT_FOUND')
+  )
+}
+
 const iso = (value: Date | string) => new Date(value).toISOString()
 
-/** Ответ API для строк контактов: телефоны и email — одним запросом на всех. */
-async function contactViews(viewer: FieldViewer, rows: ContactRow[]): Promise<ContactView[]> {
+/**
+ * Ответ API для строк контактов: телефоны и email — одним запросом на всех. Ссылка «возможный
+ * дубль с» — только на контакт в охвате чтения `viewer.viewer` («чужой клиент» не выдаёт ни
+ * id, ни данных); без охвата — null.
+ */
+export async function contactViews(
+  viewer: FieldViewer & { viewer?: Viewer },
+  rows: ContactRow[],
+): Promise<ContactView[]> {
   const { db } = viewer
   if (rows.length === 0) return []
   const ids = rows.map((row) => row.id)
+  const duplicateIds = [
+    ...new Set(
+      rows.flatMap((row) =>
+        row.possible_duplicate && row.possible_duplicate_of ? [row.possible_duplicate_of] : [],
+      ),
+    ),
+  ]
+  const scope = viewer.viewer
+  const visibleDuplicates =
+    duplicateIds.length === 0 || scope === undefined
+      ? new Set<string>()
+      : new Set(
+          (
+            await db
+              .selectFrom('contact')
+              .select('id')
+              .where('id', 'in', duplicateIds)
+              .where((eb) =>
+                contactScopePredicate(eb, viewer.permissions.scopes.contacts.read, scope),
+              )
+              .execute()
+          ).map((row) => row.id),
+        )
   const phones = await db
     .selectFrom('contact_phone')
     .select(['contact_id', 'phone as key'])
@@ -334,6 +379,10 @@ async function contactViews(viewer: FieldViewer, rows: ContactRow[]): Promise<Co
     language: row.language as ContactLanguage | null,
     organizationId: row.organization_id,
     possibleDuplicate: row.possible_duplicate,
+    possibleDuplicateOf:
+      row.possible_duplicate_of !== null && visibleDuplicates.has(row.possible_duplicate_of)
+        ? row.possible_duplicate_of
+        : null,
     phones: phonesOf.get(row.id) ?? [],
     emails: emailsOf.get(row.id) ?? [],
     custom: custom[index] ?? {},
@@ -343,7 +392,10 @@ async function contactViews(viewer: FieldViewer, rows: ContactRow[]): Promise<Co
   }))
 }
 
-async function contactView(viewer: FieldViewer, row: ContactRow): Promise<ContactView> {
+export async function contactView(
+  viewer: FieldViewer & { viewer?: Viewer },
+  row: ContactRow,
+): Promise<ContactView> {
   const [view] = await contactViews(viewer, [row])
   if (!view) throw new Error('контакт пропал в той же транзакции')
   return view
@@ -411,15 +463,15 @@ async function phoneTaken(ctx: ContactContext, contactId: string): Promise<Resul
 }
 
 /**
- * Совпадения по новым ключам: телефон — отказ, только email — отметка «возможный дубль».
- * `excludeId` — сам изменяемый контакт.
+ * Совпадения по новым ключам: телефон — отказ, только email — отметка «возможный дубль» со
+ * ссылкой на найденный контакт (`duplicateOf`). `excludeId` — сам изменяемый контакт.
  */
 async function checkKeys(
   ctx: ContactContext,
   phones: readonly string[],
   emails: readonly string[],
   excludeId?: string,
-): Promise<Result<{ emailMatched: boolean }>> {
+): Promise<Result<{ duplicateOf: string | null }>> {
   await lockPhones(ctx, phones)
   const match = await findContactMatch(
     ctx.db,
@@ -427,7 +479,15 @@ async function checkKeys(
     excludeId === undefined ? {} : { excludeId },
   )
   if (match?.by === 'phone') return phoneTaken(ctx, match.contactId)
-  return ok({ emailMatched: match?.by === 'email' })
+  return ok({ duplicateOf: match?.by === 'email' ? match.contactId : null })
+}
+
+/** Отметка «возможный дубль» после записи: уже стоящая не меняется, новая — со ссылкой. */
+function duplicateMark(row: ContactRow, duplicateOf: string | null) {
+  if (row.possible_duplicate) {
+    return { possible_duplicate: true, possible_duplicate_of: row.possible_duplicate_of }
+  }
+  return { possible_duplicate: duplicateOf !== null, possible_duplicate_of: duplicateOf }
 }
 
 /** Заменяет телефоны или email контакта; первый — основной. */
@@ -495,7 +555,8 @@ async function createContact(
       last_name: input.lastName ?? null,
       language: input.language ?? null,
       organization_id: input.organizationId ?? null,
-      possible_duplicate: keys.value.emailMatched,
+      possible_duplicate: keys.value.duplicateOf !== null,
+      possible_duplicate_of: keys.value.duplicateOf,
       custom: customInsert(custom.value),
       created_by: ctx.actorId,
       created_by_api_key_id: ctx.actorApiKeyId ?? null,
@@ -541,7 +602,7 @@ async function updateContact(
       ...(input.language === undefined ? {} : { language: input.language }),
       ...(input.organizationId === undefined ? {} : { organization_id: input.organizationId }),
       ...(changesCustom(custom.value) ? { custom: customUpdate(custom.value) } : {}),
-      possible_duplicate: row.possible_duplicate || keys.value.emailMatched,
+      ...duplicateMark(row, keys.value.duplicateOf),
       updated_at: sql`now()`,
     })
     .where('id', '=', id)
@@ -633,7 +694,7 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
     .set({
       deleted_at: null,
       deleted_by: null,
-      possible_duplicate: row.possible_duplicate || keys.value.emailMatched,
+      ...duplicateMark(row, keys.value.duplicateOf),
       updated_at: sql`now()`,
     })
     .where('id', '=', id)
@@ -718,6 +779,7 @@ async function searchContacts(
     .selectFrom('contact')
     .select('id')
     .where('deleted_at', 'is', null)
+    .where('merged_into_id', 'is', null)
     .orderBy('created_at')
     .orderBy('id')
     // shortcut: одна страница без курсора, больше PAGE_LIMIT_MAX совпадений не отдаёт; нужен
@@ -815,6 +877,7 @@ export function contactsRoutes({
       const id = c.req.param('id') ?? ''
       const ctx = await context(c)
       const row = UUID.test(id) ? await findContact(ctx, id, ctx.scope.read) : undefined
+      if (!row && UUID.test(id)) return respond(c, await notFound(ctx, id))
       if (!row || row.deleted_at !== null) return respond(c, refuse(404, 'CONTACT_NOT_FOUND'))
       return respond(c, ok(await contactView(ctx, row)))
     },

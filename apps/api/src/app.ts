@@ -33,6 +33,7 @@ import { teamDirectoryRoutes, usersRoutes } from './members/directory.ts'
 import { membersRoutes } from './members/members.ts'
 import { OPEN_MEMBER_DEALS, type OpenDealsChecker } from './members/open-deals.ts'
 import { memberTransferRoutes } from './members/transfer.ts'
+import { contactMergeRoutes } from './merge/contacts.ts'
 import { dealMergeRoutes, mergesRoutes } from './merge/deals.ts'
 import { apiKeyAuth } from './middleware/api-key.ts'
 import type { PermissionsEnv } from './middleware/permissions.ts'
@@ -157,6 +158,9 @@ function v1Routes({
       .route('/pipelines', pipelineAggregatesRoutes())
       .route('/lost-reasons', lostReasonsRoutes())
       .route('/contacts', contactsRoutes({ dependents: contactDependents }))
+      // Слияние контактов с откатом (тикет crm-intake/01): только по сессии; откат — общий
+      // маршрут /merges выше.
+      .route('/contacts', contactMergeRoutes())
       .route('/organizations', organizationsRoutes())
       .route('/products', productsRoutes())
       // Заметки, файлы и лента записи: /v1/deals/:id/notes, …/files, …/timeline.

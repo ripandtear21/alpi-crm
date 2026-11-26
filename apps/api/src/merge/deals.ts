@@ -21,6 +21,7 @@ import { visibleCustom } from '../fields/values.ts'
 import { type PermissionsEnv, requestAccess, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { requestViewer } from '../roles/scope.ts'
+import { undoContactMerge } from './contacts.ts'
 import { DEAL_MERGE_REGISTRY, type MovedAmount } from './deal-registry.ts'
 import {
   applyAll,
@@ -549,8 +550,8 @@ export function dealMergeRoutes() {
 
 /**
  * Откат слияния: `/v1/merges/:id/undo` (только сессия). Ветка — по типу записей слияния, право
- * — «изменять» их часть системы (сделки — «сделки: изменять»); охват проверяет ветка. Слияния
- * контактов добавит тикет crm-intake/01 своей веткой.
+ * — «изменять» их часть системы (сделки — «сделки: изменять», контакты — «контакты: изменять»,
+ * merge/contacts.ts, undoContactMerge); охват проверяет ветка.
  */
 export function mergesRoutes() {
   return new Hono<PermissionsEnv>().post('/:id/undo', async (c) => {
@@ -566,6 +567,9 @@ export function mergesRoutes() {
     const access = await requestAccess(c)
     if (!access) return fail(c, refuse(403, 'PERMISSION_DENIED'))
     switch (record?.entity_type) {
+      // Тикет crm-intake/01: право «контакты: изменять» проверяет ветка контакта.
+      case 'contact':
+        return undoContactMerge(c, id)
       case 'deal':
         if (!can(access.permissions, 'deals', 'edit')) {
           return fail(c, refuse(403, 'PERMISSION_DENIED'))

@@ -71,7 +71,9 @@
       "preset_applied": "Применена стартовая настройка"
     },
     "contact": {
-      "purged": "Контакт удалён окончательно"
+      "purged": "Контакт удалён окончательно",
+      "merged": "Контакты объединены",
+      "unmerged": "Объединение контактов отменено"
     },
     "organization": {
       "purged": "Организация удалена окончательно"
@@ -145,7 +147,10 @@
     "presetApplied": "настройка {{preset}}",
     "caughtUp": "{{url}}: события с {{since}}, в очереди: {{n}}",
     "dealMerged": "Сделка {{merged}} объединена с {{survivor}}",
-    "dealUnmerged": "Сделка {{merged}} снова отдельно от {{survivor}}"
+    "dealUnmerged": "Сделка {{merged}} снова отдельно от {{survivor}}",
+    "merged": "Контакт {{merged}} объединён с {{survivor}}",
+    "unmerged": "Контакт {{merged}} снова отдельно от {{survivor}}"
   },
-  "undoDealMerge": "Отменить объединение"
+  "undoDealMerge": "Отменить объединение",
+  "undoMerge": "Отменить объединение"
 }

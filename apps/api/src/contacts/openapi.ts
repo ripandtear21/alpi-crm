@@ -30,6 +30,7 @@ const CONTACT_EXAMPLE = {
   language: 'uk',
   organizationId: EXAMPLE_IDS.organization,
   possibleDuplicate: false,
+  possibleDuplicateOf: null,
   phones: ['+380670000001'],
   emails: ['olena.testova@example.test'],
   custom: { dzherelo: 'Сайт' },
@@ -72,6 +73,10 @@ export const ContactSchema = z
     organizationId: IdSchema.nullable(),
     possibleDuplicate: z.boolean().openapi({
       description: 'Возможный дубль: email совпал с другим контактом',
+    }),
+    possibleDuplicateOf: IdSchema.nullable().openapi({
+      description:
+        'С каким контактом совпал email при отметке «возможный дубль»; null — не известно',
     }),
     phones: z.array(z.string()).openapi({ description: 'E.164, основной — первым' }),
     emails: z.array(z.string()).openapi({ description: 'В нижнем регистре, основной — первым' }),
@@ -182,7 +187,8 @@ export const getContactRoute = keyRoute({
   path: '/{id}',
   tags: ['Контакты'],
   summary: 'Контакт',
-  description: 'Контакт вне охвата чтения или в корзине отвечает 404, как несуществующий.',
+  description:
+    'Контакт вне охвата чтения или в корзине отвечает 404, как несуществующий. Контакт, слитый с другим, — 404 с кодом CONTACT_MERGED: `details.merged_into_id` — оставшийся контакт (в цепочке слияний — последний), `details.merge_id` и `details.undo_until` — слияние и срок его отката. То же — на изменение слитого контакта.',
   middleware: [requirePermission('contacts', 'view')],
   request: { params: ContactParams },
   responses: contactResponse(200, 'Контакт'),

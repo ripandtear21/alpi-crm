@@ -55,6 +55,8 @@ export const EVENT_TYPE_TITLES: Record<EventType, { uk: string; ru: string }> = 
     uk: 'Контакт позначено як можливий дубль',
     ru: 'Контакт отмечен как возможный дубль',
   },
+  'contact.merged': { uk: "Контакти об'єднано", ru: 'Контакты объединены' },
+  'contact.unmerged': { uk: "Об'єднання контактів скасовано", ru: 'Слияние контактов отменено' },
 }
 
 /** Тип события в ответе `GET /api/v1/webhook-endpoints/event-types`. */

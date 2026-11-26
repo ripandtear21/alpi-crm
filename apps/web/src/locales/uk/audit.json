@@ -71,7 +71,9 @@
       "preset_applied": "Застосовано стартове налаштування"
     },
     "contact": {
-      "purged": "Контакт видалено остаточно"
+      "purged": "Контакт видалено остаточно",
+      "merged": "Контакти об'єднано",
+      "unmerged": "Об'єднання контактів скасовано"
     },
     "organization": {
       "purged": "Організацію видалено остаточно"
@@ -145,7 +147,10 @@
     "presetApplied": "налаштування {{preset}}",
     "caughtUp": "{{url}}: події з {{since}}, у черзі: {{n}}",
     "dealMerged": "Угоду {{merged}} об'єднано з {{survivor}}",
-    "dealUnmerged": "Угода {{merged}} знову окремо від {{survivor}}"
+    "dealUnmerged": "Угода {{merged}} знову окремо від {{survivor}}",
+    "merged": "Контакт {{merged}} об'єднано з {{survivor}}",
+    "unmerged": "Контакт {{merged}} знову окремо від {{survivor}}"
   },
-  "undoDealMerge": "Скасувати об'єднання"
+  "undoDealMerge": "Скасувати об'єднання",
+  "undoMerge": "Скасувати об'єднання"
 }

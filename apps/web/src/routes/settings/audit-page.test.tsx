@@ -3,10 +3,17 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import { describe, expect, it } from 'vitest'
+import { sampleContact } from '../../components/contact-form/fake-contacts-api.ts'
 import { fakeProjectsApi } from '../../components/project-switcher/fake-projects-api.ts'
 import { createI18n, type Language } from '../../i18n/index.ts'
 import { createAppRouter } from '../../router.tsx'
 import { fakeAuthApi } from '../auth/fake-auth-api.ts'
+import {
+  type FakeMergesApi,
+  fakeMergesApi,
+  sampleMerge,
+} from '../contacts/merge/fake-merges-api.ts'
+import { MergesApiProvider } from '../contacts/merge/merges-api.tsx'
 import { fakeDealCardApi, sampleDeal } from '../deals/$dealId/fake-deal-card-api.ts'
 import { DealMergesApiProvider } from '../deals/$dealId/merge/deal-merges-api.tsx'
 import {
@@ -20,7 +27,10 @@ import { type FakeAuditApi, fakeAuditApi } from './fake-audit-api.ts'
 async function renderAudit(
   language: Language = 'uk',
   audit: FakeAuditApi = fakeAuditApi(),
-  dealMerges: FakeDealMergesApi = fakeDealMergesApi({ cards: fakeDealCardApi() }),
+  {
+    merges = fakeMergesApi({ contacts: () => [] }),
+    dealMerges = fakeDealMergesApi({ cards: fakeDealCardApi() }),
+  }: { merges?: FakeMergesApi; dealMerges?: FakeDealMergesApi } = {},
 ) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -33,9 +43,11 @@ async function renderAudit(
   render(
     <I18nextProvider i18n={createI18n(language)}>
       <QueryClientProvider client={queryClient}>
-        <DealMergesApiProvider api={dealMerges}>
-          <RouterProvider router={router} />
-        </DealMergesApiProvider>
+        <MergesApiProvider api={merges}>
+          <DealMergesApiProvider api={dealMerges}>
+            <RouterProvider router={router} />
+          </DealMergesApiProvider>
+        </MergesApiProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )
@@ -90,7 +102,7 @@ describe('экран журнала', () => {
           entry('deal.merged', '00000000-0000-4000-8000-000000000092', '2020-01-01T00:00:00.000Z'),
         ],
       }),
-      dealMerges,
+      { dealMerges },
     )
     expect((await rows()).slice(0, 3)).toEqual([
       `Олена | Об'єднання угод скасовано | Угода ${mergedId} знову окремо від ${survivorId}`,
@@ -148,6 +160,57 @@ describe('экран журнала', () => {
     expect((await rows())[0]).toMatch(
       /\| Наздогнано події вебхука \| https:\/\/hooks\.example\.test\/n8n: події з .+, у черзі: 7$/,
     )
+  })
+
+  it("слияние контактов (тикет crm-intake/01): запись с «Скасувати об'єднання», откат из журнала", async () => {
+    const survivorId = '00000000-0000-4000-8000-0000000000a1'
+    const mergedId = '00000000-0000-4000-8000-0000000000a2'
+    const record = sampleMerge({
+      survivorId,
+      mergedId,
+      mergedContact: { id: mergedId, firstName: 'Олег', lastName: null },
+    })
+    const merges = fakeMergesApi({
+      contacts: () => [
+        sampleContact({ id: survivorId, firstName: 'Ірина', lastName: null }),
+        sampleContact({ id: mergedId, firstName: 'Олег', lastName: null }),
+      ],
+    })
+    merges.merges.push(record)
+    const dealMerges = fakeDealMergesApi({ cards: fakeDealCardApi() })
+    const entry = (action: 'contact.merged' | 'contact.unmerged', id: string) => ({
+      id,
+      occurredAt: new Date().toISOString(),
+      actor: { id: 'u-1', name: 'Олена', email: 'olena@example.test' },
+      apiKey: null,
+      ip: null,
+      action,
+      entityType: 'contact',
+      entityId: survivorId,
+      entityName: null,
+      details: { mergeId: record.id, mergedContactId: mergedId },
+    })
+    await renderAudit(
+      'uk',
+      fakeAuditApi({
+        first: [
+          entry('contact.unmerged', '00000000-0000-4000-8000-000000000096'),
+          entry('contact.merged', '00000000-0000-4000-8000-000000000095'),
+        ],
+      }),
+      { merges, dealMerges },
+    )
+    expect((await rows()).slice(0, 2)).toEqual([
+      `Олена | Об'єднання контактів скасовано | Контакт ${mergedId} знову окремо від ${survivorId}`,
+      `Олена | Контакти об'єднано | Контакт ${mergedId} об'єднано з ${survivorId} Скасувати об'єднання`,
+    ])
+    fireEvent.click(screen.getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    expect(merges.calls).toContain(`undo ${record.id}`)
+    // Откат слияния контактов идёт клиентом контактов, не сделок.
+    expect(dealMerges.calls.filter((call) => call.startsWith('undo'))).toEqual([])
   })
 
   it('записи новые сверху: кто, действие, «было → стало»', async () => {

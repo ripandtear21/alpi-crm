@@ -38,6 +38,7 @@ const migrationNames = [
   '0024_webhook_delivery',
   '0025_intake_sources',
   '0026_merge',
+  '0027_contact_merge',
 ]
 
 const tablesOfMigration = [
@@ -290,12 +291,13 @@ describe('схема и изоляция проектов', () => {
           removed.push((await note({ author_api_key_id: apiKeyId })).id)
         }
 
-        // Откат до 0021: сначала 0026, 0025 и 0024 (слияния, источники и доставка событий —
+        // Откат до 0021: сначала 0027, 0026, 0025 и 0024 (слияния, источники и доставка событий —
         // данных в них нет),
         // затем 0023.
         const down = await createMigrator(scratch).migrateTo('0021_webhook_events')
         expect(down.error).toBeUndefined()
         expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
+          ['0027_contact_merge', 'Down', 'Success'],
           ['0026_merge', 'Down', 'Success'],
           ['0025_intake_sources', 'Down', 'Success'],
           ['0024_webhook_delivery', 'Down', 'Success'],
@@ -320,6 +322,7 @@ describe('схема и изоляция проектов', () => {
           ['0024_webhook_delivery', 'Success'],
           ['0025_intake_sources', 'Success'],
           ['0026_merge', 'Success'],
+          ['0027_contact_merge', 'Success'],
         ])
       } finally {
         await scratch.destroy()
