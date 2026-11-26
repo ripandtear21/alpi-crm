@@ -1,5 +1,5 @@
 import { randomInt, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { withProject } from '@alpi/db'
@@ -10,6 +10,7 @@ import { createApp } from '../app.ts'
 import type { ContactView } from '../contacts/contacts.ts'
 import type { DealHistoryEntry } from '../deals/deals.ts'
 import type { DealView } from '../deals/store.ts'
+import { SNIFF_BYTES } from '../files/sniff.ts'
 import { localDiskStorage } from '../storage/storage.ts'
 import {
   type ApiHarness,
@@ -39,6 +40,8 @@ describe('слияние сделок', () => {
   let h: ApiHarness
   let app: ReturnType<typeof createApp>
   let base: string
+  /** Каталог хранилища файлов. */
+  let root: string
   let admin: SignedInUser
   /** Сделки: смотреть все, менять свои. */
   let readAll: SignedInUser
@@ -53,7 +56,7 @@ describe('слияние сделок', () => {
   beforeAll(async () => {
     h = await startApiHarness('alpi_test_deal_merge')
     base = await mkdtemp(path.join(tmpdir(), 'alpi-merge-'))
-    const root = path.join(base, 'storage')
+    root = path.join(base, 'storage')
     await mkdir(root)
     app = createApp({ auth: h.auth, db: h.appDb, storage: localDiskStorage(root) })
     admin = await h.signIn('owner')
@@ -286,6 +289,67 @@ describe('слияние сделок', () => {
         release()
         await done
       },
+    }
+  }
+
+  /** Файлы в хранилище — пути от его корня. */
+  async function storedFiles(): Promise<string[]> {
+    const entries = await readdir(root, { recursive: true, withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)))
+      .sort()
+  }
+
+  /**
+   * Загрузка файла, тело которой встаёт после первых SNIFF_BYTES байт, пока не вызван `resume`.
+   * `reading` — обработчик прочёл начало и ждёт остаток: проверка записи на входе уже прошла.
+   */
+  function pausedUpload(dealId: string, name: string) {
+    let resume = () => {}
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    let paused = () => {}
+    const reading = new Promise<void>((resolve) => {
+      paused = resolve
+    })
+    let step = 0
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        step += 1
+        // Первый pull — при создании потока; второй — когда обработчик забрал начало.
+        if (step === 1) return controller.enqueue(new Uint8Array(SNIFF_BYTES).fill(0x61))
+        paused()
+        await resumed
+        controller.enqueue(new Uint8Array(16).fill(0x62))
+        controller.close()
+      },
+    })
+    const target: Target = {
+      request: (input, init) => {
+        const headers = new Headers(init.headers)
+        headers.set('content-type', 'application/octet-stream')
+        // Тело-поток в Node требует duplex: 'half'.
+        return app.request(input, { ...init, headers, body, duplex: 'half' } as RequestInit)
+      },
+    }
+    const response = admin.call(target, 'POST', `/v1/deals/${dealId}/files?name=${name}`, {
+      project: projectA,
+    })
+    return { response, reading, resume }
+  }
+
+  /** Ответ `pending` или null, если его нет дольше `ms`. */
+  async function within(pending: Promise<Response>, ms: number): Promise<Response | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ms)
+    })
+    try {
+      return await Promise.race([pending, late])
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -1103,6 +1167,7 @@ describe('слияние сделок', () => {
     it('заметка, файл, строка товара и участник, добавленные ко второй сделке во время слияния, не остаются у скрытой', async () => {
       const { survivor, merged } = await pair()
       const participant = await createContact('Під час злиття')
+      const storedBefore = await storedFiles()
       // Слияние встаёт на запись события (таблица заблокирована), уже держа обе сделки.
       const held = await holdLock(sql`lock table webhook_event in exclusive mode`)
       const merging = merge(survivor.id, merged.id)
@@ -1134,6 +1199,48 @@ describe('слияние сделок', () => {
       for (const table of ['note', 'file', 'deal_product', 'deal_participant'] as const) {
         expect(await rowsOf(table, merged.id)).toEqual([])
       }
+      // Загрузка положила тело в хранилище до повторной проверки — после отказа его там нет.
+      expect(await storedFiles()).toEqual(storedBefore)
+    })
+
+    it('правка сделки не ждёт загрузку файла, пока идёт тело: файл после правки — 201', async () => {
+      const { merged: deal } = await pair()
+      const upload = pausedUpload(deal.id, 'potik.txt')
+      await upload.reading
+      const edit = call(admin, 'PATCH', `/v1/deals/${deal.id}`, { title: 'Під час завантаження' })
+      try {
+        // Ранняя блокировка FOR SHARE держала бы правку (FOR UPDATE) до конца потока.
+        const edited = await within(edit, 5_000)
+        expect(edited, 'правка сделки ждала конца потока файла').not.toBeNull()
+        expect((await json<DealView>(edited as Response)).title).toBe('Під час завантаження')
+      } finally {
+        upload.resume()
+        await Promise.allSettled([edit, upload.response])
+      }
+      const file = await json<{ id: string; size: number }>(await upload.response, 201)
+      expect(file.size).toBe(SNIFF_BYTES + 16)
+      expect(await rowsOf('file', deal.id)).toEqual([file.id])
+    })
+
+    it('сделку убрали в корзину, пока шло тело файла: загрузка — 404, ни строки, ни файла в хранилище', async () => {
+      const { merged: deal } = await pair()
+      const storedBefore = await storedFiles()
+      const upload = pausedUpload(deal.id, 'u-koshyk.txt')
+      await upload.reading
+      const trash = call(admin, 'DELETE', `/v1/deals/${deal.id}`)
+      try {
+        const trashed = await within(trash, 5_000)
+        expect(trashed, 'корзина ждала конца потока файла').not.toBeNull()
+        expect(trashed?.status).toBe(204)
+      } finally {
+        upload.resume()
+        await Promise.allSettled([trash, upload.response])
+      }
+      const res = await upload.response
+      expect(res.status).toBe(404)
+      expect(await problemOf(res)).toEqual({ code: 'DEAL_NOT_FOUND' })
+      expect(await rowsOf('file', deal.id)).toEqual([])
+      expect(await storedFiles()).toEqual(storedBefore)
     })
   })
 })

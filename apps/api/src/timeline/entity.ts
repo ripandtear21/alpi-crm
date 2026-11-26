@@ -66,13 +66,15 @@ export function entityCan(c: Ctx, type: EntityType, action: Action): boolean {
 /**
  * Запись `id` вида `type` для чтения (`need: 'read'`) или изменения (`'write'`). Право на действие
  * с частью системы проверяет requirePermission на маршруте; здесь — существование, корзина и
- * охват.
+ * охват. `lock: false` — проверка изменения без блокировки строки сделки: загрузка файла берёт
+ * её только перед записью строки файла, а не на весь поток тела (files.ts).
  */
 export async function entityFor(
   c: Ctx,
   type: EntityType,
   id: string,
   need: 'read' | 'write',
+  { lock = need === 'write' }: { lock?: boolean } = {},
 ): Promise<Outcome<EntityRef, EntityErrorCode>> {
   const notFound = refuse(404, NOT_FOUND[type])
   if (!UUID.test(id)) return notFound
@@ -104,7 +106,7 @@ export async function entityFor(
       .where('deleted_at', 'is', null)
       .where('merged_into_id', 'is', null)
       .where(dealInScope(sql.ref('deal.owner_id'), scope.read, viewer))
-    const row = await (need === 'write' ? query.forShare() : query).executeTakeFirst()
+    const row = await (lock ? query.forShare() : query).executeTakeFirst()
     if (!row) return notFound
     if (need === 'write' && !ownerAllowed(row.owner_id, scope.write, viewer)) {
       return refuse(403, 'PERMISSION_DENIED')
