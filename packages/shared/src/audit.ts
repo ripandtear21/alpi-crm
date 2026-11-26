@@ -98,6 +98,13 @@ export const PROJECT_AUDIT_ACTIONS = [
    * поставлено в отправку (queued).
    */
   'webhook_endpoint.caught_up',
+  // Тикет crm-intake/03: источники регистраций (entity — intake_source; details — название и
+  // воронка, без ключа).
+  'intake_source.created',
+  /** Новый ключ источника вместо старого; старый перестал работать сразу. */
+  'intake_source.key_reissued',
+  'intake_source.disabled',
+  'intake_source.enabled',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 

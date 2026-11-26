@@ -1,7 +1,7 @@
 # Источники регистраций и ключи источников
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T14:49Z
 Risk: high
 Blocked by: —
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 1, 10, 11, 18, 35); docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Источник регистраций», «Ключ источника», «Ключ API»); .scratch/crm-mvp/spec.md, разделы 3.2 (`intake_source`), 6.1; .scratch/crm-api/issues/01-api-keys.md (образец ключа); .scratch/crm-intake/spec.md
@@ -46,3 +46,17 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 - [ ] Тест автора: строка `change_log` с автором-источником проходит; с двумя авторами сразу — отклонена базой; событие с `actor.type = "intake_source"` проходит схему каталога.
 - [ ] Тест журнала: создание, смена ключа, отключение и включение — в журнале проекта.
 - [ ] `pnpm verify` зелёный.
+
+## Результат
+
+Решено без владельца — подтвердить:
+
+- Проверка ключа и лимит стоят на всей группе `/api/intake/*` уже сейчас (`apps/api/src/intake/auth.ts`, `intakeRoutes`): группа зарегистрирована в `apps/api/src/app.ts` до проверки ключа API и сессии. Без ключа, с неизвестным, отключённым, старым после смены ключом и с ключом API — одинаковый 401 `INTAKE_KEY_INVALID` с `WWW-Authenticate: Bearer`. 600 запросов в минуту на источник — 429 `RATE_LIMITED` с `Retry-After`; счётчик в памяти процесса, свой у источников (не общий с ключами API). Маршрутов приёма ещё нет: принятый ключ на любой путь получает 404 `NOT_FOUND`; тикеты 06 и 08 добавляют маршруты внутрь `intakeRoutes`.
+- Пути управления: `GET /api/v1/intake-sources`, `POST /api/v1/intake-sources`, `POST /api/v1/intake-sources/:id/reissue-key`, `…/:id/disable`, `…/:id/enable`. Создание — право «интеграции: создавать»; смена ключа, отключение и включение — «интеграции: изменять».
+- Воронка источника — своего проекта и не в архиве; иначе 422 `PIPELINE_NOT_FOUND`.
+- Название уникально в проекте без учёта регистра; отключённые источники тоже в счёт (409 `INTAKE_SOURCE_NAME_TAKEN`).
+- Смена ключа разрешена и у отключённого источника: он остаётся отключённым. Отключить отключённый — 409 `INTAKE_SOURCE_DISABLED`, включить включённый — 409 `INTAKE_SOURCE_ENABLED`.
+- Ответы с ключом — с `Cache-Control: no-store`.
+- `last_used_at` обновляется при запросе с принятым ключом, не превысившем лимит, не чаще раза в минуту.
+- Откат миграции удаляет события с автором-источником (`webhook_event`), а строки `change_log` с автором-источником оставляет без автора.
+- Вне раздела «Where in code» (вынуждено проверкой типов): подписи новых действий журнала в `apps/web/src/routes/settings/audit-page.tsx` и `apps/web/src/locales/{uk,ru}/audit.json`; списки миграций и таблиц в `packages/db/src/project-isolation.test.ts`.

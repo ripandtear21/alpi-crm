@@ -383,6 +383,11 @@ export interface ChangeLogTable {
   actor_id: string | null
   /** Автор — ключ API (migrations/0019_api_keys.ts); не вместе с `actor_id`. */
   actor_api_key_id: ColumnType<string | null, string | null | undefined, never>
+  /**
+   * Автор — источник регистраций (migrations/0025_intake_sources.ts); не вместе с `actor_id` и
+   * `actor_api_key_id`.
+   */
+  actor_intake_source_id: ColumnType<string | null, string | null | undefined, never>
   entity_type: string
   entity_id: string
   field: string
@@ -694,7 +699,11 @@ export interface WebhookEventTable {
   entity_id: ColumnType<string, string, never>
   /** Тело события целиком: тип, время, data (packages/shared/src/events). */
   body: ColumnType<Record<string, unknown>, string, never>
-  actor_type: ColumnType<'user' | 'api_key', 'user' | 'api_key', never>
+  actor_type: ColumnType<
+    'user' | 'api_key' | 'intake_source',
+    'user' | 'api_key' | 'intake_source',
+    never
+  >
   actor_id: ColumnType<string, string, never>
   created_at: ColumnType<Date, Date | string | undefined, never>
 }
@@ -771,6 +780,27 @@ export interface WebhookDeliveryAttemptTable {
   response_body: ColumnType<string | null, string | null, never>
 }
 
+/**
+ * Источник регистраций (migrations/0025_intake_sources.ts). Виден только в контексте своего
+ * проекта. Отпечаток ключа роль приложения пишет, но не читает: источник по ключу находит
+ * функция `intake_source_by_key_hash`. Название и воронка не меняются; строка не удаляется.
+ */
+export interface IntakeSourceTable {
+  id: Generated<string>
+  project_id: ColumnType<string, string, never>
+  name: ColumnType<string, string, never>
+  pipeline_id: ColumnType<string, string, never>
+  /** SHA-256 ключа, hex. Читать его роль приложения не может. */
+  key_hash: ColumnType<never, string, string>
+  /** Первые 12 символов ключа — для показа в списке. */
+  key_prefix: string
+  created_by: ColumnType<string, string, never>
+  created_at: ColumnType<Date, Date | string | undefined, never>
+  disabled_at: Date | null
+  disabled_by: string | null
+  last_used_at: Date | null
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -816,4 +846,5 @@ export interface Database {
   webhook_endpoint: WebhookEndpointTable
   webhook_delivery: WebhookDeliveryTable
   webhook_delivery_attempt: WebhookDeliveryAttemptTable
+  intake_source: IntakeSourceTable
 }
