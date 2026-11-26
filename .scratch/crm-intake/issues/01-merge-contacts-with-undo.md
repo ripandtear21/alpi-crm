@@ -58,16 +58,27 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест изоляции: `merge_record` и `merge_moved_item` проекта A не видны в контексте B без фильтра в коде; слить контакт A с контактом B другого проекта нельзя (404).
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест прав: без «контакты: изменять» — 403; с охватом «свои», когда один контакт чужой, — 403; откат — те же проверки.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест слияния: заполненные поля оставшегося не изменились, пустые заполнились; телефоны и email объединились без повторов; сделки (основной контакт и участие), заметки и файлы второго — у оставшегося, в том числе сделка вне охвата пользователя.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест скрытия: слитый контакт не находится списком, поиском, `findContactMatch` и в корзине; `GET` по его id — 404 `CONTACT_MERGED` с id оставшегося, в цепочке — с id последнего.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест отката: вернулось ровно перешедшее; заметка и телефон, добавленные после слияния, остались у оставшегося; поле, изменённое после слияния, не тронуто и есть в итоге; слитый контакт снова доступен по id.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест отказов: открытые сделки в одной воронке — 409 `MERGE_DEAL_CONFLICT`; откат через 31 день — 409 `MERGE_UNDO_EXPIRED`; откат при более позднем слиянии — 409 `MERGE_UNDO_BLOCKED`.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест событий и журнала: слияние — одно событие `contact.merged`, откат — одно `contact.unmerged`, тела проходят схему каталога; записи в журнале проекта и в истории обоих контактов; слияние, упавшее посередине, не оставляет ни переноса, ни события.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест пометки: пара «возможный дубль» после слияния без пометки, после отката — снова с пометкой и ссылкой.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Экран: «Об'єднати з…» с направлением и предпросмотром, «Скасувати об'єднання» в карточке и журнале, страница слитого контакта; тексты uk и ru; работает на 375 px.
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
+  - evidence: gate pass · `gate fast` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 
 ### Итог (2026-11-26)
 
