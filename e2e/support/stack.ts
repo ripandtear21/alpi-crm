@@ -154,6 +154,10 @@ async function start(): Promise<StackInfo> {
       BETTER_AUTH_URL: baseURL,
       STORAGE_DIR: storageDir,
       TRUSTED_PROXIES: '',
+      // Вебхуки (тикеты crm-api/06–08): ключ шифрования секретов подписи и разрешение
+      // http://127.0.0.1 — приёмник событий сценария crm-api слушает в процессе Playwright.
+      WEBHOOK_SECRET_KEY: randomBytes(32).toString('base64'),
+      WEBHOOK_ALLOW_INSECURE_URLS: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

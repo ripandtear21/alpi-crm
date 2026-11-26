@@ -44,5 +44,12 @@ export default defineConfig({
       testMatch: 'fields-acceptance.spec.ts',
       use: { viewport: { width: 1440, height: 900 } },
     },
+    {
+      // Экраны сценария приёмки crm-api (тикет crm-api/08): ключ API, вебхук, журнал доставок,
+      // отключённый вебхук. Свой стенд и своя база, приёмник событий — в самом файле.
+      name: 'crm-api',
+      testMatch: 'crm-api-acceptance.spec.ts',
+      use: { viewport: { width: 1440, height: 900 } },
+    },
   ],
 })
