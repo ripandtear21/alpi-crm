@@ -1,7 +1,7 @@
 # Приёмка: тестовый приёмник получает подписанные события и двигает сделку ключом без зацикливания
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T11:59Z
 Blocked by: 03, 04, 06, 07
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Тикеты», волна 4); .scratch/crm-api/spec.md («Приёмка владельцем»); docs/research/webhook-delivery.md на ветке origin/research/webhook-delivery, разделы 1.3, 3.3; .scratch/crm-deals/issues/16-acceptance-e2e.md
 
@@ -39,8 +39,33 @@ apps/api/src/**/*.acceptance.test.ts или e2e/** (сценарий и тест
 ## Done when
 
 - [ ] Автотест проходит локально все 9 шагов; вывод с кодом выхода приложен к отчёту.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/acceptance/crm-api.acceptance.test.ts` exit 0 (9 passed) · windows - · 958694964e9022a2ffe02964918004ad08e61904
 - [ ] `pnpm e2e` проходит прогон экранов локально; вывод с кодом выхода приложен к отчёту.
+  - evidence: test-run pass · `pnpm e2e` exit 0 (21 passed, crm-api 4 of 4) · windows - · 958694964e9022a2ffe02964918004ad08e61904
 - [ ] Тест падает, если сломать защиту: если убрать автора-ключ из события, шаг 4 становится красным (приёмник зацикливается и упирается в предел запросов теста); если подписывать не тем секретом, шаг 3 становится красным (проверено один раз, результат записан в отчёт).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/acceptance/crm-api.acceptance.test.ts` exit 1 on both mutants: actor api_key->user makes step 4 red, wrong signing key makes step 3 red · windows - · 958694964e9022a2ffe02964918004ad08e61904
 - [ ] Задание CI зелёное на ветке (ссылка на запуск).
 - [ ] (manual) Владелец прошёл сценарий руками на `pnpm seed` со своим тестовым приёмником или сценарием n8n/Make и подтвердил приёмку (отметка с датой в этом тикете).
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 (1127 tests) · windows - · 958694964e9022a2ffe02964918004ad08e61904
+
+## Результат
+
+Ветка `crm-api/08`. Поведение приложения не менялось: расхождений со спецификацией сценарий не нашёл.
+
+- `apps/api/src/acceptance/crm-api.acceptance.test.ts` — 9 шагов сценария на настоящем API (`createApp` с доставкой событий) и обработчике фоновых задач (`startJobs`, pg-boss, опрос 0,5 с, 2 повтора через 1 с) поверх embedded PostgreSQL. Данные — `runSeed` (код `pnpm seed`, 1/20 объёма, как у стенда e2e) прямо в базе харнесса; вход администратора и менеджера seed — паролем и кодом 2FA из файла учётных данных во временной папке. Ключ — с ролью «Керівник» (сделки: все действия, охват «все», «передача сделок»). Приёмник — HTTP-сервер теста на `127.0.0.1` (`allowInsecureUrls: true` — то же, что `WEBHOOK_ALLOW_INSECURE_URLS=1`).
+- `e2e/crm-api-acceptance.spec.ts` (проект Playwright `crm-api`, свой стенд и своя база): создание ключа и секрет один раз; создание вебхука и секрет `whsec_…`; журнал доставок — ответ 500, автоматический повтор (настоящий, через 10–20 с) с тем же `webhook-id`, «Надіслати ще раз» — третья попытка; ответ 410 — вебхук «вимкнений» с причиной и предупреждение в шапке. Приёмник проверяет подпись секретом, скопированным с экрана (HMAC по Standard Webhooks, без кода приложения).
+- `e2e/support/stack.ts`: API стенда получает `WEBHOOK_SECRET_KEY` (случайный) и `WEBHOOK_ALLOW_INSECURE_URLS=1`; на сценарии crm-deals и crm-fields это не влияет.
+
+Проверка защиты (мутанты, по одному прогону, файлы возвращены):
+
+- автор-ключ убран из события (`apps/api/src/events/emit.ts`, `eventActor`: для ключа `type: 'user'`) — `pnpm vitest run apps/api/src/acceptance/crm-api.acceptance.test.ts` exit 1: шаг 4 красный — приёмник ответил на оба своих `deal.stage_changed` новыми переводами (зацикливание до предела `REQUEST_LIMIT` = 3 запроса на сделку); следом красные 5–7;
+- подпись не тем секретом (`apps/api/src/events/sign.ts`, `webhookSigningKey` возвращает чужой ключ) — exit 1: шаг 3 красный — приёмник отклонил `deal.created` с кодом 400 (`outcome: rejected`); следом красные 4–9.
+
+Решено без владельца — подтвердить:
+
+- Приёмник реагирует не только на `deal.created`, но и на `deal.stage_changed` чужого автора (переводит сделку дальше). Иначе убранный автор-ключ не давал бы цикла и мутант шага 4 не краснел бы: проверка автора — единственное, что останавливает приёмник на собственном переводе.
+- Шаг 9: после 410 вебхук включают снова, менеджер создаёт сделку, и приёмник сам получает 401 на перевод отозванным ключом — сквозная проверка вместо отдельного запроса.
+- Автотест берёт данные `runSeed` в базе харнесса, а не отдельный запуск `pnpm seed` (тот же код и та же доля 0,05, что у стенда e2e).
+
+Не проверено: ручная приёмка владельцем (пункт manual). CI на ветке — после PR.
