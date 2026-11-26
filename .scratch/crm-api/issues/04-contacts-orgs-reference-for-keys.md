@@ -38,13 +38,22 @@ apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, 
 ## Done when
 
 - [ ] Тест изоляции: ключ проекта A не находит по телефону и email контакт проекта B с теми же данными; справочники отдают только воронки, причины, участников и команды своего проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест прав: без «контакты: создавать / изменять» — 403; без «сделки: смотреть» — 403 на справочники; email участников без «пользователи и роли: смотреть» в ответе отсутствует.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест поиска: `067 123 45 67`, `+380671234567` и `(067) 123-45-67` находят один и тот же выдуманный контакт; email в другом регистре — тоже; контакт вне охвата — ответ «чужой клиент» без имени, телефона и email.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест создания ключом: совпадение по телефону — 409 со ссылкой; только по email — контакт с пометкой «возможный дубль».
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест заметок: ключ создаёт заметку, автор — ключ; изменить или удалить чужую заметку — 403; свою — проходит.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Тест: удаление контакта и организации по ключу — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] Описание OpenAPI содержит все маршруты тикета с выдуманными примерами.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/contacts/api-key.test.ts` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
+  - evidence: gate pass · `gate fast` exit 0 · windows - · e50e585aae9f17706dff5317fc747f4a3f248918
 
 ## Результат
 
