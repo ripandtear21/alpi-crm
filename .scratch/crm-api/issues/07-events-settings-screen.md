@@ -1,7 +1,8 @@
 # Экран «Налаштування → Вебхуки»: вебхуки, типы событий, секрет, журнал доставок
 
 Type: task
-Status: claimed 2026-11-26T10:58Z
+Status: done 2026-11-26T11:39Z
+PR: #34
 Blocked by: 06
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Тикеты», волна 3 — экран «События»); .scratch/crm-mvp/spec.md, раздел 5.5 (настройки проекта, интеграции); .scratch/crm-api/spec.md; решения владельца 2026-11-26 (термин «вебхук» — GLOSSARY.md, docs/adr/0004-dostavka-sobytiy-vebhukami.md)
 
@@ -61,3 +62,15 @@ apps/web/src/routes/** (настройки → вебхуки), apps/web/src/fea
 - Изменение вебхука отправляет только изменённые поля: адрес без изменений не перепроверяется (DNS), сохранение описания не падает из-за адреса.
 - «Надіслати всі невдалі з дати» — с начала выбранного дня по местному времени.
 - Справка о подписи (Standard Webhooks, сырое тело в n8n и Make, повторы с тем же `webhook-id`) — свёрнутым блоком «Як перевірити підпис» на экране и в окне секрета; ссылки — спецификация Standard Webhooks, узел Crypto в n8n, функция `sha256` в Make (исследование `docs/research/webhook-delivery.md`, раздел 3.4, ветка `research/webhook-delivery`).
+
+### Итог (2026-11-26)
+
+Смержено: PR #34, коммит 1b40b46. Проверка: VERIFIED с первого круга (https://github.com/ripandtear21/alpi-crm/pull/34#issuecomment-7190928096); gate full зелёный.
+
+Долги (Consider):
+- [low] `apps/web/src/routes/settings/webhooks/webhooks-page.tsx:152-155, 248-252` — секрет подписи остаётся в памяти кэша мутаций TanStack Query после закрытия окна (на диск, в разметку и localStorage не попадает); комментарии `webhooks-page.tsx:40-41` и `webhooks-api.ts:17-18` это отрицают. Исправление: мутации создания и смены секрета с `gcTime: 0` и `reset()` при закрытии окна.
+- [low] `webhooks-page.tsx:688-691` — открытый журнал с доставкой «очікує» перечитывается каждые 5 с, даже когда следующая попытка через часы.
+
+Замечено (Noted):
+- [low] `apps/api/src/webhook-endpoints/webhook-endpoints.test.ts:653` — проверка `not.toContain(foreignEvent.id)` ничего не проверяет; изоляция проектов держится (транзакция `withProject`, row-level security на `webhook_delivery`, роль приложения не владелец таблиц) — проверять сводку другого проекта по числам.
+- [low] пункт 6: тест `webhooks-page.test.tsx:372` проверяет только ключи переводов; отсутствие прокрутки вбок на 375 px подтверждено снимками проверяющего.
