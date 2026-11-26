@@ -1,7 +1,8 @@
 # Запросы сделок для ключей API
 
 Type: task
-Status: claimed 2026-11-25T22:59Z
+Status: done 2026-11-26T01:24Z
+PR: #31
 Risk: high
 Blocked by: 01, 02
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Действия в MVP», волна 2); docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; .scratch/crm-mvp/spec.md, раздел 13.0.4 («обязательные поля с этапа одинаково действуют для менеджера и API»); .scratch/crm-deals/issues/05-deals.md; .scratch/crm-fields/issues/02-field-values.md, 03-field-group-permissions.md, 04-required-fields.md; .scratch/crm-api/spec.md
@@ -88,3 +89,22 @@ apps/api/src/deals/** (отметки «доступно ключу», схем�
 
 - Списки контактов и организаций читают `filter=` без `{ me: false }`: по ключу «я» в фильтре дойдёт до построителя и даст 500 — передать `me: ctx.actorId !== null`, как `deals/board.ts`.
 - По коду: ключ с охватом контактов «свои» не создаст сделку с новым контактом — у такого контакта нет `created_by`, он вне охвата, ответ 404 `CONTACT_NOT_FOUND` (тестом не проверено).
+
+### Итог волны (2026-11-26)
+
+PR #31, squash 5294d0f.
+
+- Проверка (verify-03 + линза security sec-03): VERIFIED; у sec-03 находок нет.
+- Max-review (Risk: high; две линзы на opus и sonnet, скептики): `MAX-REVIEW: VERIFIED` — находок high нет, три med после скептиков понижены до low по согласию авторов.
+- Перед мержем: CI ci-ok зелёный, `GATE_SCOPE=all` gate full на 6ab72b4 — exit 0, `[gate] green (full)`; CI на main после мержа — success.
+
+Consider (долги):
+- [low] ключ с охватом контактов «свои»/«команда» не создавал сделку с новым контактом (404 `CONTACT_NOT_FOUND`) — закрыто тикетом 04 (PR #33): ключ видит созданные им контакты.
+- [low] `archive`/`unarchive`/`reopen`/`win` с `Content-Type` и пустым телом теперь 400 `INVALID_INPUT` или 415 (до тикета — 200); `apps/web` шлёт `{}` и не задет — принимать пустое тело у действий без тела.
+- [low] `assignOwner` (`deals.ts:875`) повторяет ветку ответственного `updateDeal` — слить, поведение то же.
+
+Noted:
+- [low] `PATCH_KEYS` дублирует `PatchBodySchema`; `dealInputHook` передан 12 раз вместо `defaultHook`; `entityReader` повторяет `requestAccess`; выбор viewer написан дважды; лишний `export DealSchema`.
+- [low] комментарий `deals/openapi.ts:13-15` обещает 400 `INVALID_DEAL`, битый JSON даёт `INVALID_INPUT`; ответы 415/`INVALID_INPUT` тестом не покрыты.
+- [low] `POST /deals/:id/owner` с текущим ответственным отвечает 200 без «передачи сделок» (пустое действие).
+- [low] вне диффа: карточка сделки отдаёт названия товаров без права на просмотр товаров (так было и для пользователей); `ListQuerySchema` без `view`/`columns`; копии `keyRequest` в `api-keys.test.ts` и `http.test.ts`.

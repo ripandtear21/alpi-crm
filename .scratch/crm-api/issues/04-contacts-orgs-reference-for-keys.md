@@ -1,7 +1,8 @@
 # Контакты, организации, заметки и справочники для ключей API
 
 Type: task
-Status: claimed 2026-11-26T00:24Z
+Status: done 2026-11-26T01:24Z
+PR: #33
 Blocked by: 01, 02
 Source: .scratch/crm-build/issues/03-automation-api-contract.md (Answer: «Действия в MVP», волна 2); .scratch/crm-mvp/spec.md, раздел 4 («чужой клиент», охват контактов); .scratch/crm-deals/issues/02-pipelines-stages-lost-reasons.md, 03-contacts-organizations.md, 07-notes-files.md; .scratch/crm-foundation/issues/06-teams-and-users.md (команды); .scratch/crm-api/spec.md
 
@@ -78,3 +79,18 @@ apps/api/src/contacts/**, apps/api/src/organizations/**, apps/api/src/notes/**, 
 Журналы — выполнено: изменения ключа пишутся в `change_log` с автором-ключом (`actor_api_key_id`) и в `audit_log`. Запись `api_key.request` (метод, путь, статус, автор — ключ) пишет `apps/api/src/middleware/project-context.ts` на каждый успешный изменяющий запрос ключа (POST, PATCH, DELETE), в той же транзакции, что и изменение. Тесты: `apps/api/src/api-keys/api-keys.test.ts` (общий механизм) и `apps/api/src/contacts/api-key.test.ts` (создание и изменение контакта ключом — записи `api_key.request`).
 
 Доработка 1 (по отказу проверяющего в PR #33): тест отката миграции `0023_note_api_key_author` на данных — `packages/db/src/project-isolation.test.ts` (два проекта, заметки пользователя и ключа; после отката остаются только заметки пользователей, контакты на месте); пользователь с правом «удалять» удаляет заметку ключа — тест DELETE администратором, 204.
+
+### Итог волны (2026-11-26)
+
+PR #33, squash 599ca39.
+
+- Проверка, круг 1 (verify-04 + линза security sec-04): REJECTED — [high] откат миграции 0023 удалял заметки без теста, какие (мутант `delete from note` проходил); [med] ложная заметка «audit_log по изменениям ключа не пишется» (пишет `middleware/project-context.ts`).
+- Доработка (раунд 1): тест отката 0023 на данных двух проектов; «Результат» исправлен, добавлен тест `audit_log`; по рекомендации — `/v1/users` и `/v1/teams` для сессии снова требуют «пользователи и роли: смотреть» (ключу — «сделки: смотреть»), тест DELETE заметки ключа администратором.
+- Проверка, круг 2 (verify-04-r2): VERIFIED.
+- Перед мержем: CI ci-ok зелёный, `GATE_SCOPE=all` gate full на 6958c14 — exit 0, `[gate] green (full)`.
+- Закрыт долг max-review тикета 03: ключ с охватом контактов «свои» создаёт сделку с новым контактом.
+
+Noted:
+- [low] debt: тест отката (`packages/db/src/project-isolation.test.ts:283-285`) ждёт, что `migrateDown()` откатит именно 0023 — упадёт с первой следующей миграцией; откатывать через `migrateTo` до предыдущей.
+- [low] миграции идут строго по порядку (`packages/db/src/migrate.ts:13`, без `allowUnorderedMigrations`): тикету 06 (PR #32, миграция 0022) нужен номер больше 0023.
+- [low] вне тикета: карточка сделки в `apps/web` берёт участников из `/members` (нужно «пользователи и роли: смотреть»), у шаблона «менеджер» этого права нет — не проверено, как карточка ведёт себя для менеджера.
