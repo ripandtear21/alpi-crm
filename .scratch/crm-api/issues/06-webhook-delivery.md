@@ -63,19 +63,31 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 
 - [ ] Миграция применяется на чистую базу и откатывается.
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` (в составе pnpm verify) exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест изоляции: адреса, доставки и попытки проекта A не видны в контексте B; событие проекта A не уходит на адрес проекта B.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/api/src/webhook-endpoints` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест прав: без `integrations` — 403 на все запросы адресов; запрос по ключу API — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест подписи: `verify()` пакета `standardwebhooks` принимает отправленное событие; изменённое тело, чужой секрет и время старше 5 минут — отклоняет; в первые 24 часа после смены секрета принимаются и старый, и новый секрет, потом только новый.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/sign.test.ts apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест подписки: адрес получает только подписанные типы; отключённый адрес не получает ничего, его доставки `cancelled`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест повторов (с укороченными паузами): ответ 500 и таймаут дают повтор с тем же `webhook-id`; 3xx — неудача без перехода по редиректу; успех только на 2xx; после последней попытки — `failed`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест отключения: `410` отключает адрес сразу; 5 суток без успеха (время подменено в тесте) отключают адрес, пишут журнал и показывают предупреждение пользователю с правом «интеграции» и не показывают менеджеру.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts apps/web/src/layout/webhook-alert-banner.test.tsx` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест SSRF: `http://`, `https://127.0.0.1`, `https://10.0.0.5`, `https://169.254.169.254`, `https://[::1]` и имя, которое разрешается в частный адрес, — 422 при сохранении; имя, которое после сохранения стало разрешаться в частный адрес, — отправка отклонена, попытка записана с причиной; без переменной для тестов `http://localhost` отклоняется; с ней при `NODE_ENV=production` API не запускается.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/ssrf.test.ts apps/api/src/webhook-endpoints apps/api/src/events/delivery.test.ts apps/api/src/config.test.ts` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест секрета: секрет показан один раз; в базе он не лежит открытым текстом; в логах и журнале его нет.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/webhook-endpoints apps/api/src/api-keys` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест ручного повтора: повтор одной доставки и «всё неудачное с даты» отправляют заново с тем же `webhook-id`, попытки видны в журнале.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] Тест хранения: записи старше 30 дней удаляются задачей, новее — остаются.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/events/delivery.test.ts` (в составе pnpm verify) exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · 42576dcac74c2100d71659de5449e4a530cd17a5
+  - evidence: gate pass · `pnpm verify` exit 0; `gate fast` exit 0 · windows - · 8ba4cd55e89d04b5024e1a0901231033a5b912c7
 
 ## Результат
 
