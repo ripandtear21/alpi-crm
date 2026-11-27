@@ -223,14 +223,16 @@ async function dealRecords(
     .execute()
   const contactIds = [...new Set(rows.map((row) => row.primary_contact_id))]
   const contacts = new Map(
-    (
-      await db
-        .selectFrom('contact')
-        .select(['id', 'first_name', 'last_name'])
-        .where('id', 'in', contactIds)
-        .where((eb) => contactScopePredicate(eb, contactsRead, viewer))
-        .execute()
-    ).map((row) => [row.id, [row.first_name, row.last_name].filter(Boolean).join(' ')]),
+    contactIds.length === 0
+      ? []
+      : (
+          await db
+            .selectFrom('contact')
+            .select(['id', 'first_name', 'last_name'])
+            .where('id', 'in', contactIds)
+            .where((eb) => contactScopePredicate(eb, contactsRead, viewer))
+            .execute()
+        ).map((row) => [row.id, [row.first_name, row.last_name].filter(Boolean).join(' ')]),
   )
   return rows.map((row) => ({
     id: row.id,
