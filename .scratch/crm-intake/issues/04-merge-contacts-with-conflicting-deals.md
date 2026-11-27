@@ -1,7 +1,8 @@
 # Слияние контактов вместе с конфликтующими сделками
 
 Type: task
-Status: open
+Status: done 2026-11-27T11:32Z
+PR: #42
 Blocked by: 01, 02
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 26, 29, 31, 35, 36); docs/adr/0005-sliyanie-s-otkatom.md; GLOSSARY.md («Слияние», «Сделка»); .scratch/crm-mvp/spec.md, раздел 3.2 (допущение о запрете слияния — заменено пунктом 31); .scratch/crm-intake/spec.md
 
@@ -44,6 +45,7 @@ apps/api/src/merge/**, apps/api/src/contacts/**, apps/api/src/deals/**, apps/api
 - [ ] Тест изоляции: предпросмотр и слияние не видят сделок другого проекта.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Экран: блок конфликтующих сделок с выбором остающейся; тексты uk и ru; работает на 375 px.
+  - evidence: review pass · PR #42: снимки Playwright verify-04 (светлая и тёмная тема, 375 px и 1440 px, uk и ru, до и после «Поміняти») — https://github.com/ripandtear21/alpi-crm/pull/42#issuecomment-7216689356 · - - · e5c2a6fdaad08f62aa844b4b3caa22edd14d9ed8
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
   - evidence: gate pass · `gate fast` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
