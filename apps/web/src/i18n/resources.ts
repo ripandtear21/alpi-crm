@@ -8,6 +8,7 @@ import ruDeals from '../locales/ru/deals.json'
 import ruDuplicates from '../locales/ru/duplicates.json'
 import ruFieldsSettings from '../locales/ru/fields-settings.json'
 import ruHome from '../locales/ru/home.json'
+import ruIntakeSources from '../locales/ru/intake-sources.json'
 import ruLayout from '../locales/ru/layout.json'
 import ruLists from '../locales/ru/lists.json'
 import ruOrganizationCard from '../locales/ru/organization-card.json'
@@ -24,6 +25,7 @@ import ukDeals from '../locales/uk/deals.json'
 import ukDuplicates from '../locales/uk/duplicates.json'
 import ukFieldsSettings from '../locales/uk/fields-settings.json'
 import ukHome from '../locales/uk/home.json'
+import ukIntakeSources from '../locales/uk/intake-sources.json'
 import ukLayout from '../locales/uk/layout.json'
 import ukLists from '../locales/uk/lists.json'
 import ukOrganizationCard from '../locales/uk/organization-card.json'
@@ -49,6 +51,7 @@ const uk = {
   'fields-settings': ukFieldsSettings,
   webhooks: ukWebhooks,
   duplicates: ukDuplicates,
+  'intake-sources': ukIntakeSources,
 }
 
 // Русский обязан повторять структуру украинского: пропущенный ключ — ошибка typecheck.
@@ -69,6 +72,7 @@ const ru: typeof uk = {
   'fields-settings': ruFieldsSettings,
   webhooks: ruWebhooks,
   duplicates: ruDuplicates,
+  'intake-sources': ruIntakeSources,
 }
 
 export const resources = { uk, ru }

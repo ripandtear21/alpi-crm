@@ -11,9 +11,10 @@ import { fieldsSettingsAllowed } from './fields/fields-data.ts'
 import './settings.css'
 
 // Настройки проекта: роли, пользователи, команды, журнал действий, воронки, причины проигрыша,
-// товары, поля, ключи API и вебхуки; остальные подразделы придут со своими тикетами. Пункт «Поля» —
-// только с правом «поля» (тикет crm-fields/05), пункт «Вебхуки» — с правом «інтеграції: дивитися»
-// (тикет crm-api/07): права пользователя — `GET /project/access`.
+// товары, поля, ключи API, вебхуки и источники регистраций; остальные подразделы придут со
+// своими тикетами. Пункт «Поля» — только с правом «поля» (тикет crm-fields/05), пункты «Вебхуки»
+// (тикет crm-api/07) и «Джерела» (тикет crm-intake/07) — с правом «інтеграції: дивитися»: права
+// пользователя — `GET /project/access`.
 export function SettingsPage({
   access,
 }: {
@@ -23,6 +24,7 @@ export function SettingsPage({
   const { t: tAudit } = useTranslation('audit')
   const { t: tLists } = useTranslation('lists')
   const { t: tFields } = useTranslation('fields-settings')
+  const { t: tSources } = useTranslation('intake-sources')
   const code = useProjectCode()
   const projectId = useCurrentProject().current?.id ?? ''
   const rights = useQuery({
@@ -32,7 +34,9 @@ export function SettingsPage({
     enabled: projectId !== '',
   })
   const fieldsAllowed = rights.data ? fieldsSettingsAllowed(rights.data.permissions) : false
-  const webhooksAllowed = rights.data ? can(rights.data.permissions, 'integrations', 'view') : false
+  const integrationsAllowed = rights.data
+    ? can(rights.data.permissions, 'integrations', 'view')
+    : false
 
   return (
     <section>
@@ -79,10 +83,17 @@ export function SettingsPage({
               {t('apiKeys.title')}
             </Link>
           </li>
-          {webhooksAllowed && (
+          {integrationsAllowed && (
             <li>
               <Link to="/p/$code/settings/webhooks" params={{ code }}>
                 {t('webhooks.title')}
+              </Link>
+            </li>
+          )}
+          {integrationsAllowed && (
+            <li>
+              <Link to="/p/$code/settings/intake-sources" params={{ code }}>
+                {tSources('title')}
               </Link>
             </li>
           )}

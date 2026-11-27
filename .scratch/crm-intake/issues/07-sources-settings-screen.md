@@ -1,7 +1,8 @@
 # Экран «Налаштування → Джерела» и журнал входящих источника
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T16:31Z
+Branch: crm-intake/07
 Blocked by: 03, 06
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 1, 18, 35, 38); docs/adr/0006-zashchita-ot-poteri-dannykh.md; GLOSSARY.md («Источник регистраций», «Ключ источника», «Журнал входящих»); .scratch/crm-api/issues/07-events-settings-screen.md (образец экрана); .scratch/crm-intake/spec.md
 
