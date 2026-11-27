@@ -40,6 +40,7 @@ const migrationNames = [
   '0026_merge',
   '0027_contact_merge',
   '0028_registration_intake',
+  '0029_duplicates',
 ]
 
 const tablesOfMigration = [
@@ -113,6 +114,9 @@ const tablesOfMigration = [
   'registration',
   'intake_event',
   'inbound_request',
+  // 0029_duplicates
+  'duplicate_pair',
+  'not_duplicate',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -296,11 +300,12 @@ describe('схема и изоляция проектов', () => {
           removed.push((await note({ author_api_key_id: apiKeyId })).id)
         }
 
-        // Откат до 0021: сначала 0028, 0027, 0026, 0025 и 0024 (приём регистраций, слияния,
-        // источники и доставка событий — данных в них нет), затем 0023.
+        // Откат до 0021: сначала 0029, 0028, 0027, 0026, 0025 и 0024 (дубли, приём регистраций,
+        // слияния, источники и доставка событий — данных в них нет), затем 0023.
         const down = await createMigrator(scratch).migrateTo('0021_webhook_events')
         expect(down.error).toBeUndefined()
         expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
+          ['0029_duplicates', 'Down', 'Success'],
           ['0028_registration_intake', 'Down', 'Success'],
           ['0027_contact_merge', 'Down', 'Success'],
           ['0026_merge', 'Down', 'Success'],
@@ -329,6 +334,7 @@ describe('схема и изоляция проектов', () => {
           ['0026_merge', 'Success'],
           ['0027_contact_merge', 'Success'],
           ['0028_registration_intake', 'Success'],
+          ['0029_duplicates', 'Success'],
         ])
       } finally {
         await scratch.destroy()
@@ -455,6 +461,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'deal', rls: true, policies: 1 },
         { table: 'deal_participant', rls: true, policies: 1 },
         { table: 'deal_product', rls: true, policies: 1 },
+        { table: 'duplicate_pair', rls: true, policies: 1 },
         { table: 'external_link', rls: true, policies: 1 },
         { table: 'field_definition', rls: true, policies: 1 },
         { table: 'field_group', rls: true, policies: 1 },
@@ -470,6 +477,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'lost_reason_group', rls: true, policies: 1 },
         { table: 'merge_moved_item', rls: true, policies: 1 },
         { table: 'merge_record', rls: true, policies: 1 },
+        { table: 'not_duplicate', rls: true, policies: 1 },
         { table: 'note', rls: true, policies: 1 },
         { table: 'organization', rls: true, policies: 1 },
         { table: 'pipeline', rls: true, policies: 1 },

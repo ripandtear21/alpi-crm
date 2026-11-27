@@ -10,7 +10,8 @@
     "organizations": "Организации",
     "tasks": "Задачи",
     "reports": "Отчёты",
-    "settings": "Настройки"
+    "settings": "Настройки",
+    "duplicates": "Дубли"
   },
   "project": {
     "label": "Проект",
@@ -65,5 +66,8 @@
       "gone_410": "приёмник ответил 410 Gone",
       "failing_5_days": "5 суток без единой успешной доставки"
     }
+  },
+  "duplicates": {
+    "counter": "Дублей: {{count}}"
   }
 }

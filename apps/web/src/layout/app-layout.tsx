@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SearchApi } from '../components/search-bar/search-api.ts'
+import type { DuplicatesApi } from '../routes/duplicates/duplicates-api.ts'
 import { AppHeader } from './app-header.tsx'
 import { AppNav } from './app-nav.tsx'
 import { MOBILE_MEDIA_QUERY, useMediaQuery } from './use-media-query.ts'
@@ -11,14 +12,17 @@ import './app-layout.css'
 // Каркас всех экранов: шапка сверху, левое меню, справа — содержимое раздела.
 // На телефоне меню свёрнуто и открывается кнопкой в шапке поверх содержимого. Под шапкой —
 // предупреждение об отключённых адресах событий (тикет crm-api/06), если передан его клиент.
+// Счётчик дублей в шапке и пункт меню «Дублі» (тикет crm-intake/05) — если передан клиент дублей.
 export function AppLayout({
   children,
   search,
   webhookAlerts,
+  duplicates,
 }: {
   children: ReactNode
   search: SearchApi
   webhookAlerts?: WebhookAlertsApi | undefined
+  duplicates?: DuplicatesApi | undefined
 }) {
   const { t } = useTranslation('layout')
   const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY)
@@ -40,13 +44,14 @@ export function AppLayout({
       </a>
       <AppHeader
         search={search}
+        duplicates={duplicates}
         menuToggle={
           isMobile ? { open: menuOpen, onToggle: () => setMenuOpen((open) => !open) } : null
         }
       />
       {webhookAlerts && <WebhookAlertBanner api={webhookAlerts} />}
       <div className="app-layout__body">
-        <AppNav hidden={!navOpen} onNavigate={() => setMenuOpen(false)} />
+        <AppNav hidden={!navOpen} onNavigate={() => setMenuOpen(false)} duplicates={duplicates} />
         <main id="main" className="app-layout__main" tabIndex={-1}>
           {children}
         </main>

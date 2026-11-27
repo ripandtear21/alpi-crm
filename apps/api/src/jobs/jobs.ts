@@ -3,6 +3,13 @@ import type { Kysely, Transaction } from 'kysely'
 import { fromKysely, PgBoss } from 'pg-boss'
 import type { BulkActionRegistry } from '../bulk/registry.ts'
 import { BULK_BATCH_SIZE, type BulkJobMessage, failBulkJob, runBulkJob } from '../bulk/runner.ts'
+import { scanAllDuplicates, scanDuplicates } from '../duplicates/finder.ts'
+import {
+  attachDuplicateQueue,
+  DUPLICATE_SCAN_QUEUE,
+  type DuplicateScanMessage,
+  detachDuplicateQueue,
+} from '../duplicates/queue.ts'
 import { deliverWebhook, failDeadDelivery, type WebhookDeliveryOptions } from '../events/deliver.ts'
 import { fanoutEvent } from '../events/fanout.ts'
 import {
@@ -61,9 +68,13 @@ import { purgeWebhookLog } from './webhook-purge.ts'
 //   crm-intake/06);
 // - inbound-replay — «провести заново входящие с момента T» по запросу администратора
 //   (intake/replay.ts): каждая строка журнала проводится той же функцией, что запрос источника.
+// - duplicate-scan — пары дублей одной записи (duplicates/finder.ts, тикет crm-intake/05):
+//   задачу ставит изменение записи той же транзакцией (duplicates/queue.ts);
+// - duplicate-nightly — ежедневно: все пары дублей каждого проекта заново (duplicates/finder.ts).
+//   Надсмотрщик пишет только пары дублей.
 // Обработчики событий и доставки работают в withProject проекта из задачи.
 // Задачи по расписанию трогают только корзину, журнал входов, ответы Idempotency-Key, журнал
-// доставки и журнал входящих и никогда не меняют сделки (ADR 0003).
+// доставки, журнал входящих и пары дублей и никогда не меняют сделки (ADR 0003).
 
 /** Схема таблиц pg-boss; та же константа — в packages/db/migrations/0007_jobs_bulk.ts. */
 export const PGBOSS_SCHEMA = 'pgboss'
@@ -85,6 +96,7 @@ export const QUEUES = {
   fieldIndex: 'field-index',
   inboundPurge: 'inbound-purge',
   inboundReplay: 'inbound-replay',
+  duplicateNightly: 'duplicate-nightly',
 } as const
 
 /** Время расписания — киевское: ночью, когда в CRM никто не работает. */
@@ -94,6 +106,7 @@ const SIGN_IN_PURGE_CRON = '30 3 * * *'
 const IDEMPOTENCY_PURGE_CRON = '45 3 * * *'
 const WEBHOOK_PURGE_CRON = '0 4 * * *'
 const INBOUND_PURGE_CRON = '15 4 * * *'
+const DUPLICATE_NIGHTLY_CRON = '30 4 * * *'
 
 /**
  * Доставок одновременно в процессе: медленный адрес (до 15 с на попытку) не задерживает
@@ -200,9 +213,16 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
     retryDelay: 60,
     expireInSeconds: 60 * 60,
   })
+  // Ночной проход по 100 тыс. контактов — секунды (duplicates/nightly.test.ts); час — с запасом.
+  await boss.createQueue(QUEUES.duplicateNightly, {
+    retryLimit: 3,
+    retryDelay: 15 * 60,
+    expireInSeconds: 60 * 60,
+  })
   // Очереди событий: рассылку ставит запись события (events/emit.ts), доставки — рассылка и
-  // ручной повтор.
+  // ручной повтор. Очередь поиска дублей ставят изменения контактов, приём и слияние.
   await attachEventQueue(boss, options.webhookQueue ?? WEBHOOK_DELIVER_QUEUE_OPTIONS)
+  await attachDuplicateQueue(boss)
   const webhooks: WebhookDeliveryOptions = options.webhooks ?? {
     secretKey: null,
     allowInsecureUrls: false,
@@ -288,6 +308,14 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
       await replayInbound(options.db, job.data)
     }
   })
+  await boss.work<DuplicateScanMessage>(DUPLICATE_SCAN_QUEUE, polling, async (batch) => {
+    for (const job of batch) {
+      await scanDuplicates(options.db, job.data)
+    }
+  })
+  await boss.work(QUEUES.duplicateNightly, polling, async () => {
+    await scanAllDuplicates(options.db)
+  })
   for (const message of await pendingFieldIndexes(options.db)) {
     await boss.send(QUEUES.fieldIndex, message, { singletonKey: message.fieldId })
   }
@@ -297,6 +325,7 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
     await boss.schedule(QUEUES.idempotencyPurge, IDEMPOTENCY_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.webhookPurge, WEBHOOK_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.inboundPurge, INBOUND_PURGE_CRON, null, { tz: TIMEZONE })
+    await boss.schedule(QUEUES.duplicateNightly, DUPLICATE_NIGHTLY_CRON, null, { tz: TIMEZONE })
   }
 
   return {
@@ -338,14 +367,16 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
         await boss.stop({ graceful: true, timeout: options.stopTimeoutMs ?? 30_000 })
       } finally {
         detachEventQueue(boss)
+        detachDuplicateQueue(boss)
       }
     },
   }
 }
 
 /**
- * pg-boss только для постановки задач событий, без обработчиков и расписания: для процессов
- * без фоновых задач (тесты API, testing/api-harness.ts). Остановка отключает очередь событий.
+ * pg-boss только для постановки задач событий и поиска дублей, без обработчиков и расписания:
+ * для процессов без фоновых задач (тесты API, testing/api-harness.ts). Остановка отключает обе
+ * очереди.
  */
 export async function startEventQueue(
   connectionString: string,
@@ -365,12 +396,14 @@ export async function startEventQueue(
   })
   await boss.start()
   await attachEventQueue(boss)
+  await attachDuplicateQueue(boss)
   return {
     async stop() {
       try {
         await boss.stop({ graceful: false, timeout: 5_000 })
       } finally {
         detachEventQueue(boss)
+        detachDuplicateQueue(boss)
       }
     },
   }

@@ -20,6 +20,7 @@ import {
   purgeFromTrash,
   recordChanges,
 } from '../change-log/record.ts'
+import { enqueueDuplicateScan } from '../duplicates/queue.ts'
 import { emitEvent } from '../events/emit.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { clearedRequired, missingRequired, requiredFieldsOutcome } from '../fields/requirements.ts'
@@ -521,7 +522,11 @@ function duplicateMark(row: ContactRow, duplicateOf: string | null) {
   return { possible_duplicate: duplicateOf !== null, possible_duplicate_of: duplicateOf }
 }
 
-/** Заменяет телефоны или email контакта (что передано); первый — основной. */
+/**
+ * Заменяет телефоны или email контакта (что передано); первый — основной. Ставит поиск дублей
+ * контакта той же транзакцией (duplicates/queue.ts) — и без ключей во `input`: её зовут создание
+ * и каждая правка контакта, а пары зависят и от имени, и от отметки «возможный дубль».
+ */
 export async function replaceContactKeys(
   ctx: ChangeAuthor,
   contactId: string,
@@ -559,6 +564,7 @@ export async function replaceContactKeys(
         .execute()
     }
   }
+  await enqueueDuplicateScan(ctx.db, ctx.projectId, [{ entity: 'contact', id: contactId }])
 }
 
 /** Контакт получил отметку «возможный дубль» — событие contact.possible_duplicate. */
@@ -787,6 +793,8 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
     })
     .where('id', '=', id)
     .execute()
+  // Живой снова — снова в парах дублей (вместе со сделками, вернувшимися с ним).
+  await enqueueDuplicateScan(ctx.db, ctx.projectId, [{ entity: 'contact', id }])
   const after = await contactView(ctx, await reload(ctx, id))
   await recordChanges(ctx, { type: 'contact', id }, [
     deletedAtChange(deleted_at, null),

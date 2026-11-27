@@ -931,6 +931,32 @@ export interface InboundRequestTable {
   replay_of: string | null
 }
 
+/**
+ * Пара похожих записей, найденная надсмотрщиком за дублями (migrations/0029): a_id < b_id;
+ * пишет и удаляет только apps/api/src/duplicates.
+ */
+export interface DuplicatePairTable {
+  project_id: string
+  /** 'contact' | 'deal'. */
+  entity_type: string
+  a_id: string
+  b_id: string
+  /** 'phone' | 'email' | 'mark' | 'name_phone' | 'open_deals'. */
+  reason: string
+  found_at: ColumnType<Date, Date | string | undefined, never>
+}
+
+/** Пара с отметкой «не дубль» (migrations/0029): a_id < b_id; строка не меняется. */
+export interface NotDuplicateTable {
+  project_id: string
+  /** 'contact' | 'deal'. */
+  entity_type: string
+  a_id: string
+  b_id: string
+  marked_by: string
+  marked_at: ColumnType<Date, Date | string | undefined, never>
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -982,4 +1008,6 @@ export interface Database {
   registration: RegistrationTable
   intake_event: IntakeEventTable
   inbound_request: InboundRequestTable
+  duplicate_pair: DuplicatePairTable
+  not_duplicate: NotDuplicateTable
 }
