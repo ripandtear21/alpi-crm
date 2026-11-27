@@ -1,6 +1,7 @@
+import type { Database } from '@alpi/db'
 import { can } from '@alpi/shared'
-import { sql } from 'kysely'
-import { purgeFromTrash, recordChanges } from '../change-log/record.ts'
+import { type Kysely, sql } from 'kysely'
+import { recordChanges } from '../change-log/record.ts'
 import type { ContactDependents, DependentsActor } from '../contacts/dependents.ts'
 import { ownerAllowed } from './scope.ts'
 
@@ -24,6 +25,19 @@ import { ownerAllowed } from './scope.ts'
 // сделки не бывает) — вместе с записями их слияний, так что откатить такое слияние уже нельзя.
 
 const iso = (value: Date | string) => new Date(value).toISOString()
+
+/**
+ * Окончательно удаляет сделки `ids` по порядку (purge_from_trash), пропуская те, что уже ушли:
+ * каждая уносит и слитые в неё. Общее для окончательного удаления контакта вручную (ниже) и
+ * фоновой очистки корзины (trash/purgers.ts, CONTACT_PURGER; тикет crm-intake/12). Сделки уже
+ * заблокированы вызывающим.
+ */
+export async function purgeDealsLeft(db: Kysely<Database>, ids: readonly string[]) {
+  for (const id of ids) {
+    const left = await db.selectFrom('deal').select('id').where('id', '=', id).executeTakeFirst()
+    if (left) await sql`select purge_from_trash('deal', ${id}::uuid)`.execute(db)
+  }
+}
 
 /** Сделку пользователь меняет сам: ответственный в охвате чтения и изменения (или очередь). */
 function writable(actor: DependentsActor, ownerId: string | null): boolean {
@@ -177,18 +191,10 @@ export const DEAL_CONTACT_DEPENDENTS: ContactDependents = {
     if (deals.length > 0 && !deletable(actor, deals)) return { code: 'PERMISSION_DENIED' }
     // Сначала сделки в корзине: каждая уносит и слитые в неё. Потом скрытые сделки контакта,
     // слитые в чужие сделки, — те, что ещё остались.
-    const ordered = [
-      ...deals.filter((deal) => deal.merged_into_id === null),
-      ...deals.filter((deal) => deal.merged_into_id !== null),
-    ]
-    for (const deal of ordered) {
-      const left = await actor.db
-        .selectFrom('deal')
-        .select('id')
-        .where('id', '=', deal.id)
-        .executeTakeFirst()
-      if (left) await purgeFromTrash(actor, { type: 'deal', id: deal.id })
-    }
+    await purgeDealsLeft(actor.db, [
+      ...deals.filter((deal) => deal.merged_into_id === null).map((deal) => deal.id),
+      ...deals.filter((deal) => deal.merged_into_id !== null).map((deal) => deal.id),
+    ])
     // Сделки, где контакт участник: строки сделок блокируются (как при изменении участников в
     // deals.ts), чтобы «было» в истории не устарело до записи.
     const involved = await actor.db

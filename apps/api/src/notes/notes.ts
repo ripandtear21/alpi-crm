@@ -178,7 +178,10 @@ async function ownNote(
   type: EntityType,
   action: 'edit' | 'delete',
 ): Promise<Result<{ entity: EntityRef; note: NoteRow }>> {
-  const entity = await entityFor(c, type, c.req.param('id') ?? '', 'read')
+  // Строка записи (FOR SHARE) — до строки заметки (тикет crm-intake/12): слияние контактов и
+  // сделок держит записи FOR UPDATE и потом переносит их заметки; порядок «заметка, потом
+  // запись» сцепился бы с ним (40P01).
+  const entity = await entityFor(c, type, c.req.param('id') ?? '', 'read', { lock: true })
   if (!entity.ok) return entity
   const noteId = c.req.param('noteId') ?? ''
   const note = UUID.test(noteId)

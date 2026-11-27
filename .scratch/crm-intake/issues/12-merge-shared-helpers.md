@@ -1,7 +1,8 @@
 # Общий код слияния контактов и сделок; порядок блокировок
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T13:06Z
+Branch: crm-intake/12
 Blocked by: —
 Source: расширенные проверки PR #40 (тикет 02, https://github.com/ripandtear21/alpi-crm/pull/40#issuecomment-7203861626) и PR #39 (тикет 01, https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7206484228), группы Consider и Noted; docs/adr/0005-sliyanie-s-otkatom.md
 

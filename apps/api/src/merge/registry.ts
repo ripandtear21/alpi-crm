@@ -92,6 +92,109 @@ export function canonical(value: unknown): string {
   )
 }
 
+// ---- Строки, общие для реестров контактов и сделок (тикет crm-intake/12) ----------------------
+
+/**
+ * Заполняемое поле организации (`organizationId`) убирается из `items`, если организация в
+ * корзине: живую запись к ней не привязать.
+ */
+export async function dropTrashedOrganization(actor: ChangeAuthor, items: MovedItem[]) {
+  const organization = items.find((item) => item.field === 'organizationId')
+  if (!organization) return
+  const live = await actor.db
+    .selectFrom('organization')
+    .select('id')
+    .where('id', '=', organization.value as string)
+    .where('deleted_at', 'is', null)
+    .executeTakeFirst()
+  if (!live) items.splice(items.indexOf(organization), 1)
+}
+
+/**
+ * Пользовательские поля, которые заполнятся у оставшейся записи вида `entity`: пустые у неё и
+ * заполненные у слитой, только действующие (не в архиве, не удаляются, тип не меняется; FOR KEY
+ * SHARE — определение поля не удалят, пока идёт слияние).
+ */
+export async function customFieldItems(
+  actor: ChangeAuthor,
+  entity: MergeEntity,
+  survivor: Record<string, unknown>,
+  merged: Record<string, unknown>,
+): Promise<MovedItem[]> {
+  const codes = Object.keys(merged).filter(
+    (code) => survivor[code] === undefined && merged[code] !== null,
+  )
+  if (codes.length === 0) return []
+  const live = await actor.db
+    .selectFrom('field_definition')
+    .select('code')
+    .where('entity', '=', entity)
+    .where('code', 'in', codes)
+    .where('archived_at', 'is', null)
+    .where('purge_requested_at', 'is', null)
+    .where('converting_to', 'is', null)
+    .orderBy('code')
+    .forKeyShare()
+    .execute()
+  return live.map(({ code }) => moved('field', { field: `custom.${code}`, value: merged[code] }))
+}
+
+/** Записи, привязанные к контакту или сделке столбцом `contact_id` или `deal_id`. */
+type AttachedKind = 'note' | 'file' | 'registration'
+
+/**
+ * Строка реестра для заметок, файлов и регистраций (тикет crm-intake/06) записи: переходят к
+ * оставшейся по столбцу `column` и возвращаются, если ещё у неё.
+ */
+export function attachedRow(
+  kind: AttachedKind,
+  column: 'contact_id' | 'deal_id',
+): MergeRegistryRow {
+  const owner = (id: string) => (column === 'contact_id' ? { contact_id: id } : { deal_id: id })
+  const ids = (items: readonly MovedItem[]) => items.map((item) => item.itemId ?? '')
+  return {
+    kinds: [kind],
+    async plan(actor, pair) {
+      const rows = await actor.db
+        .selectFrom(kind)
+        .select('id')
+        .where(column, '=', pair.mergedId)
+        .orderBy('id')
+        .execute()
+      return rows.map((row) => moved(kind, { itemId: row.id }))
+    },
+    async apply(actor, pair, items) {
+      if (items.length === 0) return
+      await actor.db
+        .updateTable(kind)
+        .set(owner(pair.survivorId))
+        .where('id', 'in', ids(items))
+        .where(column, '=', pair.mergedId)
+        .execute()
+    },
+    async restore(actor, pair, items) {
+      if (items.length === 0) return []
+      const back = await actor.db
+        .updateTable(kind)
+        .set(owner(pair.mergedId))
+        .where('id', 'in', ids(items))
+        .where(column, '=', pair.survivorId)
+        .returning('id')
+        .execute()
+      const returned = new Set(back.map((row) => row.id))
+      const missing = items.filter((item) => !returned.has(item.itemId ?? ''))
+      if (missing.length === 0) return []
+      const exists = await actor.db
+        .selectFrom(kind)
+        .select('id')
+        .where('id', 'in', ids(missing))
+        .execute()
+      const alive = new Set(exists.map((row) => row.id))
+      return missing.map((item) => skipped(item, alive.has(item.itemId ?? '') ? 'changed' : 'gone'))
+    },
+  }
+}
+
 /** Запуск строк реестра: план всех строк до первого изменения. */
 export async function planAll(
   registry: MergeRegistry,

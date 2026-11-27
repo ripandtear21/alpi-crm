@@ -1,26 +1,32 @@
-import { createContext, type ReactNode, useContext, useState } from 'react'
-import { projectHeaders } from '../../../../components/project-switcher/projects-api.ts'
+import type { ReactNode } from 'react'
+import {
+  MergeApiProvider,
+  type MergeRecord,
+  mergeApiContext,
+  mergeSend,
+  type UndoSkip,
+  undoMerge,
+  useMergeApi,
+} from '../../../../components/merge/merge-api.tsx'
 import type { DealCard } from '../deal-card-api.ts'
+
+/** Отказ API слияния — общий для контактов и сделок (components/merge/merge-api.tsx). */
+export { MergeApiError as DealMergesApiError } from '../../../../components/merge/merge-api.tsx'
 
 // Запросы слияния сделок (тикет crm-intake/02) к API (apps/api/src/merge/deals.ts): поиск
 // второй сделки, что перейдёт, слить, слияния в сделку, откат. Всё — в контексте текущего
-// проекта, по сессии. Отказ — DealMergesApiError с кодом и подробностями ответа.
+// проекта, по сессии. Отказ — DealMergesApiError с кодом и подробностями ответа. Общее со
+// слиянием контактов (запрос, отказ, откат, провайдер) — components/merge/merge-api.tsx (тикет
+// crm-intake/12).
 //
 // Клиент берётся из DealMergesApiProvider (тесты подставляют свой); без провайдера — настоящий,
 // поэтому дерево маршрутов (router.tsx) о слиянии не знает.
 
 /** Слияние (MergeView в apps/api/src/merge/store.ts). */
-export interface DealMergeRecord {
-  id: string
-  entityType: 'contact' | 'deal'
-  survivorId: string
-  mergedId: string
-  parentId: string | null
-  mergedBy: { id: string; name: string } | null
-  mergedAt: string
-  undoUntil: string
-  undoneAt: string | null
-}
+export type DealMergeRecord = MergeRecord
+
+/** Что откат не вернул (UndoSkip в apps/api/src/merge/registry.ts). */
+export type DealUndoSkip = UndoSkip
 
 /** Слияние в карточке оставшейся: с названием слитой сделки. */
 export interface DealMergeListItem extends DealMergeRecord {
@@ -39,16 +45,6 @@ export interface DealMergePreview {
   primaryContactId: string | null
   notes: number
   files: number
-}
-
-/** Что откат не вернул (UndoSkip в apps/api/src/merge/registry.ts). */
-export interface DealUndoSkip {
-  kind: string
-  itemId: string | null
-  field: string | null
-  value: unknown
-  /** `gone` — удалено, `changed` — изменено после слияния. */
-  reason: 'gone' | 'changed'
 }
 
 export interface DealUndoResult {
@@ -80,46 +76,10 @@ export interface DealMergesApi {
   undo(projectId: string, mergeId: string): Promise<DealUndoResult>
 }
 
-export class DealMergesApiError extends Error {
-  readonly status: number
-  readonly code: string
-  readonly details: Record<string, unknown>
-
-  constructor(status: number, code: string, details: Record<string, unknown> = {}) {
-    super(`API слияния сделок ответил ${status} ${code}`)
-    this.name = 'DealMergesApiError'
-    this.status = status
-    this.code = code
-    this.details = details
-  }
-}
-
 export function createDealMergesApi(
   fetchImpl: typeof fetch = (...args) => fetch(...args),
 ): DealMergesApi {
-  async function send<T>(projectId: string, method: string, path: string, body?: unknown) {
-    // projectHeaders возвращает Headers: разворот `...` дал бы пустой объект и потерял бы X-Project-Id.
-    const headers = projectHeaders(projectId)
-    if (body !== undefined) headers.set('content-type', 'application/json')
-    const res = await fetchImpl(`/api${path}`, {
-      method,
-      headers,
-      credentials: 'same-origin',
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    })
-    const payload = (await res.json().catch(() => null)) as unknown
-    if (!res.ok) {
-      const problem = (payload ?? {}) as { code?: unknown; details?: unknown }
-      throw new DealMergesApiError(
-        res.status,
-        typeof problem.code === 'string' ? problem.code : '',
-        typeof problem.details === 'object' && problem.details !== null
-          ? (problem.details as Record<string, unknown>)
-          : {},
-      )
-    }
-    return payload as T
-  }
+  const send = mergeSend(fetchImpl)
   return {
     searchDeals: async (projectId, query) =>
       (
@@ -136,11 +96,11 @@ export function createDealMergesApi(
     merge: (projectId, survivorId, mergedId) =>
       send(projectId, 'POST', `/v1/deals/${survivorId}/merge`, { merge_deal_id: mergedId }),
     dealMerges: (projectId, dealId) => send(projectId, 'GET', `/v1/deals/${dealId}/merges`),
-    undo: (projectId, mergeId) => send(projectId, 'POST', `/v1/merges/${mergeId}/undo`),
+    undo: (projectId, mergeId) => undoMerge(send, projectId, mergeId),
   }
 }
 
-const DealMergesApiContext = createContext<DealMergesApi | null>(null)
+const context = mergeApiContext(createDealMergesApi)
 
 export function DealMergesApiProvider({
   api,
@@ -149,12 +109,12 @@ export function DealMergesApiProvider({
   api: DealMergesApi
   children: ReactNode
 }) {
-  return <DealMergesApiContext.Provider value={api}>{children}</DealMergesApiContext.Provider>
+  return (
+    <MergeApiProvider of={context} api={api}>
+      {children}
+    </MergeApiProvider>
+  )
 }
 
 /** Клиент слияния сделок: из провайдера или настоящий. */
-export function useDealMergesApi(): DealMergesApi {
-  const provided = useContext(DealMergesApiContext)
-  const [real] = useState(createDealMergesApi)
-  return provided ?? real
-}
+export const useDealMergesApi = (): DealMergesApi => useMergeApi(context)

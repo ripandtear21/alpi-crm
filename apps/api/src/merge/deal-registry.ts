@@ -4,7 +4,10 @@ import type { ChangeAuthor } from '../change-log/record.ts'
 import type { DealCurrency } from '../deals/store.ts'
 import { PRICE_COLUMN } from '../products/products.ts'
 import {
+  attachedRow,
   canonical,
+  customFieldItems,
+  dropTrashedOrganization,
   type MergeRegistry,
   type MergeRegistryRow,
   type MovedItem,
@@ -94,17 +97,7 @@ const FIELDS: MergeRegistryRow = {
       if (survivor[column] !== null || merged[column] === null) continue
       items.push(moved('field', { field, value: merged[column] }))
     }
-    // Организация в корзине не переносится: живую сделку к ней не привязать.
-    const organization = items.find((item) => item.field === 'organizationId')
-    if (organization) {
-      const live = await actor.db
-        .selectFrom('organization')
-        .select('id')
-        .where('id', '=', organization.value as string)
-        .where('deleted_at', 'is', null)
-        .executeTakeFirst()
-      if (!live) items.splice(items.indexOf(organization), 1)
-    }
+    await dropTrashedOrganization(actor, items)
     if (takesAmount(survivor, merged)) {
       items.push(
         moved('field', {
@@ -117,26 +110,7 @@ const FIELDS: MergeRegistryRow = {
         }),
       )
     }
-    // Пользовательские поля — только действующие (не в архиве, не удаляются, тип не меняется).
-    const codes = Object.keys(merged.custom).filter(
-      (code) => survivor.custom[code] === undefined && merged.custom[code] !== null,
-    )
-    if (codes.length > 0) {
-      const live = await actor.db
-        .selectFrom('field_definition')
-        .select('code')
-        .where('entity', '=', 'deal')
-        .where('code', 'in', codes)
-        .where('archived_at', 'is', null)
-        .where('purge_requested_at', 'is', null)
-        .where('converting_to', 'is', null)
-        .orderBy('code')
-        .forKeyShare()
-        .execute()
-      for (const { code } of live) {
-        items.push(moved('field', { field: `custom.${code}`, value: merged.custom[code] }))
-      }
-    }
+    items.push(...(await customFieldItems(actor, 'deal', survivor.custom, merged.custom)))
     return items
   },
   async apply(actor, pair, items) {
@@ -401,71 +375,14 @@ async function participantExists(actor: ChangeAuthor, item: MovedItem): Promise<
   return row !== undefined
 }
 
-// ---- 4. Заметки, файлы и регистрации ---------------------------------------------------------
-
-/** Регистрации (тикет crm-intake/06) переходят и возвращаются так же, как заметки и файлы. */
-function attachedRow(kind: 'note' | 'file' | 'registration'): MergeRegistryRow {
-  return {
-    kinds: [kind],
-    async plan(actor, pair) {
-      const rows = await actor.db
-        .selectFrom(kind)
-        .select('id')
-        .where('deal_id', '=', pair.mergedId)
-        .orderBy('id')
-        .execute()
-      return rows.map((row) => moved(kind, { itemId: row.id }))
-    },
-    async apply(actor, pair, items) {
-      if (items.length === 0) return
-      await actor.db
-        .updateTable(kind)
-        .set({ deal_id: pair.survivorId })
-        .where(
-          'id',
-          'in',
-          items.map((item) => item.itemId ?? ''),
-        )
-        .where('deal_id', '=', pair.mergedId)
-        .execute()
-    },
-    async restore(actor, pair, items) {
-      if (items.length === 0) return []
-      const back = await actor.db
-        .updateTable(kind)
-        .set({ deal_id: pair.mergedId })
-        .where(
-          'id',
-          'in',
-          items.map((item) => item.itemId ?? ''),
-        )
-        .where('deal_id', '=', pair.survivorId)
-        .returning('id')
-        .execute()
-      const returned = new Set(back.map((row) => row.id))
-      const missing = items.filter((item) => !returned.has(item.itemId ?? ''))
-      if (missing.length === 0) return []
-      const exists = await actor.db
-        .selectFrom(kind)
-        .select('id')
-        .where(
-          'id',
-          'in',
-          missing.map((item) => item.itemId ?? ''),
-        )
-        .execute()
-      const alive = new Set(exists.map((row) => row.id))
-      return missing.map((item) => skipped(item, alive.has(item.itemId ?? '') ? 'changed' : 'gone'))
-    },
-  }
-}
+// ---- 4. Заметки, файлы и регистрации: attachedRow (registry.ts) -----------------------------
 
 /** Реестр слияния сделок. Порядок — порядок слияния; откат идёт в обратном. */
 export const DEAL_MERGE_REGISTRY: MergeRegistry = [
   FIELDS,
   PRODUCTS,
   PARTICIPANTS,
-  attachedRow('note'),
-  attachedRow('file'),
-  attachedRow('registration'),
+  attachedRow('note', 'deal_id'),
+  attachedRow('file', 'deal_id'),
+  attachedRow('registration', 'deal_id'),
 ]

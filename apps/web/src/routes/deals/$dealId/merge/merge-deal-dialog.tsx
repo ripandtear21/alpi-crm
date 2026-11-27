@@ -1,18 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMergeErrorText } from '../../../../components/merge/undo-merge.tsx'
 import { projectQueryKey } from '../../../../components/project-switcher/current-project.tsx'
 import { Button } from '../../../../ui/button.tsx'
 import { Combobox } from '../../../../ui/combobox.tsx'
 import { Dialog } from '../../../../ui/dialog.tsx'
 import type { DealCard } from '../deal-card-api.ts'
-import {
-  type DealHit,
-  type DealMergePreview,
-  DealMergesApiError,
-  useDealMergesApi,
-} from './deal-merges-api.tsx'
-import './deal-merge.css'
+import { type DealHit, type DealMergePreview, useDealMergesApi } from './deal-merges-api.tsx'
+import '../../../../components/merge/merge.css'
 
 // «Об'єднати з…» в карточке сделки (тикет crm-intake/02; ADR 0005): найти вторую сделку,
 // увидеть направление — какая остаётся, какая будет скрыта (по умолчанию остаётся та, из
@@ -80,10 +76,7 @@ export function MergeDealDialog({
     enabled: merged !== null,
     retry: false,
   })
-  const errorText = (failure: unknown) =>
-    t(`merge.errors.${failure instanceof DealMergesApiError ? failure.code : ''}`, {
-      defaultValue: t('errors.unknown'),
-    })
+  const errorText = useMergeErrorText('deal-card')
 
   async function confirm() {
     if (!merged) return
@@ -141,17 +134,17 @@ export function MergeDealDialog({
         />
       ) : (
         <>
-          <dl className="deal-merge-direction" aria-label={t('merge.direction')}>
-            <div className="deal-merge-direction__side">
+          <dl className="merge-direction" aria-label={t('merge.direction')}>
+            <div className="merge-direction__side">
               <dt>{t('merge.keeps')}</dt>
               <dd>{survivor.title}</dd>
             </div>
-            <div className="deal-merge-direction__side">
+            <div className="merge-direction__side">
               <dt>{t('merge.hides')}</dt>
               <dd>{merged?.title ?? ''}</dd>
             </div>
           </dl>
-          <div className="deal-merge-direction__actions">
+          <div className="merge-direction__actions">
             <Button size="sm" onClick={() => setSwapped((value) => !value)}>
               {t('merge.swap')}
             </Button>
@@ -200,9 +193,9 @@ function PreviewDetails({ preview }: { preview: DealMergePreview }) {
     | undefined
   const currency = amount?.currency ?? preview.survivor.currency
   return (
-    <section className="deal-merge-preview" aria-label={t('merge.previewTitle')}>
-      <h3 className="deal-merge-preview__title">{t('merge.previewTitle')}</h3>
-      <ul className="deal-merge-preview__list">
+    <section className="merge-preview" aria-label={t('merge.previewTitle')}>
+      <h3 className="merge-preview__title">{t('merge.previewTitle')}</h3>
+      <ul className="merge-preview__list">
         {preview.fields.map((item) => (
           <li key={item.field}>{t('merge.fills', { field: label(item.field, item.value) })}</li>
         ))}

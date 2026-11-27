@@ -1,6 +1,7 @@
 import {
   type AuditEntry,
   isProjectAuditAction,
+  MERGE_UNDO_DAYS,
   PROJECT_AUDIT_ACTIONS,
   type ProjectAuditAction,
 } from '@alpi/shared'
@@ -25,14 +26,17 @@ import { UndoDealMergeDialog } from '../deals/$dealId/merge/undo-deal-merge.tsx'
 // об'єднання» 30 дней: можно ли его ещё откатить, решает API (уже откачено, позднее слияние —
 // отказ с объяснением).
 
-/** Сколько дней слияние можно откатить (apps/api/src/merge/store.ts, UNDO_DAYS). */
-const MERGE_UNDO_DAYS = 30
+/** Слияние из записи журнала, которое откатывают. */
+interface UndoableMerge {
+  type: 'contact' | 'deal'
+  id: string
+}
 
-/** Слияние из записи журнала, которое ещё может откатиться; null — нет. */
-function undoableMerge(
-  entry: AuditEntry<ProjectAuditAction>,
-  now: number,
-): { type: 'contact' | 'deal'; id: string } | null {
+/**
+ * Слияние из записи журнала, которое ещё может откатиться (срок — MERGE_UNDO_DAYS, общий с API);
+ * null — нет.
+ */
+function undoableMerge(entry: AuditEntry<ProjectAuditAction>, now: number): UndoableMerge | null {
   const type =
     entry.action === 'contact.merged' ? 'contact' : entry.action === 'deal.merged' ? 'deal' : null
   if (type === null) return null
@@ -40,6 +44,26 @@ function undoableMerge(
   if (typeof mergeId !== 'string') return null
   const age = now - Date.parse(entry.occurredAt)
   return age < MERGE_UNDO_DAYS * 24 * 60 * 60 * 1000 ? { type, id: mergeId } : null
+}
+
+/** «Скасувати об'єднання» у записи журнала о слиянии контактов или сделок; нет слияния — ничего. */
+function UndoMergeButton({
+  merge,
+  onUndo,
+}: {
+  merge: UndoableMerge | null
+  onUndo: (merge: UndoableMerge) => void
+}) {
+  const { t } = useTranslation('audit')
+  if (merge === null) return null
+  return (
+    <>
+      {' '}
+      <Button size="sm" type="button" onClick={() => onUndo(merge)}>
+        {t('undoMerge')}
+      </Button>
+    </>
+  )
 }
 
 export function AuditPage({ api }: { api: AuditApi }) {
@@ -261,7 +285,7 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
   const summary = useSummary()
   const [action, setAction] = useState<ProjectAuditAction | ''>('')
   const [actor, setActor] = useState('')
-  const [undoing, setUndoing] = useState<ReturnType<typeof undoableMerge>>(null)
+  const [undoing, setUndoing] = useState<UndoableMerge | null>(null)
   const filter = { ...(action ? { action } : {}), ...(actor ? { actor } : {}) }
 
   const actors = useQuery({
@@ -279,6 +303,7 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
   })
 
   const time = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'medium' })
+  const now = Date.now()
 
   if (log.isError) {
     const denied = log.error instanceof AuditApiError && log.error.status === 403
@@ -365,22 +390,7 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
                   <td>{t(`actions.${entry.action}`)}</td>
                   <td>
                     {summary(entry)}
-                    {undoableMerge(entry, Date.now()) !== null && (
-                      <>
-                        {' '}
-                        <Button
-                          size="sm"
-                          type="button"
-                          onClick={() => setUndoing(undoableMerge(entry, Date.now()))}
-                        >
-                          {t(
-                            undoableMerge(entry, Date.now())?.type === 'deal'
-                              ? 'undoDealMerge'
-                              : 'undoMerge',
-                          )}
-                        </Button>
-                      </>
-                    )}
+                    <UndoMergeButton merge={undoableMerge(entry, now)} onUndo={setUndoing} />
                   </td>
                   <td>{entry.ip ?? '—'}</td>
                 </tr>

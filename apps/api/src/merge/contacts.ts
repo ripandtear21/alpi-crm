@@ -2,9 +2,8 @@ import type { Database } from '@alpi/db'
 import { can, type ResourceScope } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, sql } from 'kysely'
-import { requestAuthor } from '../api-keys/actor.ts'
 import { audit } from '../audit/record.ts'
-import { diffFields, type FieldChange, recordChanges } from '../change-log/record.ts'
+import { recordChanges } from '../change-log/record.ts'
 import {
   type ContactRow,
   type ContactView,
@@ -21,7 +20,6 @@ import {
   refuse,
   UUID,
 } from '../contacts/http.ts'
-import { mergedContactRefusal } from '../contacts/merged.ts'
 import {
   CONTACT_SCOPE_RULES,
   type ContactScopeRule,
@@ -31,9 +29,7 @@ import {
 import { dealInScope, ownerAllowed } from '../deals/scope.ts'
 import { type DealView, dealViews, lockDeals, reloadDeal } from '../deals/store.ts'
 import { emitEvent } from '../events/emit.ts'
-import { visibleCustom } from '../fields/values.ts'
 import { type PermissionsEnv, requestAccess, requirePermission } from '../middleware/permissions.ts'
-import { requestViewer } from '../roles/scope.ts'
 import { CONTACT_MERGE_REGISTRY, movedDealIds } from './contact-registry.ts'
 import {
   type DealMergeContext,
@@ -41,10 +37,9 @@ import {
   mergeDeals,
   undoDealMerge,
 } from './deal-core.ts'
+import { mergedRefusal } from './merged.ts'
 import {
   applyAll,
-  canonical,
-  type MergeActor,
   type MergePair,
   type MovedItem,
   planAll,
@@ -52,17 +47,24 @@ import {
   type UndoSkip,
 } from './registry.ts'
 import {
-  findMerge,
+  changesOf,
+  deadlockRefusal,
   insertMergeRecord,
   insertMovedItems,
-  laterMerge,
+  lockedMerge,
+  type MergeContext,
   type MergeRow,
   type MergeView,
   markUndone,
+  mergeContext,
   mergeViews,
   movedItems,
   nestedMerges,
-  undoExpired,
+  previewFields,
+  readMergedId,
+  type Snapshot,
+  undoableMerges,
+  undoRefusal,
 } from './store.ts'
 
 // Слияние контактов с откатом (тикет crm-intake/01; пункты 23, 25, 26, 29, 36; ADR 0005).
@@ -107,9 +109,16 @@ import {
 // `contact.unmerged`; отдельно их не откатить (409 MERGE_UNDO_NESTED, merge/deal-core.ts).
 // Отказ на любом шаге после первой записи откатывает всё до точки сохранения (atomically).
 //
-// Известный долг (тикет crm-intake/12): здесь порядок «контакт, потом сделка», а пути, которые
-// блокируют сделку, потом контакт (deals/deals.ts, liveContact; откат слияния сделок), могут
-// сцепиться с ним (40P01, ответ 500, данные целы).
+// Порядок блокировок (тикет crm-intake/12) — «контакт, потом сделки и заметки» на всех путях,
+// которые держат контакт и его сделку или заметку вместе: слияние и откат контактов и сделок
+// (deals/store.ts, lockDeals), правка заметки (notes/notes.ts, ownNote), участник, основной
+// контакт и восстановление сделки (deals/deals.ts), приём регистраций (intake/process.ts). Запись
+// слияния при откате блокируется после записей (merge/store.ts, lockedMerge): окончательное
+// удаление держит запись и удаляет строки её слияний. Взаимоблокировка, которую порядок не
+// покрыл, — 409 MERGE_RETRY (merge/store.ts, deadlockRefusal), а не 500.
+//
+// Общее со слиянием сделок — merge/store.ts (контекст, тело, поля предпросмотра, «было → стало»,
+// список откатываемых слияний, проверки отката) и merge/merged.ts (ответ 404 CONTACT_MERGED).
 //
 // Гонки (расширенная проверка PR #39):
 // - Оба контакта блокируются FOR UPDATE в одном порядке (по id) до первого чтения. Заметка и файл
@@ -150,32 +159,14 @@ export type MergeErrorCode =
   | 'MERGE_UNDO_SURVIVOR_TRASHED'
   /** Вернувшаяся открытая сделка нарушит «одна открытая сделка в воронке»: `details.dealIds`. */
   | 'MERGE_UNDO_DEAL_CONFLICT'
+  /**
+   * Взаимоблокировка с одновременным изменением тех же записей (тикет crm-intake/12): ничего не
+   * изменилось, запрос можно повторить (merge/store.ts, deadlockRefusal).
+   */
+  | 'MERGE_RETRY'
 
 /** Откат слияния контактов откатывает и вложенные слияния сделок: их отказы — тоже ответ. */
 type Result<T> = Outcome<T, MergeErrorCode | DealMergeErrorCode>
-
-interface MergeContext extends MergeActor {
-  scope: ResourceScope
-}
-
-async function mergeContext(c: Ctx): Promise<MergeContext> {
-  const db = c.get('db')
-  const actor = c.get('actor')
-  const { actorId } = requestAuthor(actor)
-  // Маршруты — только сессия: автор всегда пользователь.
-  if (actorId === null) throw new Error('слияние без пользователя')
-  const { permissions } = c.get('access')
-  return {
-    db,
-    projectId: c.get('projectId'),
-    actorId,
-    actorApiKeyId: null,
-    ip: c.get('clientIp'),
-    permissions,
-    viewer: await requestViewer(db, actor),
-    scope: permissions.scopes.contacts,
-  }
-}
 
 // ---- Проверки --------------------------------------------------------------------------------
 
@@ -229,7 +220,7 @@ async function mergeable(
   if (!row) return refuse(404, 'CONTACT_NOT_FOUND')
   if (row.merged_into_id !== null) {
     return (
-      (await mergedContactRefusal(ctx.db, id, ctx.scope.read, ctx.viewer)) ??
+      (await mergedRefusal(ctx.db, 'contact', id, ctx.scope.read, ctx.viewer)) ??
       refuse(404, 'CONTACT_NOT_FOUND')
     )
   }
@@ -416,21 +407,14 @@ interface MergeRequest {
 }
 
 function readMergeRequest(body: Record<string, unknown> | null): Result<MergeRequest> {
-  if (!body) return refuse(400, 'INVALID_MERGE', { path: '' })
-  const extra = Object.keys(body).find(
-    (key) => key !== 'merge_contact_id' && key !== 'keep_deal_ids',
-  )
-  if (extra !== undefined) return refuse(400, 'INVALID_MERGE', { path: extra })
-  const id = body.merge_contact_id
-  if (typeof id !== 'string' || !UUID.test(id)) {
-    return refuse(400, 'INVALID_MERGE', { path: 'merge_contact_id' })
-  }
-  const keep = body.keep_deal_ids ?? []
+  const mergedId = readMergedId(body, 'contact', ['keep_deal_ids'])
+  if (!mergedId.ok) return mergedId
+  const keep = body?.keep_deal_ids ?? []
   if (!Array.isArray(keep)) return refuse(400, 'INVALID_MERGE', { path: 'keep_deal_ids' })
   const bad = keep.findIndex((dealId) => typeof dealId !== 'string' || !UUID.test(dealId))
   if (bad !== -1) return refuse(400, 'INVALID_MERGE', { path: `keep_deal_ids.${bad}` })
   return ok({
-    mergedId: id.toLowerCase(),
+    mergedId: mergedId.value,
     keepDealIds: (keep as string[]).map((dealId) => dealId.toLowerCase()),
   })
 }
@@ -512,25 +496,13 @@ async function preview(
               .executeTakeFirstOrThrow()
           ).count,
         )
-  // Пользовательские поля скрытых от роли групп в предпросмотр не попадают (но переходят).
-  const fieldItems = of('field')
-  const [visible = {}] = await visibleCustom(ctx, 'contact', [
-    Object.fromEntries(
-      fieldItems
-        .filter((item) => item.field?.startsWith('custom.'))
-        .map((item) => [(item.field ?? '').slice('custom.'.length), item.value]),
-    ),
-  ])
   return ok({
     survivor: await contactView(ctx, survivor),
     merged: await contactView(ctx, merged),
-    fields: fieldItems
-      .filter(
-        (item) =>
-          !item.field?.startsWith('custom.') ||
-          Object.hasOwn(visible, (item.field ?? '').slice('custom.'.length)),
-      )
-      .map((item) => ({ field: item.field ?? '', value: item.value })),
+    fields: (await previewFields(ctx, 'contact', items)).map((item) => ({
+      field: item.field ?? '',
+      value: item.value,
+    })),
     phones: keys('phone'),
     emails: keys('email'),
     deals: of('deal').length,
@@ -544,29 +516,13 @@ async function preview(
 }
 
 /** Состояние контакта для истории: поля журнала и все пользовательские поля (без фильтра роли). */
-async function snapshot(ctx: MergeContext, id: string) {
+async function snapshot(ctx: MergeContext, id: string): Promise<Snapshot<ContactView>> {
   const row = await ctx.db
     .selectFrom('contact')
     .selectAll()
     .where('id', '=', id)
     .executeTakeFirstOrThrow()
   return { view: await contactView(ctx, row), custom: row.custom }
-}
-
-type Snapshot = Awaited<ReturnType<typeof snapshot>>
-
-/** «Было → стало» контакта: поля журнала и пользовательские поля по коду. */
-function changesOf(before: Snapshot, after: Snapshot): FieldChange[] {
-  const changes = diffFields(before.view, after.view, LOGGED_FIELDS)
-  const codes = [...new Set([...Object.keys(before.custom), ...Object.keys(after.custom)])].sort()
-  for (const code of codes) {
-    const was = before.custom[code] ?? null
-    const now = after.custom[code] ?? null
-    if (canonical(was) !== canonical(now)) {
-      changes.push({ field: `custom.${code}`, before: was, after: now })
-    }
-  }
-  return changes
 }
 
 async function mergeContacts(
@@ -623,11 +579,11 @@ async function mergeLocked(
     .execute()
   await insertMovedItems(ctx, record.id, items)
   await recordChanges(ctx, { type: 'contact', id: pair.survivorId }, [
-    ...changesOf(survivorBefore, await snapshot(ctx, pair.survivorId)),
+    ...changesOf(survivorBefore, await snapshot(ctx, pair.survivorId), LOGGED_FIELDS),
     { field: 'mergedContactId', before: null, after: pair.mergedId },
   ])
   await recordChanges(ctx, { type: 'contact', id: pair.mergedId }, [
-    ...changesOf(mergedBefore, await snapshot(ctx, pair.mergedId)),
+    ...changesOf(mergedBefore, await snapshot(ctx, pair.mergedId), LOGGED_FIELDS),
     { field: 'mergedIntoId', before: null, after: pair.survivorId },
   ])
   await audit.record(ctx.db, ctx.projectId, {
@@ -662,20 +618,11 @@ async function contactMerges(ctx: MergeContext, id: string): Promise<Result<Cont
     .executeTakeFirst()
   if (!contact) {
     return (
-      (await mergedContactRefusal(ctx.db, id, ctx.scope.read, ctx.viewer)) ??
+      (await mergedRefusal(ctx.db, 'contact', id, ctx.scope.read, ctx.viewer)) ??
       refuse(404, 'CONTACT_NOT_FOUND')
     )
   }
-  const rows = await ctx.db
-    .selectFrom('merge_record')
-    .selectAll()
-    .where('entity_type', '=', 'contact')
-    .where('survivor_id', '=', contact.id)
-    .where('undone_at', 'is', null)
-    .where('undo_until', '>', sql<Date>`now()`)
-    .orderBy('merged_at', 'desc')
-    .orderBy('id', 'desc')
-    .execute()
+  const rows = await undoableMerges(ctx.db, 'contact', contact.id)
   const views = await mergeViews(ctx.db, rows)
   const names =
     rows.length === 0
@@ -765,27 +712,14 @@ async function undoDealConflicts(
   return [...byPipeline.values()].filter((ids) => ids.length > 1).flat()
 }
 
-/** Слияние, которое скрыло контакт `id` и ещё не откачено. */
-async function hidingMerge(db: Kysely<Database>, id: string): Promise<string | null> {
-  const row = await db
-    .selectFrom('merge_record')
-    .select('id')
-    .where('entity_type', '=', 'contact')
-    .where('merged_id', '=', id)
-    .where('undone_at', 'is', null)
-    .orderBy('merged_at', 'desc')
-    .limit(1)
-    .executeTakeFirst()
-  return row?.id ?? null
-}
-
 async function undoMerge(ctx: MergeContext, id: string): Promise<Result<UndoResult>> {
-  const record = await findMerge(ctx.db, 'contact', id, true)
-  if (!record) return refuse(404, 'MERGE_NOT_FOUND')
-  if (record.undone_at !== null) return refuse(409, 'MERGE_ALREADY_UNDONE')
-  const pair = { survivorId: record.survivor_id, mergedId: record.merged_id }
+  // Контакты, потом запись слияния (merge/store.ts, lockedMerge; тикет crm-intake/12).
+  const locked = await lockedMerge(ctx.db, 'contact', id, (pair) =>
+    lockContacts(ctx.db, [pair.survivorId, pair.mergedId]),
+  )
+  if (!locked.ok) return locked
+  const { record, pair, rows } = locked.value
   const items = await movedItems(ctx.db, record.id)
-  const rows = await lockContacts(ctx.db, [pair.survivorId, pair.mergedId])
   const survivor = rows.find((row) => row.id === pair.survivorId)
   const merged = rows.find((row) => row.id === pair.mergedId)
   if (!survivor || !merged) return refuse(404, 'MERGE_NOT_FOUND')
@@ -793,28 +727,18 @@ async function undoMerge(ctx: MergeContext, id: string): Promise<Result<UndoResu
   if (!survivorScope.ok) return survivorScope
   const mergedScope = await checkScope(ctx, pair.mergedId, hiddenContactRules(items))
   if (!mergedScope.ok) return mergedScope
-  if (await undoExpired(ctx.db, record)) return refuse(409, 'MERGE_UNDO_EXPIRED')
-  // Оставшийся сам слит с другим — сначала откатить то слияние: иначе то, что перешло к нему,
-  // осталось бы у скрытого контакта.
-  if (survivor.merged_into_id !== null) {
-    return refuse(409, 'MERGE_UNDO_BLOCKED', {
-      mergeId: await hidingMerge(ctx.db, survivor.id),
-    })
-  }
-  const later = await laterMerge(ctx.db, record)
-  if (later !== null || merged.merged_into_id !== pair.survivorId) {
-    return refuse(409, 'MERGE_UNDO_BLOCKED', { mergeId: later })
-  }
-  if (survivor.deleted_at !== null) return refuse(409, 'MERGE_UNDO_SURVIVOR_TRASHED')
+  const refused = await undoRefusal(ctx.db, record, survivor, merged)
+  if (refused) return refused
   const conflicts = await undoDealConflicts(ctx, pair, items)
   if (conflicts.length > 0) return refuse(409, 'MERGE_UNDO_DEAL_CONFLICT', { dealIds: conflicts })
   // Слияния сделок того же действия (тикет crm-intake/04): то же право, что на их слияние.
-  // Блокировка — после контактов, как при слиянии.
-  const nested = await nestedMerges(ctx.db, record.id)
-  if (nested.length > 0) {
+  // Блокировки — после контактов, как при слиянии: сначала сделки, потом строки их слияний
+  // (как у отката слияния сделок, merge/store.ts, lockedMerge).
+  const pending = await nestedMerges(ctx.db, record.id, false)
+  if (pending.length > 0) {
     const deals = await lockDeals(
       ctx.db,
-      nested.flatMap((row) => [row.survivor_id, row.merged_id]),
+      pending.flatMap((row) => [row.survivor_id, row.merged_id]),
     )
     if (
       !dealsAllowed(
@@ -825,6 +749,7 @@ async function undoMerge(ctx: MergeContext, id: string): Promise<Result<UndoResu
       return refuse(403, 'MERGE_DEAL_FORBIDDEN')
     }
   }
+  const nested = await nestedMerges(ctx.db, record.id)
   return atomically(ctx.db, () => undoLocked(ctx, record, items, nested))
 }
 
@@ -899,11 +824,11 @@ async function undoLocked(
   const survivorAfter = await snapshot(ctx, pair.survivorId)
   const mergedAfter = await snapshot(ctx, pair.mergedId)
   await recordChanges(ctx, { type: 'contact', id: pair.survivorId }, [
-    ...changesOf(survivorBefore, survivorAfter),
+    ...changesOf(survivorBefore, survivorAfter, LOGGED_FIELDS),
     { field: 'mergedContactId', before: pair.mergedId, after: null },
   ])
   await recordChanges(ctx, { type: 'contact', id: pair.mergedId }, [
-    ...changesOf(mergedBefore, mergedAfter),
+    ...changesOf(mergedBefore, mergedAfter, LOGGED_FIELDS),
     { field: 'mergedIntoId', before: pair.survivorId, after: null },
   ])
   await audit.record(ctx.db, ctx.projectId, {
@@ -937,19 +862,24 @@ export function contactMergeRoutes() {
   const edit = requirePermission('contacts', 'edit')
   return new Hono<PermissionsEnv>()
     .get('/:id/merges', requirePermission('contacts', 'view'), async (c) =>
-      respond(c, await contactMerges(await mergeContext(c), c.req.param('id'))),
+      respond(c, await contactMerges(await mergeContext(c, 'contact'), c.req.param('id'))),
     )
     .post('/:id/merge/preview', edit, async (c) => {
       const request = readMergeRequest(await readBody(c))
       if (!request.ok) return fail(c, request)
-      return respond(c, await preview(await mergeContext(c), c.req.param('id'), request.value))
+      const ctx = await mergeContext(c, 'contact')
+      return respond(
+        c,
+        await deadlockRefusal(ctx.db, () => preview(ctx, c.req.param('id'), request.value)),
+      )
     })
     .post('/:id/merge', edit, async (c) => {
       const request = readMergeRequest(await readBody(c))
       if (!request.ok) return fail(c, request)
+      const ctx = await mergeContext(c, 'contact')
       return respond(
         c,
-        await mergeContacts(await mergeContext(c), c.req.param('id'), request.value),
+        await deadlockRefusal(ctx.db, () => mergeContacts(ctx, c.req.param('id'), request.value)),
       )
     })
 }
@@ -963,5 +893,6 @@ export async function undoContactMerge(c: Ctx, id: string) {
   if (!access || !can(access.permissions, 'contacts', 'edit')) {
     return fail(c, refuse(403, 'PERMISSION_DENIED'))
   }
-  return respond(c, await undoMerge(await mergeContext(c), id))
+  const ctx = await mergeContext(c, 'contact')
+  return respond(c, await deadlockRefusal(ctx.db, () => undoMerge(ctx, id)))
 }

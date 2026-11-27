@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { contactName } from '../../../components/contact-form/contact-form.tsx'
 import type { ContactRecord, ContactsApi } from '../../../components/contact-form/contacts-api.ts'
 import { formatMoney } from '../../../components/deal-card/deal-card.tsx'
+import { useMergeErrorText } from '../../../components/merge/undo-merge.tsx'
 import { projectQueryKey } from '../../../components/project-switcher/current-project.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Combobox } from '../../../ui/combobox.tsx'
@@ -13,10 +14,9 @@ import {
   type DealPairPreview,
   type MergePairDeal,
   type MergePreview,
-  MergesApiError,
   useMergesApi,
 } from './merges-api.tsx'
-import './merge.css'
+import '../../../components/merge/merge.css'
 
 // «Об'єднати з…» в карточке контакта (тикет crm-intake/01; ADR 0005): найти второй контакт,
 // увидеть направление — какой остаётся, какой будет скрыт (по умолчанию остаётся тот, из
@@ -82,12 +82,8 @@ export function MergeContactDialog({
     enabled: merged !== null,
     retry: false,
   })
-  const previewError =
-    preview.error instanceof MergesApiError
-      ? t(`merge.errors.${preview.error.code}`, { defaultValue: t('errors.unknown') })
-      : preview.isError
-        ? t('errors.unknown')
-        : null
+  const errorText = useMergeErrorText('contact-card')
+  const previewError = preview.isError ? errorText(preview.error) : null
 
   async function confirm() {
     if (!merged) return
@@ -97,8 +93,7 @@ export function MergeContactDialog({
       await merges.merge(projectId, survivor.id, merged.id, keep)
       onMerged(survivor.id)
     } catch (failure) {
-      const code = failure instanceof MergesApiError ? failure.code : ''
-      setError(t(`merge.errors.${code}`, { defaultValue: t('errors.unknown') }))
+      setError(errorText(failure))
     } finally {
       setSending(false)
     }
