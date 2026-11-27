@@ -40,6 +40,29 @@ export interface MergePreview {
   files: number
   dealsOutOfScope: number
   duplicateMarkCleared: boolean
+  /** Пары конфликтующих сделок: объединятся в том же действии (тикет crm-intake/04). */
+  dealPairs: DealPairPreview[]
+}
+
+/** Сделка пары в предпросмотре (часть DealView в apps/api/src/deals/store.ts). */
+export interface MergePairDeal {
+  id: string
+  title: string
+  amount: number
+  currency: string
+}
+
+/** Пара конфликтующих сделок (DealPairPreview в apps/api/src/merge/contacts.ts). */
+export interface DealPairPreview {
+  pipeline: { id: string; name: string }
+  /** Нет права на обе сделки пары: данных сделок нет, слияние ответит 403 MERGE_DEAL_FORBIDDEN. */
+  forbidden: boolean
+  /** Сделка контакта, который остаётся; null — forbidden. */
+  survivorDeal: MergePairDeal | null
+  /** Сделка контакта, который будет скрыт; null — forbidden. */
+  mergedDeal: MergePairDeal | null
+  /** Какая из двух останется; null — forbidden. */
+  keepDealId: string | null
 }
 
 /** Что откат не вернул (UndoSkip в apps/api/src/merge/registry.ts). */
@@ -60,11 +83,18 @@ export interface UndoResult {
 }
 
 export interface MergesApi {
-  preview(projectId: string, survivorId: string, mergedId: string): Promise<MergePreview>
+  /** `keepDealIds` — сделки пар, которые остаются вместо сделки оставшегося контакта. */
+  preview(
+    projectId: string,
+    survivorId: string,
+    mergedId: string,
+    keepDealIds?: string[],
+  ): Promise<MergePreview>
   merge(
     projectId: string,
     survivorId: string,
     mergedId: string,
+    keepDealIds?: string[],
   ): Promise<{ merge: MergeRecord; contact: ContactRecord }>
   /** Слияния в контакт, которые ещё можно откатить. */
   contactMerges(projectId: string, contactId: string): Promise<ContactMergeRecord[]>
@@ -109,13 +139,20 @@ export function createMergesApi(fetchImpl: typeof fetch = (...args) => fetch(...
     }
     return payload as T
   }
+  const mergeBody = (mergedId: string, keepDealIds: string[] = []) => ({
+    merge_contact_id: mergedId,
+    ...(keepDealIds.length > 0 ? { keep_deal_ids: keepDealIds } : {}),
+  })
   return {
-    preview: (projectId, survivorId, mergedId) =>
-      send(projectId, 'POST', `/v1/contacts/${survivorId}/merge/preview`, {
-        merge_contact_id: mergedId,
-      }),
-    merge: (projectId, survivorId, mergedId) =>
-      send(projectId, 'POST', `/v1/contacts/${survivorId}/merge`, { merge_contact_id: mergedId }),
+    preview: (projectId, survivorId, mergedId, keepDealIds) =>
+      send(
+        projectId,
+        'POST',
+        `/v1/contacts/${survivorId}/merge/preview`,
+        mergeBody(mergedId, keepDealIds),
+      ),
+    merge: (projectId, survivorId, mergedId, keepDealIds) =>
+      send(projectId, 'POST', `/v1/contacts/${survivorId}/merge`, mergeBody(mergedId, keepDealIds)),
     contactMerges: (projectId, contactId) =>
       send(projectId, 'GET', `/v1/contacts/${contactId}/merges`),
     undo: (projectId, mergeId) => send(projectId, 'POST', `/v1/merges/${mergeId}/undo`),

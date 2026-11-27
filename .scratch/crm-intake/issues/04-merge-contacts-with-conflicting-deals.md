@@ -30,11 +30,20 @@ apps/api/src/merge/**, apps/api/src/contacts/**, apps/api/src/deals/**, apps/api
 ## Done when
 
 - [ ] Тест: два контакта с открытыми сделками в одной воронке объединяются; у оставшегося одна открытая сделка в этой воронке, вторая скрыта «слита с Y»; сделки в разных воронках просто переходят.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Тест направления: по умолчанию остаётся сделка оставшегося контакта; с параметром — сделка второго.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Тест прав: без «сделки: изменять» или с охватом, в который не входит одна сделка пары, — 403 `MERGE_DEAL_FORBIDDEN`, ничего не изменилось, данных чужой сделки в ответе нет.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Тест отката: откат слияния контактов вернул оба контакта и обе сделки как были; отдельный откат вложенного слияния сделок — 409.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Тест транзакции: ошибка на второй паре откатывает и первую пару, и слияние контактов; событий нет.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Тест событий: одно действие — `deal.merged` на каждую пару и один `contact.merged`; откат — `deal.unmerged` и `contact.unmerged`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Тест изоляции: предпросмотр и слияние не видят сделок другого проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
 - [ ] Экран: блок конфликтующих сделок с выбором остающейся; тексты uk и ru; работает на 375 px.
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b
+  - evidence: gate pass · `gate fast` exit 0 · windows - · bffeeaf710fbfc73f16dcfb02f60c76b3d96ed0b

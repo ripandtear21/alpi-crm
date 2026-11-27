@@ -11,7 +11,16 @@ import {
   contactView,
   LOGGED_FIELDS,
 } from '../contacts/contacts.ts'
-import { type Ctx, fail, type Outcome, ok, readBody, refuse, UUID } from '../contacts/http.ts'
+import {
+  type Ctx,
+  fail,
+  type Outcome,
+  ok,
+  type Refusal,
+  readBody,
+  refuse,
+  UUID,
+} from '../contacts/http.ts'
 import { mergedContactRefusal } from '../contacts/merged.ts'
 import {
   CONTACT_SCOPE_RULES,
@@ -19,12 +28,19 @@ import {
   CREATED_BY_RULE,
   contactScopePredicate,
 } from '../contacts/scope.ts'
-import { dealInScope } from '../deals/scope.ts'
+import { dealInScope, ownerAllowed } from '../deals/scope.ts'
+import { type DealView, dealViews, lockDeals, reloadDeal } from '../deals/store.ts'
 import { emitEvent } from '../events/emit.ts'
 import { visibleCustom } from '../fields/values.ts'
 import { type PermissionsEnv, requestAccess, requirePermission } from '../middleware/permissions.ts'
 import { requestViewer } from '../roles/scope.ts'
 import { CONTACT_MERGE_REGISTRY, movedDealIds } from './contact-registry.ts'
+import {
+  type DealMergeContext,
+  type DealMergeErrorCode,
+  mergeDeals,
+  undoDealMerge,
+} from './deal-core.ts'
 import {
   applyAll,
   canonical,
@@ -37,12 +53,15 @@ import {
 } from './registry.ts'
 import {
   findMerge,
-  insertMerge,
+  insertMergeRecord,
+  insertMovedItems,
   laterMerge,
+  type MergeRow,
   type MergeView,
   markUndone,
   mergeViews,
   movedItems,
+  nestedMerges,
   undoExpired,
 } from './store.ts'
 
@@ -53,8 +72,10 @@ import {
 //   с отметкой «слит с :id». Что переходит — реестр merge/contact-registry.ts. Одной
 //   транзакцией: перенос, merge_record и merge_moved_item, история обоих контактов, журнал
 //   проекта (`contact.merged`), событие `contact.merged`.
+//   Необязательное `keep_deal_ids` — какие сделки конфликтующих пар остаются (ниже).
 // - `POST /v1/contacts/:id/merge/preview` — то же без записи: что перейдёт, какие поля
-//   заполнятся, сколько сделок вне охвата пользователя.
+//   заполнятся, сколько сделок вне охвата пользователя, пары конфликтующих сделок. Тело — то же,
+//   что у слияния (с `keep_deal_ids`): экран показывает выбор.
 // - `GET /v1/contacts/:id/merges` — слияния в этот контакт, которые ещё можно откатить.
 // - `POST /v1/merges/:id/undo` — откат: возвращает ровно записанное в merge_moved_item. Маршрут
 //   общий со сделками (merge/deals.ts, mergesRoutes), ветка контакта — undoContactMerge.
@@ -65,9 +86,30 @@ import {
 // контакта при откате — «создан пользователем» или сделки, которые к нему вернутся: своих
 // сделок у скрытого контакта нет.
 //
-// Пока у обоих есть открытые неархивные сделки в одной воронке — 409 MERGE_DEAL_CONFLICT со
-// списком пар (тикет 04 заменит отказ слиянием сделок). Скрытые сделки (слитые с другими, тикет
-// crm-intake/02) не мешают: правило «одна открытая сделка в воронке» их не считает.
+// Конфликтующие сделки (тикет crm-intake/04; пункт 31): открытые неархивные сделки обоих в
+// одной воронке. Две такие у одного контакта запрещает база (deal_one_open_per_contact), поэтому
+// каждая пара объединяется в том же действии обязательно — отказаться можно, только отменив всё
+// слияние (решено без владельца — подтвердить). По умолчанию остаётся сделка оставшегося
+// контакта; `keep_deal_ids` — сделки, которые остаются вместо неё: каждая — из своей пары, не
+// больше одной на пару, иначе 422 MERGE_KEEP_DEAL_INVALID. Скрытые сделки (слитые с другими,
+// тикет crm-intake/02) не конфликтуют: правило «одна открытая сделка в воронке» их не считает.
+//
+// Право на пару — «сделки: изменять» и обе сделки в охвате чтения и изменения сделок; иначе 403
+// MERGE_DEAL_FORBIDDEN без данных чужих сделок (решено без владельца — подтвердить; пункт 26).
+// Предпросмотр не отказывает: у такой пары `forbidden: true` и только воронка.
+//
+// Одна транзакция: блокировки контактов, затем сделок всех пар одним списком по id; строка
+// слияния контактов (на неё ссылаются parent_id слияний сделок); слияние каждой пары
+// (merge/deal-core.ts) — до переноса сделок контакта: индекс deal_one_open_per_contact не
+// отложенный и не пустил бы вторую открытую сделку к оставшемуся; затем перенос контакта.
+// События — `deal.merged` на пару и один `contact.merged`. Откат слияния контактов откатывает и
+// эти слияния сделок (после возврата перешедшего к контакту) — `deal.unmerged` на пару и
+// `contact.unmerged`; отдельно их не откатить (409 MERGE_UNDO_NESTED, merge/deal-core.ts).
+// Отказ на любом шаге после первой записи откатывает всё до точки сохранения (atomically).
+//
+// Известный долг (тикет crm-intake/12): здесь порядок «контакт, потом сделка», а пути, которые
+// блокируют сделку, потом контакт (deals/deals.ts, liveContact; откат слияния сделок), могут
+// сцепиться с ним (40P01, ответ 500, данные целы).
 //
 // Гонки (расширенная проверка PR #39):
 // - Оба контакта блокируются FOR UPDATE в одном порядке (по id) до первого чтения. Заметка и файл
@@ -85,8 +127,16 @@ export type MergeErrorCode =
   | 'CONTACT_MERGED'
   /** Контакт нельзя слить с самим собой. */
   | 'MERGE_SAME_CONTACT'
-  /** Открытые сделки обоих в одной воронке: `details.pairs`. */
-  | 'MERGE_DEAL_CONFLICT'
+  /**
+   * Нет права «сделки: изменять» или одна из сделок конфликтующей пары вне охвата сделок
+   * пользователя (тикет crm-intake/04).
+   */
+  | 'MERGE_DEAL_FORBIDDEN'
+  /**
+   * Сделка `details.dealId` из `keep_deal_ids` — не из конфликтующей пары или вторая из той же
+   * пары.
+   */
+  | 'MERGE_KEEP_DEAL_INVALID'
   | 'MERGE_NOT_FOUND'
   | 'MERGE_ALREADY_UNDONE'
   /** Прошло 30 дней. */
@@ -101,7 +151,8 @@ export type MergeErrorCode =
   /** Вернувшаяся открытая сделка нарушит «одна открытая сделка в воронке»: `details.dealIds`. */
   | 'MERGE_UNDO_DEAL_CONFLICT'
 
-type Result<T> = Outcome<T, MergeErrorCode>
+/** Откат слияния контактов откатывает и вложенные слияния сделок: их отказы — тоже ответ. */
+type Result<T> = Outcome<T, MergeErrorCode | DealMergeErrorCode>
 
 interface MergeContext extends MergeActor {
   scope: ResourceScope
@@ -187,12 +238,33 @@ async function mergeable(
   return scoped.ok ? ok(row) : scoped
 }
 
-/** Открытые неархивные сделки обоих контактов в одной воронке. */
-async function dealConflicts(ctx: MergeContext, pair: MergePair) {
+/** Пара конфликтующих сделок: сделка оставшегося контакта и сделка скрываемого. */
+interface DealConflict {
+  pipelineId: string
+  pipelineName: string
+  survivorDealId: string
+  mergedDealId: string
+  survivorOwnerId: string | null
+  mergedOwnerId: string | null
+}
+
+/**
+ * Открытые неархивные сделки обоих контактов в одной воронке. Пара на воронку: у каждого
+ * контакта таких не больше одной (deal_one_open_per_contact).
+ */
+async function dealConflicts(ctx: MergeContext, pair: MergePair): Promise<DealConflict[]> {
   return ctx.db
     .selectFrom('deal as s')
     .innerJoin('deal as m', 'm.pipeline_id', 's.pipeline_id')
-    .select(['s.pipeline_id as pipelineId', 's.id as survivorDealId', 'm.id as mergedDealId'])
+    .innerJoin('pipeline as p', 'p.id', 's.pipeline_id')
+    .select([
+      's.pipeline_id as pipelineId',
+      'p.name as pipelineName',
+      's.id as survivorDealId',
+      'm.id as mergedDealId',
+      's.owner_id as survivorOwnerId',
+      'm.owner_id as mergedOwnerId',
+    ])
     .where('s.primary_contact_id', '=', pair.survivorId)
     .where('m.primary_contact_id', '=', pair.mergedId)
     .where('s.status', '=', 'open')
@@ -206,6 +278,84 @@ async function dealConflicts(ctx: MergeContext, pair: MergePair) {
     .orderBy('s.pipeline_id')
     .orderBy('s.id')
     .execute()
+}
+
+/** Охват сделок для слияния пар конфликтующих сделок и их отката. */
+function dealContext(ctx: MergeContext): DealMergeContext {
+  return { ...ctx, scope: ctx.permissions.scopes.deals }
+}
+
+/** Право на сделки с ответственными `ownerIds`: «сделки: изменять», охват чтения и изменения. */
+function dealsAllowed(ctx: MergeContext, ownerIds: readonly (string | null)[]): boolean {
+  if (!can(ctx.permissions, 'deals', 'edit')) return false
+  const { read, write } = ctx.permissions.scopes.deals
+  return ownerIds.every(
+    (owner) => ownerAllowed(owner, read, ctx.viewer) && ownerAllowed(owner, write, ctx.viewer),
+  )
+}
+
+const conflictAllowed = (ctx: MergeContext, conflict: DealConflict) =>
+  dealsAllowed(ctx, [conflict.survivorOwnerId, conflict.mergedOwnerId])
+
+/**
+ * Какая сделка каждой пары остаётся: по умолчанию — оставшегося контакта, сделки из `keep` —
+ * вместо неё. Сделка из `keep` — только из пары, на которую у пользователя есть право, и не
+ * больше одной на пару.
+ */
+function keptDeals(
+  ctx: MergeContext,
+  conflicts: readonly DealConflict[],
+  keep: readonly string[],
+): Result<MergePair[]> {
+  const allowed = conflicts.filter((conflict) => conflictAllowed(ctx, conflict))
+  const chosen = new Set<DealConflict>()
+  for (const dealId of keep) {
+    const conflict = allowed.find((c) => c.survivorDealId === dealId || c.mergedDealId === dealId)
+    if (!conflict || chosen.has(conflict)) return refuse(422, 'MERGE_KEEP_DEAL_INVALID', { dealId })
+    chosen.add(conflict)
+  }
+  return ok(
+    conflicts.map((conflict) =>
+      keep.includes(conflict.mergedDealId)
+        ? { survivorId: conflict.mergedDealId, mergedId: conflict.survivorDealId }
+        : { survivorId: conflict.survivorDealId, mergedId: conflict.mergedDealId },
+    ),
+  )
+}
+
+/** Отказ внутри `atomically`: откатывает всё, что сделано после точки сохранения. */
+class Refused extends Error {
+  readonly refusal: Refusal<MergeErrorCode | DealMergeErrorCode>
+
+  constructor(refusal: Refusal<MergeErrorCode | DealMergeErrorCode>) {
+    super(`слияние: отказ ${refusal.code}`)
+    this.refusal = refusal
+  }
+}
+
+/** Значение результата; отказ — исключение Refused. */
+function unwrap<T>(outcome: Result<T>): T {
+  if (!outcome.ok) throw new Refused(outcome)
+  return outcome.value
+}
+
+/**
+ * Все записи `fn` — или ни одной: отказ (Refused) откатывает до точки сохранения и становится
+ * ответом, транзакция запроса остаётся рабочей; другая ошибка — 500 и откат всей транзакции
+ * (middleware/project-context.ts). Своё имя точки сохранения: inSavepoint (roles/roles.ts)
+ * внутри отката сделок ставит свою, и общее имя откатило бы не к той.
+ */
+async function atomically<T>(db: Kysely<Database>, fn: () => Promise<T>): Promise<Result<T>> {
+  await sql`savepoint contact_merge`.execute(db)
+  try {
+    const value = await fn()
+    await sql`release savepoint contact_merge`.execute(db)
+    return ok(value)
+  } catch (error) {
+    if (!(error instanceof Refused)) throw error
+    await sql`rollback to savepoint contact_merge`.execute(db)
+    return error.refusal
+  }
 }
 
 // ---- Слияние ---------------------------------------------------------------------------------
@@ -228,6 +378,24 @@ export interface MergePreview {
   dealsOutOfScope: number
   /** Отметка «возможный дубль» между этими двумя снимется. */
   duplicateMarkCleared: boolean
+  /** Пары конфликтующих сделок: объединятся в том же действии (тикет crm-intake/04). */
+  dealPairs: DealPairPreview[]
+}
+
+/** Пара конфликтующих сделок в предпросмотре. */
+export interface DealPairPreview {
+  pipeline: { id: string; name: string }
+  /**
+   * Нет права на обе сделки пары («сделки: изменять» и охват): данных сделок нет, слияние
+   * ответит 403 MERGE_DEAL_FORBIDDEN.
+   */
+  forbidden: boolean
+  /** Сделка оставшегося контакта; null — forbidden. */
+  survivorDeal: DealView | null
+  /** Сделка скрываемого контакта; null — forbidden. */
+  mergedDeal: DealView | null
+  /** Какая из двух останется; null — forbidden. */
+  keepDealId: string | null
 }
 
 export interface MergeResult {
@@ -240,23 +408,41 @@ export interface ContactMergeView extends MergeView {
   mergedContact: { id: string; firstName: string; lastName: string | null }
 }
 
-function readMergedId(body: Record<string, unknown> | null): Result<string> {
+/** Тело слияния и предпросмотра. */
+interface MergeRequest {
+  mergedId: string
+  /** Сделки конфликтующих пар, которые остаются вместо сделки оставшегося контакта. */
+  keepDealIds: string[]
+}
+
+function readMergeRequest(body: Record<string, unknown> | null): Result<MergeRequest> {
   if (!body) return refuse(400, 'INVALID_MERGE', { path: '' })
-  const extra = Object.keys(body).find((key) => key !== 'merge_contact_id')
+  const extra = Object.keys(body).find(
+    (key) => key !== 'merge_contact_id' && key !== 'keep_deal_ids',
+  )
   if (extra !== undefined) return refuse(400, 'INVALID_MERGE', { path: extra })
   const id = body.merge_contact_id
   if (typeof id !== 'string' || !UUID.test(id)) {
     return refuse(400, 'INVALID_MERGE', { path: 'merge_contact_id' })
   }
-  return ok(id.toLowerCase())
+  const keep = body.keep_deal_ids ?? []
+  if (!Array.isArray(keep)) return refuse(400, 'INVALID_MERGE', { path: 'keep_deal_ids' })
+  const bad = keep.findIndex((dealId) => typeof dealId !== 'string' || !UUID.test(dealId))
+  if (bad !== -1) return refuse(400, 'INVALID_MERGE', { path: `keep_deal_ids.${bad}` })
+  return ok({
+    mergedId: id.toLowerCase(),
+    keepDealIds: (keep as string[]).map((dealId) => dealId.toLowerCase()),
+  })
 }
 
-/** Пара проверена и заблокирована: строки обоих контактов. */
+/** Пара проверена и заблокирована: строки обоих контактов и конфликтующие сделки. */
 async function checkedPair(
   ctx: MergeContext,
   survivorId: string,
   mergedId: string,
-): Promise<Result<{ pair: MergePair; survivor: ContactRow; merged: ContactRow }>> {
+): Promise<
+  Result<{ pair: MergePair; survivor: ContactRow; merged: ContactRow; conflicts: DealConflict[] }>
+> {
   if (!UUID.test(survivorId)) return refuse(404, 'CONTACT_NOT_FOUND')
   const id = survivorId.toLowerCase()
   if (id === mergedId) return refuse(422, 'MERGE_SAME_CONTACT')
@@ -267,18 +453,46 @@ async function checkedPair(
   if (!merged.ok) return merged
   const pair = { survivorId: id, mergedId }
   const conflicts = await dealConflicts(ctx, pair)
-  if (conflicts.length > 0) return refuse(409, 'MERGE_DEAL_CONFLICT', { pairs: conflicts })
-  return ok({ pair, survivor: survivor.value, merged: merged.value })
+  return ok({ pair, survivor: survivor.value, merged: merged.value, conflicts })
+}
+
+/** Пары конфликтующих сделок для предпросмотра: без права — только воронка. */
+async function dealPairsPreview(
+  ctx: MergeContext,
+  conflicts: readonly DealConflict[],
+  kept: readonly MergePair[],
+): Promise<DealPairPreview[]> {
+  const allowed = conflicts.filter((conflict) => conflictAllowed(ctx, conflict))
+  const rows = []
+  for (const id of allowed.flatMap((c) => [c.survivorDealId, c.mergedDealId])) {
+    rows.push(await reloadDeal(ctx, id))
+  }
+  const views = new Map((await dealViews(ctx, rows)).map((view) => [view.id, view]))
+  return conflicts.map((conflict, index) => {
+    const pipeline = { id: conflict.pipelineId, name: conflict.pipelineName }
+    if (!allowed.includes(conflict)) {
+      return { pipeline, forbidden: true, survivorDeal: null, mergedDeal: null, keepDealId: null }
+    }
+    return {
+      pipeline,
+      forbidden: false,
+      survivorDeal: views.get(conflict.survivorDealId) ?? null,
+      mergedDeal: views.get(conflict.mergedDealId) ?? null,
+      keepDealId: kept[index]?.survivorId ?? null,
+    }
+  })
 }
 
 async function preview(
   ctx: MergeContext,
   survivorId: string,
-  mergedId: string,
+  request: MergeRequest,
 ): Promise<Result<MergePreview>> {
-  const checked = await checkedPair(ctx, survivorId, mergedId)
+  const checked = await checkedPair(ctx, survivorId, request.mergedId)
   if (!checked.ok) return checked
-  const { pair, survivor, merged } = checked.value
+  const { pair, survivor, merged, conflicts } = checked.value
+  const kept = keptDeals(ctx, conflicts, request.keepDealIds)
+  if (!kept.ok) return kept
   const items = await planAll(CONTACT_MERGE_REGISTRY, ctx, pair)
   const of = (kind: string) => items.filter((item) => item.kind === kind)
   const keys = (kind: string) => of(kind).map((item) => (item.value as { key: string }).key)
@@ -325,6 +539,7 @@ async function preview(
     files: of('file').length,
     dealsOutOfScope: outOfScope,
     duplicateMarkCleared: of('possible_duplicate').length > 0,
+    dealPairs: await dealPairsPreview(ctx, conflicts, kept.value),
   })
 }
 
@@ -357,14 +572,45 @@ function changesOf(before: Snapshot, after: Snapshot): FieldChange[] {
 async function mergeContacts(
   ctx: MergeContext,
   survivorId: string,
-  mergedId: string,
+  request: MergeRequest,
 ): Promise<Result<MergeResult>> {
-  const checked = await checkedPair(ctx, survivorId, mergedId)
+  const checked = await checkedPair(ctx, survivorId, request.mergedId)
   if (!checked.ok) return checked
-  const { pair } = checked.value
-  const items = await planAll(CONTACT_MERGE_REGISTRY, ctx, pair)
+  const { pair, conflicts } = checked.value
+  // До любой записи и без данных сделок в ответе.
+  if (!conflicts.every((conflict) => conflictAllowed(ctx, conflict))) {
+    return refuse(403, 'MERGE_DEAL_FORBIDDEN')
+  }
+  const kept = keptDeals(ctx, conflicts, request.keepDealIds)
+  if (!kept.ok) return kept
+  const dealPairs = kept.value
+  // Сделки всех пар — одним списком по id (lockDeals): одновременные слияния не сцепятся.
+  if (dealPairs.length > 0) {
+    await lockDeals(
+      ctx.db,
+      dealPairs.flatMap((deals) => [deals.survivorId, deals.mergedId]),
+    )
+  }
+  return atomically(ctx.db, () => mergeLocked(ctx, pair, dealPairs))
+}
+
+/** Слияние проверенной и заблокированной пары: сначала пары сделок, потом контакт. */
+async function mergeLocked(
+  ctx: MergeContext,
+  pair: MergePair,
+  dealPairs: readonly MergePair[],
+): Promise<MergeResult> {
   const survivorBefore = await snapshot(ctx, pair.survivorId)
   const mergedBefore = await snapshot(ctx, pair.mergedId)
+  const record = await insertMergeRecord(ctx, 'contact', pair)
+  const deals = dealContext(ctx)
+  for (const { survivorId, mergedId } of dealPairs) {
+    unwrap(await mergeDeals(deals, survivorId, mergedId, record.id))
+  }
+  // Перешедшее контакта — после слияний сделок: слитые сделки пар уже скрыты, и перенос сделок
+  // (contact-registry.ts, DEALS) не нарушит индекс; участие, которое добавило слияние сделок,
+  // учтено.
+  const items = await planAll(CONTACT_MERGE_REGISTRY, ctx, pair)
   await applyAll(CONTACT_MERGE_REGISTRY, ctx, pair, items)
   await ctx.db
     .updateTable('contact')
@@ -375,7 +621,7 @@ async function mergeContacts(
     })
     .where('id', '=', pair.mergedId)
     .execute()
-  const record = await insertMerge(ctx, 'contact', pair, items)
+  await insertMovedItems(ctx, record.id, items)
   await recordChanges(ctx, { type: 'contact', id: pair.survivorId }, [
     ...changesOf(survivorBefore, await snapshot(ctx, pair.survivorId)),
     { field: 'mergedContactId', before: null, after: pair.mergedId },
@@ -402,7 +648,7 @@ async function mergeContacts(
     .selectAll()
     .where('id', '=', pair.survivorId)
     .executeTakeFirstOrThrow()
-  return ok({ merge, contact: await contactView(ctx, survivor) })
+  return { merge, contact: await contactView(ctx, survivor) }
 }
 
 /** Слияния в контакт `id`, которые ещё можно откатить: новые сверху. */
@@ -562,16 +808,94 @@ async function undoMerge(ctx: MergeContext, id: string): Promise<Result<UndoResu
   if (survivor.deleted_at !== null) return refuse(409, 'MERGE_UNDO_SURVIVOR_TRASHED')
   const conflicts = await undoDealConflicts(ctx, pair, items)
   if (conflicts.length > 0) return refuse(409, 'MERGE_UNDO_DEAL_CONFLICT', { dealIds: conflicts })
+  // Слияния сделок того же действия (тикет crm-intake/04): то же право, что на их слияние.
+  // Блокировка — после контактов, как при слиянии.
+  const nested = await nestedMerges(ctx.db, record.id)
+  if (nested.length > 0) {
+    const deals = await lockDeals(
+      ctx.db,
+      nested.flatMap((row) => [row.survivor_id, row.merged_id]),
+    )
+    if (
+      !dealsAllowed(
+        ctx,
+        deals.map((deal) => deal.owner_id),
+      )
+    ) {
+      return refuse(403, 'MERGE_DEAL_FORBIDDEN')
+    }
+  }
+  return atomically(ctx.db, () => undoLocked(ctx, record, items, nested))
+}
 
+/**
+ * Участие, которое добавили вложенные слияния сделок: основной контакт слитой сделки стал
+ * участником оставшейся (deal-registry.ts, PARTICIPANTS, primary_participant). Слияние контактов
+ * потом сняло это участие (контакт стал основным сделки или слился с её основным) и записало
+ * снятое как перешедшее; откат контакта его не возвращает — его убирает откат слияния сделок.
+ * Ключи — `сделка/контакт`.
+ */
+async function nestedParticipations(
+  db: Kysely<Database>,
+  nested: readonly MergeRow[],
+): Promise<Set<string>> {
+  const keys = new Set<string>()
+  for (const row of nested) {
+    for (const item of await movedItems(db, row.id)) {
+      if (item.kind !== 'primary_participant') continue
+      keys.add(`${row.survivor_id}/${(item.value as { contactId: string }).contactId}`)
+    }
+  }
+  return keys
+}
+
+/**
+ * Ключ `сделка/контакт` снятого слиянием контактов участия (contact-registry.ts, DEALS):
+ * участие оставшегося (survivor_participant) или слитого (deal_participant с `dropped`); у
+ * остального — null.
+ */
+function participationKey(pair: MergePair, item: MovedItem): string | null {
+  if (item.kind === 'survivor_participant') return `${item.itemId}/${pair.survivorId}`
+  if (item.kind === 'deal_participant' && (item.value as { dropped?: boolean }).dropped) {
+    return `${item.itemId}/${pair.mergedId}`
+  }
+  return null
+}
+
+/**
+ * Откат проверенного слияния: сначала перешедшее к контакту, потом вложенные слияния сделок (в
+ * обратном порядке) — их проверки читают строки сделок заново, уже с вернувшимся контактом.
+ * Отказ отката сделок (Refused) откатывает и возврат контакта.
+ */
+async function undoLocked(
+  ctx: MergeContext,
+  record: MergeRow,
+  items: readonly MovedItem[],
+  nested: readonly MergeRow[],
+): Promise<UndoResult> {
+  const pair = { survivorId: record.survivor_id, mergedId: record.merged_id }
   const survivorBefore = await snapshot(ctx, pair.survivorId)
   const mergedBefore = await snapshot(ctx, pair.mergedId)
-  const skipped = await restoreAll(CONTACT_MERGE_REGISTRY, ctx, pair, items)
+  const added = await nestedParticipations(ctx.db, nested)
+  const skipped = await restoreAll(
+    CONTACT_MERGE_REGISTRY,
+    ctx,
+    pair,
+    items.filter((item) => {
+      const key = participationKey(pair, item)
+      return key === null || !added.has(key)
+    }),
+  )
   await ctx.db
     .updateTable('contact')
     .set({ merged_into_id: null, merged_at: null, updated_at: sql`now()` })
     .where('id', '=', pair.mergedId)
     .execute()
   const undone = await markUndone(ctx, record.id)
+  const deals = dealContext(ctx)
+  for (const row of [...nested].reverse()) {
+    unwrap(await undoDealMerge(deals, row.id, record.id))
+  }
   const survivorAfter = await snapshot(ctx, pair.survivorId)
   const mergedAfter = await snapshot(ctx, pair.mergedId)
   await recordChanges(ctx, { type: 'contact', id: pair.survivorId }, [
@@ -599,7 +923,7 @@ async function undoMerge(ctx: MergeContext, id: string): Promise<Result<UndoResu
   })
   const [merge] = await mergeViews(ctx.db, [undone])
   if (!merge) throw new Error('слияние пропало в той же транзакции')
-  return ok({ merge, contact: survivorAfter.view, mergedContact: mergedAfter.view, skipped })
+  return { merge, contact: survivorAfter.view, mergedContact: mergedAfter.view, skipped }
 }
 
 // ---- Маршруты --------------------------------------------------------------------------------
@@ -616,16 +940,16 @@ export function contactMergeRoutes() {
       respond(c, await contactMerges(await mergeContext(c), c.req.param('id'))),
     )
     .post('/:id/merge/preview', edit, async (c) => {
-      const mergedId = readMergedId(await readBody(c))
-      if (!mergedId.ok) return fail(c, mergedId)
-      return respond(c, await preview(await mergeContext(c), c.req.param('id'), mergedId.value))
+      const request = readMergeRequest(await readBody(c))
+      if (!request.ok) return fail(c, request)
+      return respond(c, await preview(await mergeContext(c), c.req.param('id'), request.value))
     })
     .post('/:id/merge', edit, async (c) => {
-      const mergedId = readMergedId(await readBody(c))
-      if (!mergedId.ok) return fail(c, mergedId)
+      const request = readMergeRequest(await readBody(c))
+      if (!request.ok) return fail(c, request)
       return respond(
         c,
-        await mergeContacts(await mergeContext(c), c.req.param('id'), mergedId.value),
+        await mergeContacts(await mergeContext(c), c.req.param('id'), request.value),
       )
     })
 }

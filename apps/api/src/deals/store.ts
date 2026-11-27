@@ -257,7 +257,10 @@ const MAX_MERGE_CHAIN = 100
 export interface DealMergedDetails {
   /** Последняя оставшаяся сделка цепочки. */
   merged_into_id: string
-  /** Слияние, которое скрыло запрошенную сделку. */
+  /**
+   * Слияние, которое скрыло запрошенную сделку; null — его нет или оно сделано вместе со
+   * слиянием контактов и откатывается только с ним.
+   */
   merge_id: string | null
   /** До какого времени слияние можно откатить (ISO 8601); null — слияния нет. */
   undo_until: string | null
@@ -304,6 +307,9 @@ export async function mergedDealRefusal(
     .where('entity_type', '=', 'deal')
     .where('merged_id', '=', id)
     .where('undone_at', 'is', null)
+    // Слияние вместе со слиянием контактов (тикет crm-intake/04) отдельно не откатить: без
+    // merge_id карточка скрытой сделки не предлагает откат.
+    .where('parent_id', 'is', null)
     .orderBy('merged_at', 'desc')
     .limit(1)
     .executeTakeFirst()

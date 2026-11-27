@@ -22,7 +22,8 @@ import {
 import { problemOf } from '../testing/problem.ts'
 import type { TimelinePage } from '../timeline/timeline.ts'
 import { CONTACT_PURGER, DEAL_PURGER } from '../trash/purgers.ts'
-import type { DealMergePreview, DealMergeResult, DealUndoResult } from './deals.ts'
+import type { DealMergeResult, DealUndoResult } from './deal-core.ts'
+import type { DealMergePreview } from './deals.ts'
 
 // Слияние сделок с откатом (тикет crm-intake/02; ADR 0005): изоляция проектов, права, что
 // переходит, скрытие слитой сделки, история, откат, события и журнал — и три гонки транзакций,

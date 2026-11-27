@@ -4,17 +4,29 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { contactName } from '../../../components/contact-form/contact-form.tsx'
 import type { ContactRecord, ContactsApi } from '../../../components/contact-form/contacts-api.ts'
+import { formatMoney } from '../../../components/deal-card/deal-card.tsx'
 import { projectQueryKey } from '../../../components/project-switcher/current-project.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Combobox } from '../../../ui/combobox.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
-import { type MergePreview, MergesApiError, useMergesApi } from './merges-api.tsx'
+import {
+  type DealPairPreview,
+  type MergePairDeal,
+  type MergePreview,
+  MergesApiError,
+  useMergesApi,
+} from './merges-api.tsx'
 import './merge.css'
 
 // «Об'єднати з…» в карточке контакта (тикет crm-intake/01; ADR 0005): найти второй контакт,
 // увидеть направление — какой остаётся, какой будет скрыт (по умолчанию остаётся тот, из
 // которого начали; «Поміняти місцями» меняет), предпросмотр того, что перейдёт, и число сделок
 // вне доступа пользователя (они тоже перейдут). Слияние откатывается 30 дней.
+//
+// Тикет crm-intake/04: открытые сделки обоих в одной воронке объединяются в том же действии —
+// блок «Угоди, які теж буде об'єднано»: воронка, две сделки, какая остаётся (по умолчанию —
+// сделка контакта, который остаётся), «Поміняти». На пару без права на сделки — объяснение, и
+// «Об'єднати» недоступна: API ответил бы 403 MERGE_DEAL_FORBIDDEN.
 
 /** Подпись поля, которое заполнит слияние. */
 function useFieldLabel() {
@@ -50,6 +62,8 @@ export function MergeContactDialog({
   const [search, setSearch] = useState('')
   const [chosen, setChosen] = useState<ContactRecord | null>(null)
   const [swapped, setSwapped] = useState(false)
+  /** Сделки пар, которые остаются вместо сделки контакта, который остаётся. */
+  const [keep, setKeep] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const text = search.trim()
@@ -63,8 +77,8 @@ export function MergeContactDialog({
   const survivor = chosen && swapped ? chosen : contact
   const merged = chosen && swapped ? contact : chosen
   const preview = useQuery({
-    queryKey: projectQueryKey(projectId, 'merge', 'preview', survivor.id, merged?.id ?? ''),
-    queryFn: () => merges.preview(projectId, survivor.id, merged?.id ?? ''),
+    queryKey: projectQueryKey(projectId, 'merge', 'preview', survivor.id, merged?.id ?? '', keep),
+    queryFn: () => merges.preview(projectId, survivor.id, merged?.id ?? '', keep),
     enabled: merged !== null,
     retry: false,
   })
@@ -80,7 +94,7 @@ export function MergeContactDialog({
     setError(null)
     setSending(true)
     try {
-      await merges.merge(projectId, survivor.id, merged.id)
+      await merges.merge(projectId, survivor.id, merged.id, keep)
       onMerged(survivor.id)
     } catch (failure) {
       const code = failure instanceof MergesApiError ? failure.code : ''
@@ -103,7 +117,9 @@ export function MergeContactDialog({
           <Button
             variant="primary"
             busy={sending}
-            disabled={!merged || !preview.isSuccess}
+            disabled={
+              !merged || !preview.isSuccess || preview.data.dealPairs.some((p) => p.forbidden)
+            }
             onClick={() => void confirm()}
           >
             {t('merge.submit')}
@@ -127,6 +143,7 @@ export function MergeContactDialog({
           onSelect={(option) => {
             setChosen(suggestions.data?.find((c) => c.id === option.id) ?? null)
             setSwapped(false)
+            setKeep([])
           }}
           {...(suggestions.isSuccess ? { emptyText: t('merge.nothingFound') } : {})}
         />
@@ -143,7 +160,13 @@ export function MergeContactDialog({
             </div>
           </dl>
           <div className="merge-direction__actions">
-            <Button size="sm" onClick={() => setSwapped((value) => !value)}>
+            <Button
+              size="sm"
+              onClick={() => {
+                setSwapped((value) => !value)
+                setKeep([])
+              }}
+            >
               {t('merge.swap')}
             </Button>
             <Button
@@ -152,6 +175,7 @@ export function MergeContactDialog({
               onClick={() => {
                 setChosen(null)
                 setSwapped(false)
+                setKeep([])
               }}
             >
               {t('merge.another')}
@@ -163,7 +187,22 @@ export function MergeContactDialog({
               {previewError}
             </p>
           )}
-          {preview.isSuccess && <PreviewDetails preview={preview.data} />}
+          {preview.isSuccess && (
+            <>
+              <DealPairs
+                pairs={preview.data.dealPairs}
+                onSwap={(pair) => {
+                  const ids = [pair.survivorDeal?.id, pair.mergedDeal?.id]
+                  const other = pair.keepDealId === pair.survivorDeal?.id ? pair.mergedDeal : null
+                  setKeep((value) => [
+                    ...value.filter((id) => !ids.includes(id)),
+                    ...(other ? [other.id] : []),
+                  ])
+                }}
+              />
+              <PreviewDetails preview={preview.data} />
+            </>
+          )}
           <p className="record-card__muted">{t('merge.undoHint')}</p>
         </>
       )}
@@ -209,6 +248,67 @@ function PreviewDetails({ preview }: { preview: MergePreview }) {
         </p>
       )}
       <p>{t('merge.keepsFields')}</p>
+    </section>
+  )
+}
+
+/** Открытые сделки обоих в одной воронке: объединятся вместе с контактами. */
+function DealPairs({
+  pairs,
+  onSwap,
+}: {
+  pairs: DealPairPreview[]
+  onSwap: (pair: DealPairPreview) => void
+}) {
+  const { t, i18n } = useTranslation('contact-card')
+  if (pairs.length === 0) return null
+  const deal = (item: MergePairDeal | null, kept: boolean) =>
+    item && (
+      <div className="merge-pair__deal">
+        <dt>{t(kept ? 'merge.dealPairs.keeps' : 'merge.dealPairs.hides')}</dt>
+        <dd>
+          {item.title}
+          <span className="merge-pair__amount">
+            {formatMoney(item.amount, item.currency, i18n.language)}
+          </span>
+        </dd>
+      </div>
+    )
+  return (
+    <section className="merge-pairs" aria-label={t('merge.dealPairs.title')}>
+      <h3 className="merge-preview__title">{t('merge.dealPairs.title')}</h3>
+      <p>{t('merge.dealPairs.hint')}</p>
+      <ul className="merge-pairs__list">
+        {pairs.map((pair) => {
+          const survivorKept = pair.keepDealId === pair.survivorDeal?.id
+          return (
+            <li key={pair.pipeline.id} className="merge-pair">
+              <p className="merge-pair__pipeline">
+                {t('merge.dealPairs.pipeline', { name: pair.pipeline.name })}
+              </p>
+              {pair.forbidden ? (
+                <p className="ui-notice" role="status">
+                  {t('merge.dealPairs.forbidden')}
+                </p>
+              ) : (
+                <>
+                  <dl className="merge-pair__deals">
+                    {deal(survivorKept ? pair.survivorDeal : pair.mergedDeal, true)}
+                    {deal(survivorKept ? pair.mergedDeal : pair.survivorDeal, false)}
+                  </dl>
+                  <Button
+                    size="sm"
+                    aria-label={t('merge.dealPairs.swapLabel', { name: pair.pipeline.name })}
+                    onClick={() => onSwap(pair)}
+                  >
+                    {t('merge.dealPairs.swap')}
+                  </Button>
+                </>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </section>
   )
 }

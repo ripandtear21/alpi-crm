@@ -1,6 +1,6 @@
 /* Слияние контактов (тикет crm-intake/01): направление в окне подтверждения, предпросмотр,
-   список слияний в карточке и страница слитого контакта. На узком экране (375 px) — одна
-   колонка, длинные имена переносятся. */
+   список слияний в карточке и страница слитого контакта; пары конфликтующих сделок (тикет
+   crm-intake/04). На узком экране (375 px) — одна колонка, длинные имена переносятся. */
 
 .merge-direction {
   display: grid;
@@ -72,8 +72,58 @@
   overflow-wrap: anywhere;
 }
 
+/* Пары конфликтующих сделок (тикет crm-intake/04). */
+.merge-pairs__list {
+  list-style: none;
+  margin: 0 0 var(--s-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.merge-pair {
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.merge-pair__pipeline {
+  margin: 0 0 var(--s-2);
+  font-weight: 600;
+}
+
+.merge-pair__deals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+  margin: 0 0 var(--s-2);
+}
+
+.merge-pair__deal {
+  min-width: 0;
+}
+
+.merge-pair__deal dt {
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+}
+
+.merge-pair__deal dd {
+  margin: var(--s-1) 0 0;
+}
+
+.merge-pair__amount {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--ink-3);
+}
+
 @media (max-width: 480px) {
-  .merge-direction {
+  .merge-direction,
+  .merge-pair__deals {
     grid-template-columns: minmax(0, 1fr);
   }
 
