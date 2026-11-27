@@ -381,20 +381,95 @@ describe('карточка контакта: слияние (тикет crm-inta
     expect(merges.calls).toContain(`merge ${OTHER_CONTACT_ID} ${CONTACT_ID}`)
   })
 
-  it("конфликт открытых сделок — понятный отказ, «Об'єднати» недоступна", async () => {
+  it('сделки в одной воронке (тикет crm-intake/04): блок пар, «Поміняти» — выбор уходит в предпросмотр и слияние', async () => {
     const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
-    const merges = fakeMergesApi({ contacts: () => api.contacts })
-    merges.preview = async () => {
-      throw new MergesApiError(409, 'MERGE_DEAL_CONFLICT', { pairs: [] })
-    }
+    const merges = fakeMergesApi({
+      contacts: () => api.contacts,
+      preview: {
+        dealPairs: [
+          {
+            pipeline: { id: 'p-1', name: 'Продажі' },
+            forbidden: false,
+            survivorDeal: { id: 'deal-s', title: 'Угода Ірини', amount: 1200, currency: 'EUR' },
+            mergedDeal: { id: 'deal-m', title: 'Угода Олега', amount: 300, currency: 'UAH' },
+            keepDealId: null,
+          },
+        ],
+      },
+    })
+    const { router } = await renderCard({ api, merges })
+    const dialog = await chooseOther()
+    // Блок перерисовывается с каждым предпросмотром: ищем его заново.
+    const pairsName = "Угоди, які теж буде об'єднано"
+    await within(dialog).findByRole('region', { name: pairsName })
+    const block = () => within(dialog).getByRole('region', { name: pairsName })
+    const sides = () =>
+      within(block())
+        .getAllByRole('term')
+        .map((term) => `${term.textContent}: ${term.nextElementSibling?.firstChild?.textContent}`)
+    expect(within(block()).getByText('Воронка «Продажі»')).toBeTruthy()
+    expect(sides()).toEqual(['Залишиться: Угода Ірини', 'Буде приховано: Угода Олега'])
+
+    fireEvent.click(
+      within(block()).getByRole('button', { name: 'Поміняти угоди у воронці «Продажі»' }),
+    )
+    await waitFor(() =>
+      expect(merges.calls).toContain(`preview ${CONTACT_ID} ${OTHER_CONTACT_ID} keep=deal-m`),
+    )
+    await waitFor(() =>
+      expect(sides()).toEqual(['Залишиться: Угода Олега', 'Буде приховано: Угода Ірини']),
+    )
+    const submit = within(dialog).getByRole('button', { name: "Об'єднати" }) as HTMLButtonElement
+    await waitFor(() => expect(submit.disabled).toBe(false))
+    fireEvent.click(submit)
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/p/alpi/contacts/${CONTACT_ID}`),
+    )
+    expect(merges.calls).toContain(`merge ${CONTACT_ID} ${OTHER_CONTACT_ID} keep=deal-m`)
+  })
+
+  it("пара без права на сделки — объяснение, «Об'єднати» недоступна", async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    const merges = fakeMergesApi({
+      contacts: () => api.contacts,
+      preview: {
+        dealPairs: [
+          {
+            pipeline: { id: 'p-1', name: 'Продажі' },
+            forbidden: true,
+            survivorDeal: null,
+            mergedDeal: null,
+            keepDealId: null,
+          },
+        ],
+      },
+    })
     await renderCard({ api, merges })
     const dialog = await chooseOther()
-    expect((await within(dialog).findByRole('alert')).textContent).toBe(
-      'В обох контактів є відкриті угоди в одній воронці. Спершу закрийте або перенесіть одну з них.',
+    const block = await within(dialog).findByRole('region', {
+      name: "Угоди, які теж буде об'єднано",
+    })
+    expect(within(block).getByRole('status').textContent).toBe(
+      "Немає права змінювати обидві угоди в цій воронці, тому об'єднати контакти не вийде. Зверніться до того, хто має доступ до цих угод.",
     )
+    expect(within(block).queryByRole('button')).toBeNull()
     const submit = within(dialog).getByRole('button', { name: "Об'єднати" }) as HTMLButtonElement
     expect(submit.disabled).toBe(true)
     expect(merges.calls.filter((call) => call.startsWith('merge '))).toEqual([])
+  })
+
+  it('отказ слияния MERGE_DEAL_FORBIDDEN — понятный текст', async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    const merges = fakeMergesApi({ contacts: () => api.contacts })
+    merges.fail = new MergesApiError(403, 'MERGE_DEAL_FORBIDDEN')
+    await renderCard({ api, merges })
+    const dialog = await chooseOther()
+    const submit = within(dialog).getByRole('button', { name: "Об'єднати" }) as HTMLButtonElement
+    await waitFor(() => expect(submit.disabled).toBe(false))
+    fireEvent.click(submit)
+    expect((await within(dialog).findByRole('alert')).textContent).toBe(
+      "Немає права змінювати угоди, які теж треба об'єднати.",
+    )
   })
 
   it("слияния за 30 дней в карточке оставшегося: «Скасувати об'єднання», подтверждение и итог", async () => {

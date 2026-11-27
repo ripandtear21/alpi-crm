@@ -23,6 +23,8 @@ export interface FakeMergesApi extends MergesApi {
 }
 
 let counter = 0
+/** Хвост записи вызова: выбранные сделки пар, если есть. */
+const keepSuffix = (ids: readonly string[]) => (ids.length > 0 ? ` keep=${ids.join(',')}` : '')
 const fakeId = () => `00000000-0000-4000-9500-${String(++counter).padStart(12, '0')}`
 
 export function sampleMerge(overrides: Partial<ContactMergeRecord> = {}): ContactMergeRecord {
@@ -65,8 +67,8 @@ export function fakeMergesApi({
     skipped: [],
     fail: null,
     calls: [],
-    async preview(_projectId, survivorId, mergedId) {
-      api.calls.push(`preview ${survivorId} ${mergedId}`)
+    async preview(_projectId, survivorId, mergedId, keepDealIds = []) {
+      api.calls.push(`preview ${survivorId} ${mergedId}${keepSuffix(keepDealIds)}`)
       return {
         survivor: contact(survivorId),
         merged: contact(mergedId),
@@ -80,10 +82,22 @@ export function fakeMergesApi({
         dealsOutOfScope: 0,
         duplicateMarkCleared: false,
         ...preview,
+        // Какая сделка пары остаётся — как в API: из keepDealIds, иначе сделка оставшегося.
+        dealPairs: (preview.dealPairs ?? []).map((pair) =>
+          pair.forbidden
+            ? pair
+            : {
+                ...pair,
+                keepDealId:
+                  pair.mergedDeal && keepDealIds.includes(pair.mergedDeal.id)
+                    ? pair.mergedDeal.id
+                    : (pair.survivorDeal?.id ?? null),
+              },
+        ),
       }
     },
-    async merge(_projectId, survivorId, mergedId) {
-      api.calls.push(`merge ${survivorId} ${mergedId}`)
+    async merge(_projectId, survivorId, mergedId, keepDealIds = []) {
+      api.calls.push(`merge ${survivorId} ${mergedId}${keepSuffix(keepDealIds)}`)
       takeFailure()
       const merged = contact(mergedId)
       const record = sampleMerge({

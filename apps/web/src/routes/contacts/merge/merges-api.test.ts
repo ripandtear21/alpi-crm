@@ -40,6 +40,20 @@ describe('createMergesApi', () => {
     expect(JSON.parse(String(sent[0]?.init.body))).toEqual({ merge_contact_id: 'merged-1' })
   })
 
+  it('выбранные сделки пар (тикет crm-intake/04) уходят в keep_deal_ids слияния и предпросмотра', async () => {
+    const { sent, fetchImpl } = recordingFetch()
+    const api = createMergesApi(fetchImpl)
+    await api.preview('project-1', 'survivor-1', 'merged-1', ['deal-2'])
+    await api.merge('project-1', 'survivor-1', 'merged-1', ['deal-2'])
+    await api.merge('project-1', 'survivor-1', 'merged-1', [])
+
+    expect(sent.map((s) => JSON.parse(String(s.init.body)))).toEqual([
+      { merge_contact_id: 'merged-1', keep_deal_ids: ['deal-2'] },
+      { merge_contact_id: 'merged-1', keep_deal_ids: ['deal-2'] },
+      { merge_contact_id: 'merged-1' },
+    ])
+  })
+
   it('запрос без тела несёт заголовок проекта и не объявляет content-type', async () => {
     const { sent, fetchImpl } = recordingFetch(200, [])
     await createMergesApi(fetchImpl).contactMerges('project-2', 'contact-1')

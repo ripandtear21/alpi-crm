@@ -47,6 +47,8 @@ describe('слияние контактов с откатом', () => {
   let readAllWriteOwn: SignedInUser
   /** Контакты — все; сделки — только свои: часть сделок вне его охвата. */
   let dealsOwn: SignedInUser
+  /** Контакты — все; сделки — только смотреть. */
+  let dealsViewOnly: SignedInUser
   let pipelineCounter = 0
 
   beforeAll(async () => {
@@ -59,6 +61,7 @@ describe('слияние контактов с откатом', () => {
     viewer = await h.signIn()
     readAllWriteOwn = await h.signIn()
     dealsOwn = await h.signIn()
+    dealsViewOnly = await h.signIn()
     await h.addMember(projectA, manager1.id, 'manager')
     await h.addMember(projectA, manager2.id, 'manager')
     const member = async (user: SignedInUser, permissions: unknown) => {
@@ -76,6 +79,10 @@ describe('слияние контактов с откатом', () => {
     await member(dealsOwn, {
       actions: { contacts: ['view', 'create', 'edit'], deals: ['view', 'create', 'edit'] },
       scopes: { contacts: { read: 'all', write: 'all' }, deals: { read: 'own', write: 'own' } },
+    })
+    await member(dealsViewOnly, {
+      actions: { contacts: ['view', 'create', 'edit'], deals: ['view'] },
+      scopes: { contacts: { read: 'all', write: 'all' }, deals: { read: 'all', write: 'all' } },
     })
   })
 
@@ -114,11 +121,11 @@ describe('слияние контактов с откатом', () => {
     )
   }
 
-  async function pipeline(): Promise<{ id: string; stageId: string }> {
+  async function pipeline(project = projectA): Promise<{ id: string; stageId: string }> {
     const { id } = await h.owner
       .insertInto('pipeline')
       .values({
-        project_id: projectA,
+        project_id: project,
         code: `m${++pipelineCounter}`,
         name: `Воронка злиття ${pipelineCounter}`,
         is_upsell: false,
@@ -128,7 +135,7 @@ describe('слияние контактов с откатом', () => {
       .executeTakeFirstOrThrow()
     const stage = await h.owner
       .insertInto('stage')
-      .values({ project_id: projectA, pipeline_id: id, name: 'Новий', position: 1 })
+      .values({ project_id: project, pipeline_id: id, name: 'Новий', position: 1 })
       .returning('id')
       .executeTakeFirstOrThrow()
     return { id, stageId: stage.id }
@@ -655,31 +662,6 @@ describe('слияние контактов с откатом', () => {
   })
 
   describe('отказы', () => {
-    it('открытые сделки обоих в одной воронке — 409 MERGE_DEAL_CONFLICT со списком пар', async () => {
-      const survivor = await createContact({})
-      const second = await createContact({})
-      const { id: pipelineId, stageId } = await pipeline()
-      const create = async (contactId: string) =>
-        ok<{ id: string }>(
-          await call(admin, 'POST', '/v1/deals', {
-            title: 'Угода',
-            pipelineId,
-            stageId,
-            contactId,
-          }),
-          201,
-        )
-      const s = await create(survivor.id)
-      const m = await create(second.id)
-      const res = await merge(admin, survivor.id, second.id)
-      expect(res.status).toBe(409)
-      expect(await problemOf(res)).toMatchObject({
-        code: 'MERGE_DEAL_CONFLICT',
-        details: { pairs: [{ pipelineId, survivorDealId: s.id, mergedDealId: m.id }] },
-      })
-      expect((await contactRow(second.id))?.merged_into_id).toBeNull()
-    })
-
     it('через 31 день — 409 MERGE_UNDO_EXPIRED', async () => {
       const { merge: record } = await merged(
         (await createContact({})).id,
@@ -896,6 +878,452 @@ describe('слияние контактов с откатом', () => {
             .executeTakeFirstOrThrow()
         ).primary_contact_id,
       ).toBe(second.id)
+    })
+  })
+
+  // ---- Конфликтующие сделки (тикет crm-intake/04) ---------------------------------------------
+
+  describe('конфликтующие сделки', () => {
+    /** Открытая сделка контакта в воронке `where`; `ownerId` — ответственный. */
+    async function openDeal(
+      contactId: string,
+      where: { id: string; stageId: string },
+      { ownerId = null as string | null, title = 'Угода', project = projectA } = {},
+    ) {
+      const deal = await ok<{ id: string }>(
+        await call(
+          admin,
+          'POST',
+          '/v1/deals',
+          { title, pipelineId: where.id, stageId: where.stageId, contactId },
+          project,
+        ),
+        201,
+      )
+      await h.owner
+        .updateTable('deal')
+        .set({ owner_id: ownerId })
+        .where('id', '=', deal.id)
+        .execute()
+      return deal.id
+    }
+
+    const dealRow = (id: string) =>
+      h.owner
+        .selectFrom('deal')
+        .select(['id', 'primary_contact_id', 'merged_into_id', 'status'])
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow()
+
+    /** Участники сделки (без основного контакта): id контактов по порядку. */
+    const participants = async (dealId: string) =>
+      (
+        await h.owner
+          .selectFrom('deal_participant')
+          .select('contact_id')
+          .where('deal_id', '=', dealId)
+          .orderBy('contact_id')
+          .execute()
+      ).map((row) => row.contact_id)
+
+    /** Открытые видимые сделки контакта в воронке. */
+    const openIn = async (contactId: string, pipelineId: string) =>
+      (
+        await h.owner
+          .selectFrom('deal')
+          .select('id')
+          .where('primary_contact_id', '=', contactId)
+          .where('pipeline_id', '=', pipelineId)
+          .where('status', '=', 'open')
+          .where('merged_into_id', 'is', null)
+          .execute()
+      ).map((row) => row.id)
+
+    const mergeWith = (
+      user: SignedInUser,
+      survivorId: string,
+      mergedId: string,
+      keep?: string[],
+      project = projectA,
+    ) =>
+      call(
+        user,
+        'POST',
+        `/v1/contacts/${survivorId}/merge`,
+        { merge_contact_id: mergedId, ...(keep ? { keep_deal_ids: keep } : {}) },
+        project,
+      )
+
+    const previewWith = (
+      user: SignedInUser,
+      survivorId: string,
+      mergedId: string,
+      keep?: string[],
+      project = projectA,
+    ) =>
+      call(
+        user,
+        'POST',
+        `/v1/contacts/${survivorId}/merge/preview`,
+        { merge_contact_id: mergedId, ...(keep ? { keep_deal_ids: keep } : {}) },
+        project,
+      )
+
+    const records = (mergedId: string) =>
+      h.owner
+        .selectFrom('merge_record')
+        .select(['id', 'entity_type', 'parent_id'])
+        .where('merged_id', '=', mergedId)
+        .execute()
+
+    it('сделки пары объединяются: у оставшегося одна открытая в воронке, вторая скрыта; в разных воронках — просто переходят', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const shared = await pipeline()
+      const own = await pipeline()
+      const s = await openDeal(survivor.id, shared)
+      const m = await openDeal(second.id, shared)
+      const elsewhere = await openDeal(second.id, own)
+
+      const preview = await ok<MergePreview>(await previewWith(admin, survivor.id, second.id))
+      expect(preview.dealPairs).toHaveLength(1)
+      expect(preview.dealPairs[0]).toMatchObject({
+        pipeline: { id: shared.id },
+        forbidden: false,
+        survivorDeal: { id: s },
+        mergedDeal: { id: m },
+        keepDealId: s,
+      })
+
+      const result = await ok<MergeResult>(await mergeWith(admin, survivor.id, second.id))
+      expect(await openIn(survivor.id, shared.id)).toEqual([s])
+      expect(await dealRow(m)).toMatchObject({ primary_contact_id: survivor.id, merged_into_id: s })
+      const hidden = await call(admin, 'GET', `/v1/deals/${m}`)
+      expect(hidden.status).toBe(404)
+      expect(await problemOf(hidden)).toMatchObject({
+        code: 'DEAL_MERGED',
+        // Вложенное слияние отдельно не откатить: карточка скрытой сделки отката не предлагает.
+        details: { merged_into_id: s, merge_id: null },
+      })
+      expect(await dealRow(elsewhere)).toMatchObject({
+        primary_contact_id: survivor.id,
+        merged_into_id: null,
+      })
+      const nested = await records(m)
+      expect(nested).toEqual([
+        expect.objectContaining({ entity_type: 'deal', parent_id: result.merge.id }),
+      ])
+      // В списке слияний сделки вложенного нет: откатывается только со слиянием контактов.
+      expect(await ok<unknown[]>(await call(admin, 'GET', `/v1/deals/${s}/merges`))).toEqual([])
+    })
+
+    it('направление: по умолчанию остаётся сделка оставшегося, с keep_deal_ids — второго', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const shared = await pipeline()
+      const s = await openDeal(survivor.id, shared)
+      const m = await openDeal(second.id, shared)
+
+      const preview = await ok<MergePreview>(await previewWith(admin, survivor.id, second.id, [m]))
+      expect(preview.dealPairs[0]?.keepDealId).toBe(m)
+      await ok<MergeResult>(await mergeWith(admin, survivor.id, second.id, [m]))
+      expect(await openIn(survivor.id, shared.id)).toEqual([m])
+      expect(await dealRow(s)).toMatchObject({ primary_contact_id: survivor.id, merged_into_id: m })
+      expect(await dealRow(m)).toMatchObject({
+        primary_contact_id: survivor.id,
+        merged_into_id: null,
+      })
+      // Основной контакт слитой сделки — сам оставшийся: участником второй раз он не стал.
+      expect(await participants(m)).toEqual([])
+    })
+
+    it('keep_deal_ids: не из пары, две из одной пары, не id — отказ, ничего не изменилось', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const shared = await pipeline()
+      const s = await openDeal(survivor.id, shared)
+      const m = await openDeal(second.id, shared)
+      const stranger = await openDeal((await createContact({})).id, await pipeline())
+
+      const notInPair = await mergeWith(admin, survivor.id, second.id, [stranger])
+      expect(notInPair.status).toBe(422)
+      expect(await problemOf(notInPair)).toMatchObject({
+        code: 'MERGE_KEEP_DEAL_INVALID',
+        details: { dealId: stranger },
+      })
+      const both = await mergeWith(admin, survivor.id, second.id, [s, m])
+      expect(both.status).toBe(422)
+      expect((await problemOf(both)).code).toBe('MERGE_KEEP_DEAL_INVALID')
+      const twice = await previewWith(admin, survivor.id, second.id, [m, m])
+      expect(twice.status).toBe(422)
+      const malformed = await mergeWith(admin, survivor.id, second.id, ['не-id'])
+      expect(malformed.status).toBe(400)
+      expect(await problemOf(malformed)).toMatchObject({
+        code: 'INVALID_MERGE',
+        details: { path: 'keep_deal_ids.0' },
+      })
+      expect((await contactRow(second.id))?.merged_into_id).toBeNull()
+      expect(await dealRow(m)).toMatchObject({
+        merged_into_id: null,
+        primary_contact_id: second.id,
+      })
+    })
+
+    it('права: без «сделки: изменять» или с охватом без одной сделки пары — 403 MERGE_DEAL_FORBIDDEN без данных чужой сделки', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const shared = await pipeline()
+      const mine = await openDeal(survivor.id, shared, { ownerId: dealsOwn.id })
+      const foreignTitle = uniqueName('Чужа угода ')
+      const foreign = await openDeal(second.id, shared, {
+        ownerId: manager2.id,
+        title: foreignTitle,
+      })
+
+      for (const [user, keep] of [
+        [dealsOwn, undefined],
+        [dealsOwn, [mine]],
+        [dealsViewOnly, undefined],
+      ] as const) {
+        const res = await mergeWith(user, survivor.id, second.id, keep ? [...keep] : undefined)
+        const text = await res.text()
+        expect(res.status, text).toBe(403)
+        expect(JSON.parse(text).code).toBe('MERGE_DEAL_FORBIDDEN')
+        expect(text).not.toContain(foreign)
+        expect(text).not.toContain(foreignTitle)
+      }
+      expect((await contactRow(second.id))?.merged_into_id).toBeNull()
+      expect(await dealRow(foreign)).toMatchObject({
+        primary_contact_id: second.id,
+        merged_into_id: null,
+      })
+      expect(await dealRow(mine)).toMatchObject({ primary_contact_id: survivor.id })
+      expect(await records(second.id)).toEqual([])
+
+      // Предпросмотр не отказывает: пара отмечена, но без данных сделок.
+      const res = await previewWith(dealsOwn, survivor.id, second.id)
+      const text = await res.text()
+      expect(res.status, text).toBe(200)
+      expect((JSON.parse(text) as MergePreview).dealPairs).toEqual([
+        {
+          pipeline: { id: shared.id, name: expect.any(String) },
+          forbidden: true,
+          survivorDeal: null,
+          mergedDeal: null,
+          keepDealId: null,
+        },
+      ])
+      expect(text).not.toContain(foreign)
+      expect(text).not.toContain(foreignTitle)
+    })
+
+    it('откат слияния контактов возвращает оба контакта и обе сделки; вложенное отдельно — 409 MERGE_UNDO_NESTED', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const shared = await pipeline()
+      const s = await openDeal(survivor.id, shared)
+      const m = await openDeal(second.id, shared)
+      const before = { s: await dealRow(s), m: await dealRow(m) }
+      // Направление «осталась сделка второго»: основной контакт слитой сделки (оставшийся)
+      // становится участником оставшейся, а потом её основным контактом.
+      const { merge: record } = await ok<MergeResult>(
+        await mergeWith(admin, survivor.id, second.id, [m]),
+      )
+      const [nested] = await records(s)
+      expect(nested?.parent_id).toBe(record.id)
+
+      const alone = await undo(admin, nested?.id ?? '')
+      expect(alone.status).toBe(409)
+      expect(await problemOf(alone)).toMatchObject({
+        code: 'MERGE_UNDO_NESTED',
+        details: { mergeId: record.id },
+      })
+      expect(await dealRow(s)).toMatchObject({ merged_into_id: m })
+
+      await ok<UndoResult>(await undo(admin, record.id))
+      expect((await contactRow(second.id))?.merged_into_id).toBeNull()
+      expect(await dealRow(s)).toEqual(before.s)
+      expect(await dealRow(m)).toEqual(before.m)
+      expect(await participants(s)).toEqual([])
+      expect(await participants(m)).toEqual([])
+      const undone = await h.owner
+        .selectFrom('merge_record')
+        .select(['id', 'undone_at'])
+        .where('id', 'in', [record.id, nested?.id ?? ''])
+        .execute()
+      expect(undone.every((row) => row.undone_at !== null)).toBe(true)
+      expect((await undo(admin, nested?.id ?? '')).status).toBe(409)
+    })
+
+    it('откат: вложенное слияние сделок отказывает — откат контакта тоже не остаётся', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const shared = await pipeline()
+      const s = await openDeal(survivor.id, shared)
+      const m = await openDeal(second.id, shared)
+      const { merge: record } = await ok<MergeResult>(
+        await mergeWith(admin, survivor.id, second.id),
+      )
+      // Позже оставшуюся сделку пары слили с другой: вложенный откат упрётся в это слияние уже
+      // после того, как перешедшее к контакту вернулось.
+      const later = await openDeal(survivor.id, await pipeline())
+      const laterMerge = await ok<{ merge: { id: string } }>(
+        await call(admin, 'POST', `/v1/deals/${later}/merge`, { merge_deal_id: s }),
+      )
+
+      const res = await undo(admin, record.id)
+      expect(res.status).toBe(409)
+      expect(await problemOf(res)).toMatchObject({
+        code: 'MERGE_UNDO_BLOCKED',
+        details: { mergeId: laterMerge.merge.id },
+      })
+      expect((await contactRow(second.id))?.merged_into_id).toBe(survivor.id)
+      expect(await dealRow(m)).toMatchObject({ primary_contact_id: survivor.id, merged_into_id: s })
+      const row = await h.owner
+        .selectFrom('merge_record')
+        .select('undone_at')
+        .where('id', '=', record.id)
+        .executeTakeFirstOrThrow()
+      expect(row.undone_at).toBeNull()
+      expect(await events('contact.unmerged', survivor.id)).toEqual([])
+      expect(await events('deal.unmerged', s)).toEqual([])
+    })
+
+    it('ошибка на второй паре откатывает и первую пару, и слияние контактов; событий нет', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const first = await pipeline()
+      const next = await pipeline()
+      const s1 = await openDeal(survivor.id, first)
+      const m1 = await openDeal(second.id, first)
+      const s2 = await openDeal(survivor.id, next)
+      const m2 = await openDeal(second.id, next)
+      // Пары сливаются по порядку воронок: вторая — та, что в воронке с большим id.
+      const [, secondPair] = [
+        { pipelineId: first.id, merged: m1 },
+        { pipelineId: next.id, merged: m2 },
+      ].sort((a, b) => (a.pipelineId < b.pipelineId ? -1 : 1))
+      await sql
+        .raw(`
+          create function merge_test_fail_pair() returns trigger language plpgsql as $$
+          begin
+            if new.id = '${secondPair?.merged}' and new.merged_into_id is not null then
+              raise exception 'збій на другій парі';
+            end if;
+            return new;
+          end $$;
+          create trigger merge_test_fail_pair before update on deal
+            for each row execute function merge_test_fail_pair();
+        `)
+        .execute(h.owner)
+      try {
+        const res = await mergeWith(admin, survivor.id, second.id)
+        expect(res.status).toBe(500)
+      } finally {
+        await sql
+          .raw('drop trigger merge_test_fail_pair on deal; drop function merge_test_fail_pair();')
+          .execute(h.owner)
+      }
+      for (const [id, contactId] of [
+        [s1, survivor.id],
+        [m1, second.id],
+        [s2, survivor.id],
+        [m2, second.id],
+      ] as const) {
+        expect(await dealRow(id)).toMatchObject({
+          primary_contact_id: contactId,
+          merged_into_id: null,
+        })
+      }
+      expect((await contactRow(second.id))?.merged_into_id).toBeNull()
+      expect(await records(second.id)).toEqual([])
+      expect(await records(m1)).toEqual([])
+      expect(await events('contact.merged', survivor.id)).toEqual([])
+      expect(await events('deal.merged', s1)).toEqual([])
+      expect(await events('deal.merged', s2)).toEqual([])
+    })
+
+    it('события: deal.merged на каждую пару и один contact.merged; откат — deal.unmerged и contact.unmerged', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const first = await pipeline()
+      const next = await pipeline()
+      const s1 = await openDeal(survivor.id, first)
+      const m1 = await openDeal(second.id, first)
+      const s2 = await openDeal(survivor.id, next)
+      const m2 = await openDeal(second.id, next)
+      const { merge: record } = await ok<MergeResult>(
+        await mergeWith(admin, survivor.id, second.id, [m2]),
+      )
+      expect(await events('contact.merged', survivor.id)).toHaveLength(1)
+      const dealMerged = [
+        ...(await events('deal.merged', s1)),
+        ...(await events('deal.merged', m2)),
+      ]
+      expect(dealMerged.map((e) => (e.body as { data: unknown }).data)).toEqual([
+        expect.objectContaining({ deal_id: s1, merged_deal_id: m1 }),
+        expect.objectContaining({ deal_id: m2, merged_deal_id: s2 }),
+      ])
+      for (const event of dealMerged) expect(eventBodyProblem(event.body)).toBeNull()
+      const audits = await h.owner
+        .selectFrom('audit_log')
+        .select(['action', 'details'])
+        .where('entity_id', 'in', [s1, m2])
+        .execute()
+      expect(audits).toHaveLength(2)
+      for (const row of audits) {
+        expect(row).toMatchObject({ action: 'deal.merged', details: { parentMergeId: record.id } })
+      }
+
+      await ok<UndoResult>(await undo(admin, record.id))
+      expect(await events('contact.unmerged', survivor.id)).toHaveLength(1)
+      expect(await events('deal.unmerged', s1)).toHaveLength(1)
+      expect(await events('deal.unmerged', m2)).toHaveLength(1)
+      expect(await openIn(survivor.id, first.id)).toEqual([s1])
+      expect(await openIn(second.id, first.id)).toEqual([m1])
+      expect(await openIn(survivor.id, next.id)).toEqual([s2])
+      expect(await openIn(second.id, next.id)).toEqual([m2])
+      // Участие, которое добавили слияния сделок (основной контакт слитой — участник оставшейся),
+      // не осталось ни в одном направлении.
+      for (const id of [s1, m1, s2, m2]) expect(await participants(id)).toEqual([])
+    })
+
+    it('изоляция: предпросмотр и слияние не видят сделок другого проекта', async () => {
+      const survivor = await createContact({})
+      const second = await createContact({})
+      const inA = await pipeline()
+      const s = await openDeal(survivor.id, inA)
+      const m = await openDeal(second.id, inA)
+      // В проекте Б — свои два контакта с конфликтующими сделками.
+      const survivorB = await createContact({}, admin, projectB)
+      const secondB = await createContact({}, admin, projectB)
+      const inB = await pipeline(projectB)
+      const sB = await openDeal(survivorB.id, inB, { project: projectB })
+      const mB = await openDeal(secondB.id, inB, { project: projectB })
+
+      const res = await previewWith(admin, survivor.id, second.id)
+      const text = await res.text()
+      expect(res.status, text).toBe(200)
+      expect((JSON.parse(text) as MergePreview).dealPairs.map((p) => p.keepDealId)).toEqual([s])
+      expect(text).not.toContain(sB)
+      expect(text).not.toContain(mB)
+      // Сделка другого проекта для keep_deal_ids — как несуществующая.
+      const foreignKeep = await mergeWith(admin, survivor.id, second.id, [mB])
+      expect(foreignKeep.status).toBe(422)
+      // Контакт другого проекта — 404, сделки Б не тронуты.
+      expect((await mergeWith(admin, survivor.id, secondB.id)).status).toBe(404)
+      await ok<MergeResult>(await mergeWith(admin, survivor.id, second.id))
+      expect(await dealRow(m)).toMatchObject({ merged_into_id: s })
+      expect(await dealRow(sB)).toMatchObject({
+        primary_contact_id: survivorB.id,
+        merged_into_id: null,
+      })
+      expect(await dealRow(mB)).toMatchObject({
+        primary_contact_id: secondB.id,
+        merged_into_id: null,
+      })
+      await ok<MergeResult>(await mergeWith(admin, survivorB.id, secondB.id, undefined, projectB))
+      expect(await dealRow(mB)).toMatchObject({ merged_into_id: sB })
     })
   })
 

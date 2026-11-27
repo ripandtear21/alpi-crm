@@ -42,7 +42,24 @@ export async function insertMerge(
   items: readonly MovedItem[],
   parentId: string | null = null,
 ): Promise<MergeRow> {
-  const row = await actor.db
+  const row = await insertMergeRecord(actor, entity, pair, parentId)
+  await insertMovedItems(actor, row.id, items)
+  return row
+}
+
+/**
+ * Только строка слияния, без перешедшего (тикет crm-intake/04): слияние контактов пишется
+ * первым — на него ссылаются (parent_id) слияния сделок того же действия, а его перешедшее
+ * известно только после них. parent_id задним числом не поставить: UPDATE строки слияния роли
+ * приложения разрешён только для отметок отката (migrations/0026_merge.ts).
+ */
+export async function insertMergeRecord(
+  actor: MergeActor,
+  entity: MergeEntity,
+  pair: MergePair,
+  parentId: string | null = null,
+): Promise<MergeRow> {
+  return actor.db
     .insertInto('merge_record')
     .values({
       project_id: actor.projectId,
@@ -56,22 +73,44 @@ export async function insertMerge(
     })
     .returningAll()
     .executeTakeFirstOrThrow()
-  if (items.length > 0) {
-    await actor.db
-      .insertInto('merge_moved_item')
-      .values(
-        items.map((item) => ({
-          project_id: actor.projectId,
-          merge_id: row.id,
-          kind: item.kind,
-          item_id: item.itemId,
-          field: item.field,
-          value: JSON.stringify(item.value ?? null),
-        })),
-      )
-      .execute()
-  }
-  return row
+}
+
+/** Перешедшее при слиянии `mergeId`. */
+export async function insertMovedItems(
+  actor: MergeActor,
+  mergeId: string,
+  items: readonly MovedItem[],
+): Promise<void> {
+  if (items.length === 0) return
+  await actor.db
+    .insertInto('merge_moved_item')
+    .values(
+      items.map((item) => ({
+        project_id: actor.projectId,
+        merge_id: mergeId,
+        kind: item.kind,
+        item_id: item.itemId,
+        field: item.field,
+        value: JSON.stringify(item.value ?? null),
+      })),
+    )
+    .execute()
+}
+
+/**
+ * Неоткаченные вложенные слияния `parentId` (сделки, объединённые в том же действии) в порядке
+ * записи; строки блокируются до конца транзакции.
+ */
+export function nestedMerges(db: Kysely<Database>, parentId: string): Promise<MergeRow[]> {
+  return db
+    .selectFrom('merge_record')
+    .selectAll()
+    .where('parent_id', '=', parentId)
+    .where('undone_at', 'is', null)
+    .orderBy('merged_at')
+    .orderBy('id')
+    .forUpdate()
+    .execute()
 }
 
 /** Слияние `id` записей вида `entity`; `lock` — заблокировать строку до конца транзакции. */
