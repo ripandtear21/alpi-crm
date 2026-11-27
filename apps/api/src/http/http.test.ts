@@ -616,9 +616,9 @@ describe('общие правила /api/v1', () => {
       })
 
       for (const [path, methods] of Object.entries(doc.paths ?? {})) {
-        // Раздел /api/intake (тикет crm-intake/06) — со своим сервером, вне приложения /v1.
+        // Раздел /api/intake (тикеты crm-intake/06 и 08) — со своим сервером, вне приложения /v1.
         if ('servers' in methods) {
-          expect(path).toBe('/intake/registrations')
+          expect(['/intake/registrations', '/intake/webinar-views']).toContain(path)
           expect(methods.servers).toEqual([{ url: '/api' }])
           continue
         }

@@ -83,3 +83,4 @@ export type IntakeSourcesErrorCode =
 export type IntakeRequestErrorCode = 'INTAKE_KEY_INVALID'
 
 export * from './registration.ts'
+export * from './webinar-view.ts'

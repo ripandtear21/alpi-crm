@@ -151,7 +151,7 @@
     "presetApplied": "налаштування {{preset}}",
     "caughtUp": "{{url}}: події з {{since}}, у черзі: {{n}}",
     "replayStarted": "вхідні з {{since}}",
-    "replayFinished": "вхідні з {{since}}: прийнято {{accepted}}, повторів {{repeats}}, помилок {{errors}}",
+    "replayFinished": "вхідні з {{since}}: прийнято {{accepted}}, повторів {{repeats}}, помилок {{errors}}, без реєстрації {{unmatched}}",
     "dealMerged": "Угоду {{merged}} об'єднано з {{survivor}}",
     "dealUnmerged": "Угода {{merged}} знову окремо від {{survivor}}",
     "merged": "Контакт {{merged}} об'єднано з {{survivor}}",

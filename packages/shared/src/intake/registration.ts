@@ -276,15 +276,27 @@ export function parseRegistration(body: unknown): RegistrationParse {
   }
 }
 
+/** Те же правила строк, JSON и времени — для разбора просмотра вебинара (webinar-view.ts). */
+export {
+  registeredAtOf as intakeTimeOf,
+  scalarText as intakeScalarText,
+  storableJson as storableIntakeJson,
+}
+
 // ---- Журнал входящих -------------------------------------------------------------------------
 
-/** Канал журнала входящих: приём регистраций (тикет 08 — просмотры вебинара, эпики — свои). */
-export type InboundChannel = 'intake.registration'
+/** Канал журнала входящих: приём регистраций и просмотров вебинара (тикет 08). */
+export type InboundChannel = 'intake.registration' | 'intake.webinar_view'
 
-/** Итог входящего запроса. */
-export type InboundOutcome = 'accepted' | 'repeat' | 'error'
+/** Итог входящего запроса; 'unmatched' — просмотр вебинара без регистрации (тикет 08). */
+export type InboundOutcome = 'accepted' | 'repeat' | 'error' | 'unmatched'
 
-export const INBOUND_OUTCOMES: readonly InboundOutcome[] = ['accepted', 'repeat', 'error']
+export const INBOUND_OUTCOMES: readonly InboundOutcome[] = [
+  'accepted',
+  'repeat',
+  'error',
+  'unmatched',
+]
 
 /**
  * Строка журнала входящих в ответе `GET /api/v1/intake-sources/:id/requests` (экран источника,

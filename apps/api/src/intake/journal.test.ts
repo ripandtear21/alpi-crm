@@ -376,7 +376,7 @@ describe('журнал входящих', () => {
       expect(message).toMatchObject({ projectId: projectA, initiatorId: admin.id, since })
 
       const counts = await replayInbound(h.appDb, message as InboundReplayMessage)
-      expect(counts).toEqual({ accepted: 1, repeat: 2, error: 1 })
+      expect(counts).toEqual({ accepted: 1, repeat: 2, error: 1, unmatched: 0 })
 
       const registrations = await h.owner
         .selectFrom('registration')
