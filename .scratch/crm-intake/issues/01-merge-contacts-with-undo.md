@@ -1,7 +1,8 @@
 # Слияние контактов с откатом
 
 Type: task
-Status: claimed 2026-11-26T23:46Z
+Status: done 2026-11-27T00:39Z
+PR: #39
 Branch: crm-intake/01
 Risk: high
 Blocked by: —
