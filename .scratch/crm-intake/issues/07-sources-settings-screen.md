@@ -33,13 +33,16 @@ apps/web/src/routes/settings/** (источники, журнал), apps/web/src
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] Тест: создание источника показывает ключ один раз; после закрытия окна ключ больше нигде не виден; смена ключа показывает новый ключ.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 (key also gone from mutation cache) · windows - · 2d4ade24d0353b456964ea917c00a0a3c18b018d
 - [ ] Тест: отключение и включение источника с подтверждением меняют его состояние в списке.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] Тест журнала: принятый запрос, повтор и ошибка видны с итогом; фильтр по итогу работает; раскрытая строка показывает сырое тело.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] Тест: кнопка «Провести заново» видна только администратору проекта; дата старше 30 дней не принимается; после запуска виден итог.
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources apps/api/src/intake/replay-status.test.ts` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/replay-status.test.ts apps/web/src/routes/settings/intake-sources` exit 0 (failed replay, status error) · windows - · 2d4ade24d0353b456964ea917c00a0a3c18b018d
 - [ ] Все тексты есть в uk и ru (проверка ключей переводов); экран работает на 375 px (снимок в отчёте).
   - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources apps/web/src/i18n` exit 0; 375 px Playwright snapshots uk/ru, scrollWidth <= 375 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] `pnpm verify` зелёный.
   - evidence: gate pass · `gate fast` exit 0; `pnpm verify` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
+  - evidence: gate pass · `gate fast` exit 0; `pnpm verify` exit 0 · windows - · 2d4ade24d0353b456964ea917c00a0a3c18b018d
