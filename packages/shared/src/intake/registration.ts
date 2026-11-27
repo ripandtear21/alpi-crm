@@ -132,6 +132,9 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 /** Символ NUL: PostgreSQL не хранит его ни в text, ни в jsonb — убирается. */
 const NUL = String.fromCharCode(0)
 
+/** Символ замены U+FFFD. */
+const REPLACEMENT = String.fromCharCode(0xfffd)
+
 /** Одиночная половинка суррогатной пары UTF-16 (например, обрезанный эмодзи). */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
 
@@ -141,7 +144,7 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
  * отвергает (22P02) — регистрация терялась бы.
  */
 function storableText(value: string): string {
-  return value.replaceAll(NUL, '').replace(LONE_SURROGATE, '�')
+  return value.replaceAll(NUL, '').replace(LONE_SURROGATE, REPLACEMENT)
 }
 
 /**
