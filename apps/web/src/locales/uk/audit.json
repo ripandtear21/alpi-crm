@@ -127,6 +127,10 @@
       "key_reissued": "Змінено ключ джерела реєстрацій",
       "disabled": "Вимкнено джерело реєстрацій",
       "enabled": "Увімкнено джерело реєстрацій"
+    },
+    "inbound": {
+      "replay_started": "Запущено повторне проведення вхідних",
+      "replay_finished": "Вхідні проведено повторно"
     }
   },
   "summary": {
@@ -146,6 +150,8 @@
     "reordered": "новий порядок",
     "presetApplied": "налаштування {{preset}}",
     "caughtUp": "{{url}}: події з {{since}}, у черзі: {{n}}",
+    "replayStarted": "вхідні з {{since}}",
+    "replayFinished": "вхідні з {{since}}: прийнято {{accepted}}, повторів {{repeats}}, помилок {{errors}}",
     "dealMerged": "Угоду {{merged}} об'єднано з {{survivor}}",
     "dealUnmerged": "Угода {{merged}} знову окремо від {{survivor}}",
     "merged": "Контакт {{merged}} об'єднано з {{survivor}}",

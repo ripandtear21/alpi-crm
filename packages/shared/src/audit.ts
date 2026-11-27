@@ -113,6 +113,10 @@ export const PROJECT_AUDIT_ACTIONS = [
   // mergeId, mergedDealId; у отката ещё — что пропущено).
   'deal.merged',
   'deal.unmerged',
+  // Тикет crm-intake/06: «провести заново входящие с момента T» (entity — нет; details — since,
+  // until; у итога ещё — сколько принято, повторов и ошибок).
+  'inbound.replay_started',
+  'inbound.replay_finished',
 ] as const
 export type ProjectAuditAction = (typeof PROJECT_AUDIT_ACTIONS)[number]
 

@@ -611,9 +611,17 @@ describe('общие правила /api/v1', () => {
       expect(doc.components.schemas).toHaveProperty('Problem')
       expect(doc.components.securitySchemes).toEqual({
         bearer: expect.objectContaining({ type: 'http', scheme: 'bearer' }),
+        // Приём регистраций по ключу источника (тикет crm-intake/06).
+        intakeSourceKey: expect.objectContaining({ type: 'http', scheme: 'bearer' }),
       })
 
       for (const [path, methods] of Object.entries(doc.paths ?? {})) {
+        // Раздел /api/intake (тикет crm-intake/06) — со своим сервером, вне приложения /v1.
+        if ('servers' in methods) {
+          expect(path).toBe('/intake/registrations')
+          expect(methods.servers).toEqual([{ url: '/api' }])
+          continue
+        }
         for (const method of Object.keys(methods)) {
           const honoPath = `/v1${path.replace(/\{([^}]+)\}/g, ':$1')}`
           const first = app.routes.find(

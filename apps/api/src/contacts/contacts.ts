@@ -416,16 +416,28 @@ async function organizationExists(db: Kysely<Database>, id: string): Promise<boo
   return row !== undefined
 }
 
+// ---- Общие функции записи контакта ----------------------------------------------------------
+// Ими пишут и ручные пути (создание, правка, восстановление), и приём регистраций (тикет
+// crm-intake/06, intake/process.ts): на них же надсмотрщик за дублями (тикет 05) ставит свою
+// задачу после создания контакта и смены телефонов или email.
+
 /**
- * Одновременные запросы с одним телефоном проверяют совпадение по очереди: блокировка на
- * номер в проекте до конца транзакции. Порядок номеров — один, чтобы не было взаимной
- * блокировки.
+ * Одновременные запросы с одним телефоном или email проверяют совпадение по очереди:
+ * блокировка на нормализованный ключ в проекте до конца транзакции. Ключи — одним
+ * отсортированным списком (телефоны и email вместе), чтобы не было взаимной блокировки.
+ * Порядок с блокировками строк: сначала ключи, потом строка контакта, потом сделки.
  */
-async function lockPhones(ctx: ContactContext, phones: readonly string[]): Promise<void> {
-  for (const phone of [...phones].sort()) {
-    await sql`
-      select pg_advisory_xact_lock(hashtextextended(${`contact_phone:${ctx.projectId}:${phone}`}, 0))
-    `.execute(ctx.db)
+export async function lockContactKeys(
+  author: Pick<ChangeAuthor, 'db' | 'projectId'>,
+  phones: readonly string[],
+  emails: readonly string[],
+): Promise<void> {
+  const keys = [
+    ...phones.map((phone) => `contact_phone:${author.projectId}:${phone}`),
+    ...emails.map((email) => `contact_email:${author.projectId}:${email}`),
+  ].sort()
+  for (const key of keys) {
+    await sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(author.db)
   }
 }
 
@@ -472,7 +484,7 @@ async function checkKeys(
   emails: readonly string[],
   excludeId?: string,
 ): Promise<Result<{ duplicateOf: string | null }>> {
-  await lockPhones(ctx, phones)
+  await lockContactKeys(ctx, phones, emails)
   const match = await findContactMatch(
     ctx.db,
     { phones, emails },
@@ -490,8 +502,12 @@ function duplicateMark(row: ContactRow, duplicateOf: string | null) {
   return { possible_duplicate: duplicateOf !== null, possible_duplicate_of: duplicateOf }
 }
 
-/** Заменяет телефоны или email контакта; первый — основной. */
-async function replaceKeys(ctx: ContactContext, contactId: string, input: ContactInput) {
+/** Заменяет телефоны или email контакта (что передано); первый — основной. */
+export async function replaceContactKeys(
+  ctx: ChangeAuthor,
+  contactId: string,
+  input: { phones?: readonly string[]; emails?: readonly string[] },
+) {
   if (input.phones !== undefined) {
     await ctx.db.deleteFrom('contact_phone').where('contact_id', '=', contactId).execute()
     if (input.phones.length > 0) {
@@ -527,8 +543,60 @@ async function replaceKeys(ctx: ContactContext, contactId: string, input: Contac
 }
 
 /** Контакт получил отметку «возможный дубль» — событие contact.possible_duplicate. */
-async function markedDuplicate(ctx: ContactContext, id: string, before: boolean, after: boolean) {
+export async function markedDuplicate(
+  ctx: ChangeAuthor,
+  id: string,
+  before: boolean,
+  after: boolean,
+) {
   if (!before && after) await emitEvent(ctx, 'contact.possible_duplicate', { contact_id: id })
+}
+
+/** Новый контакт: что пишет insertContact. */
+export interface NewContact {
+  firstName: string
+  lastName?: string | null
+  language?: ContactLanguage | null
+  organizationId?: string | null
+  phones: readonly string[]
+  emails: readonly string[]
+  /** С каким контактом совпал email: отметка «возможный дубль» со ссылкой; null — нет. */
+  duplicateOf: string | null
+  /** Колонка `custom` (customInsert); по умолчанию — пусто. */
+  custom?: string
+}
+
+/**
+ * Пишет новый контакт с телефонами и email, затем `beforeEvents` (значения пользовательских
+ * полей ручного создания), затем события contact.created и, при отметке, contact.possible_duplicate.
+ * Совпадения проверяет вызывающий — под lockContactKeys.
+ */
+export async function insertContact(
+  author: ChangeAuthor,
+  contact: NewContact,
+  beforeEvents?: (row: ContactRow) => Promise<void>,
+): Promise<ContactRow> {
+  const row = await author.db
+    .insertInto('contact')
+    .values({
+      project_id: author.projectId,
+      first_name: contact.firstName,
+      last_name: contact.lastName ?? null,
+      language: contact.language ?? null,
+      organization_id: contact.organizationId ?? null,
+      possible_duplicate: contact.duplicateOf !== null,
+      possible_duplicate_of: contact.duplicateOf,
+      ...(contact.custom === undefined ? {} : { custom: contact.custom }),
+      created_by: author.actorId,
+      created_by_api_key_id: author.actorApiKeyId ?? null,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow()
+  await replaceContactKeys(author, row.id, { phones: contact.phones, emails: contact.emails })
+  await beforeEvents?.(row)
+  await emitEvent(author, 'contact.created', { contact_id: row.id })
+  await markedDuplicate(author, row.id, false, row.possible_duplicate)
+  return row
 }
 
 async function createContact(
@@ -547,26 +615,21 @@ async function createContact(
   if (!required.ok) return required
   const keys = await checkKeys(ctx, input.phones ?? [], input.emails ?? [])
   if (!keys.ok) return keys
-  const row = await ctx.db
-    .insertInto('contact')
-    .values({
-      project_id: ctx.projectId,
-      first_name: input.firstName ?? '',
-      last_name: input.lastName ?? null,
+  const row = await insertContact(
+    ctx,
+    {
+      firstName: input.firstName ?? '',
+      lastName: input.lastName ?? null,
       language: input.language ?? null,
-      organization_id: input.organizationId ?? null,
-      possible_duplicate: keys.value.duplicateOf !== null,
-      possible_duplicate_of: keys.value.duplicateOf,
+      organizationId: input.organizationId ?? null,
+      phones: input.phones ?? [],
+      emails: input.emails ?? [],
+      duplicateOf: keys.value.duplicateOf,
       custom: customInsert(custom.value),
-      created_by: ctx.actorId,
-      created_by_api_key_id: ctx.actorApiKeyId ?? null,
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow()
-  await replaceKeys(ctx, row.id, input)
-  await finishCustom(ctx, { type: 'contact', id: row.id }, custom.value, { history: false })
-  await emitEvent(ctx, 'contact.created', { contact_id: row.id })
-  await markedDuplicate(ctx, row.id, false, row.possible_duplicate)
+    },
+    (inserted) =>
+      finishCustom(ctx, { type: 'contact', id: inserted.id }, custom.value, { history: false }),
+  )
   return ok(await contactView(ctx, row))
 }
 
@@ -575,6 +638,8 @@ async function updateContact(
   id: string,
   input: ContactInput,
 ): Promise<Result<ContactView>> {
+  // Ключи — до строки контакта: тот же порядок блокировок, что у приёма регистраций.
+  await lockContactKeys(ctx, input.phones ?? [], input.emails ?? [])
   const found = await writableContact(ctx, id)
   if (!found.ok) return found
   const row = found.value
@@ -607,7 +672,7 @@ async function updateContact(
     })
     .where('id', '=', id)
     .execute()
-  await replaceKeys(ctx, id, input)
+  await replaceContactKeys(ctx, id, input)
   const after = await contactView(ctx, await reload(ctx, id))
   await recordChanges(ctx, { type: 'contact', id }, diffFields(before, after, LOGGED_FIELDS))
   await finishCustom(ctx, { type: 'contact', id }, custom.value, { history: true })

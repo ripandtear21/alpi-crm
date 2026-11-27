@@ -14,6 +14,7 @@ import {
   type Outcome,
   ok,
   readBody,
+  readLimit,
   refuse,
   requiredText,
   UUID,
@@ -21,6 +22,7 @@ import {
 import { omitFromIdempotentReplay } from '../http/idempotency.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
+import { inboundPage } from './journal.ts'
 import { issueIntakeKey } from './key.ts'
 
 // Управление источниками регистраций проекта (тикет crm-intake/03): `/v1/intake-sources`
@@ -222,29 +224,58 @@ export function intakeSourcesRoutes() {
     outcome.ok ? c.json(outcome.value as object, status) : fail(c, outcome)
   // Создание и смена ключа показывают ключ один раз: повтор с тем же Idempotency-Key отдаёт
   // ответ без него (http/idempotency.ts, omitFromIdempotentReplay); ответ не кэшируется.
-  return new Hono<PermissionsEnv>()
-    .get('/', requirePermission('integrations', 'view'), async (c) => {
-      const rows = await selectSources(c.get('db'))
-        .orderBy(sql`s.disabled_at is not null`)
-        .orderBy('s.created_at', 'desc')
-        .orderBy('s.id')
-        .execute()
-      return c.json<IntakeSourceSummary[]>(rows.map(sourceSummary))
-    })
-    .post('/', requirePermission('integrations', 'create'), async (c) => {
-      omitFromIdempotentReplay(c, ['key'])
-      c.header('cache-control', 'no-store')
-      return respond(c, await createSource(c), 201)
-    })
-    .post('/:id/reissue-key', requirePermission('integrations', 'edit'), async (c) => {
-      omitFromIdempotentReplay(c, ['key'])
-      c.header('cache-control', 'no-store')
-      return respond(c, await reissueKey(c, c.req.param('id')))
-    })
-    .post('/:id/disable', requirePermission('integrations', 'edit'), async (c) =>
-      respond(c, await setDisabled(c, c.req.param('id'), true)),
-    )
-    .post('/:id/enable', requirePermission('integrations', 'edit'), async (c) =>
-      respond(c, await setDisabled(c, c.req.param('id'), false)),
-    )
+  return (
+    new Hono<PermissionsEnv>()
+      .get('/', requirePermission('integrations', 'view'), async (c) => {
+        const rows = await selectSources(c.get('db'))
+          .orderBy(sql`s.disabled_at is not null`)
+          .orderBy('s.created_at', 'desc')
+          .orderBy('s.id')
+          .execute()
+        return c.json<IntakeSourceSummary[]>(rows.map(sourceSummary))
+      })
+      .post('/', requirePermission('integrations', 'create'), async (c) => {
+        omitFromIdempotentReplay(c, ['key'])
+        c.header('cache-control', 'no-store')
+        return respond(c, await createSource(c), 201)
+      })
+      .post('/:id/reissue-key', requirePermission('integrations', 'edit'), async (c) => {
+        omitFromIdempotentReplay(c, ['key'])
+        c.header('cache-control', 'no-store')
+        return respond(c, await reissueKey(c, c.req.param('id')))
+      })
+      .post('/:id/disable', requirePermission('integrations', 'edit'), async (c) =>
+        respond(c, await setDisabled(c, c.req.param('id'), true)),
+      )
+      .post('/:id/enable', requirePermission('integrations', 'edit'), async (c) =>
+        respond(c, await setDisabled(c, c.req.param('id'), false)),
+      )
+      // Журнал входящих источника (тикет crm-intake/06): новые сверху, с телом запроса; фильтр
+      // `?outcome=accepted|repeat|error`, курсор `?cursor=`, размер `?limit=`.
+      .get('/:id/requests', requirePermission('integrations', 'view'), async (c) => {
+        const id = c.req.param('id')
+        const db = c.get('db')
+        const source = UUID.test(id)
+          ? await db
+              .selectFrom('intake_source')
+              .select('id')
+              .where('id', '=', id)
+              .executeTakeFirst()
+          : undefined
+        if (!source) return fail(c, refuse(404, 'INTAKE_SOURCE_NOT_FOUND'))
+        const limit = readLimit(c.req.query('limit'))
+        const cursor = c.req.query('cursor')
+        const outcome = c.req.query('outcome')
+        const page =
+          limit === undefined
+            ? null
+            : await inboundPage(db, source.id, {
+                limit,
+                ...(cursor === undefined ? {} : { cursor }),
+                ...(outcome === undefined ? {} : { outcome }),
+              })
+        if (!page) return fail(c, refuse(400, 'INVALID_INBOUND_QUERY'))
+        return c.json(page)
+      })
+  )
 }

@@ -65,8 +65,12 @@ describe('источники регистраций', () => {
     })
   }
 
-  /** Запрос приёма к основному приложению: путь `/intake/...` (снаружи — /api/intake/...). */
-  const intake = (key: string | null, path = '/intake/registrations') =>
+  /**
+   * Запрос приёма к основному приложению: путь `/intake/...` (снаружи — /api/intake/...). По
+   * умолчанию — путь без маршрута: принятый ключ получает 404, а не 401 (регистрации — тикет 06,
+   * intake/registrations.test.ts).
+   */
+  const intake = (key: string | null, path = '/intake/unknown') =>
     bearerRequest(h.app, key, 'POST', path, { event_id: `e-${++counter}` })
 
   async function createPipeline(projectId: string): Promise<string> {
@@ -528,7 +532,7 @@ describe('источники регистраций', () => {
       const busy = await createSource()
       const quiet = await createSource()
       const send = (key: string) =>
-        bearerRequest(app, key, 'POST', '/intake/registrations', { event_id: `l-${++counter}` })
+        bearerRequest(app, key, 'POST', '/intake/unknown', { event_id: `l-${++counter}` })
 
       const firstAnswer = await send(busy.key)
       expect(firstAnswer.status).toBe(404)

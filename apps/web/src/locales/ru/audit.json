@@ -127,6 +127,10 @@
       "key_reissued": "Сменён ключ источника регистраций",
       "disabled": "Отключён источник регистраций",
       "enabled": "Включён источник регистраций"
+    },
+    "inbound": {
+      "replay_started": "Запущено повторное проведение входящих",
+      "replay_finished": "Входящие проведены заново"
     }
   },
   "summary": {
@@ -146,6 +150,8 @@
     "reordered": "новый порядок",
     "presetApplied": "настройка {{preset}}",
     "caughtUp": "{{url}}: события с {{since}}, в очереди: {{n}}",
+    "replayStarted": "входящие с {{since}}",
+    "replayFinished": "входящие с {{since}}: принято {{accepted}}, повторов {{repeats}}, ошибок {{errors}}",
     "dealMerged": "Сделка {{merged}} объединена с {{survivor}}",
     "dealUnmerged": "Сделка {{merged}} снова отдельно от {{survivor}}",
     "merged": "Контакт {{merged}} объединён с {{survivor}}",

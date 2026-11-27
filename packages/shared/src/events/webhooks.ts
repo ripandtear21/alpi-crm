@@ -1,4 +1,4 @@
-import type { EventBody, EventType } from './index.ts'
+import type { EventBody, EventEntity, EventType } from './index.ts'
 
 // Адреса автоматизации и доставка событий (тикет crm-api/06): общие типы API
 // `/api/v1/webhook-endpoints` и экрана «Налаштування → Вебхуки» (тикет 07), описания типов событий
@@ -57,12 +57,13 @@ export const EVENT_TYPE_TITLES: Record<EventType, { uk: string; ru: string }> = 
   },
   'contact.merged': { uk: "Контакти об'єднано", ru: 'Контакты объединены' },
   'contact.unmerged': { uk: "Об'єднання контактів скасовано", ru: 'Слияние контактов отменено' },
+  'registration.created': { uk: 'Реєстрацію прийнято', ru: 'Регистрация принята' },
 }
 
 /** Тип события в ответе `GET /api/v1/webhook-endpoints/event-types`. */
 export interface WebhookEventTypeInfo {
   type: EventType
-  entity: 'deal' | 'contact'
+  entity: EventEntity
   title: { uk: string; ru: string }
 }
 

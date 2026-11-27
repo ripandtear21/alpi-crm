@@ -332,7 +332,7 @@ export async function mergedDealIds(db: Kysely<Database>, id: string): Promise<s
   return rows.map((row) => row.id)
 }
 
-export async function reloadDeal(ctx: DealContext, id: string): Promise<DealRow> {
+export async function reloadDeal(ctx: Pick<DealContext, 'db'>, id: string): Promise<DealRow> {
   return selectDeals(ctx.db).where('id', '=', id).executeTakeFirstOrThrow()
 }
 
