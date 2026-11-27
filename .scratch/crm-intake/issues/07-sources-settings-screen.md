@@ -1,7 +1,7 @@
 # Экран «Налаштування → Джерела» и журнал входящих источника
 
 Type: task
-Status: claimed 2026-11-27T16:31Z
+Status: done 2026-11-27T18:51Z
 PR: #47
 Branch: crm-intake/07
 Blocked by: 03, 06
