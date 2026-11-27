@@ -1,9 +1,16 @@
 name: CI
 
-# Push в любую ветку — чтобы ветка тикета проверялась до слияния в main.
+# Ветка тикета проверяется через свой PR (pull_request). Push запускает CI только в main:
+# раньше push в любую ветку плюс pull_request гоняли каждый коммит PR дважды.
+# Коммиты в main, которые меняют только тикеты (.scratch/) и документы (docs/), CI не запускают.
+# У pull_request фильтра путей нет: обязательная проверка ci-ok должна прийти в каждый PR.
+# Ветку без PR можно проверить вручную: Actions → CI → Run workflow (workflow_dispatch).
 on:
   push:
-    branches: ["**"]
+    branches: [main]
+    paths-ignore:
+      - ".scratch/**"
+      - "docs/**"
   pull_request:
   workflow_dispatch:
 
