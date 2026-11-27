@@ -4,7 +4,7 @@ import { type Kysely, sql } from 'kysely'
 import { requestAuthor } from '../api-keys/actor.ts'
 import type { ChangeAuthor } from '../change-log/record.ts'
 import type { ContactsErrorCode } from '../contacts/contacts.ts'
-import { type Ctx, type Outcome, ok, type Refusal, refuse } from '../contacts/http.ts'
+import { type Ctx, type Outcome, ok, refuse } from '../contacts/http.ts'
 import type { FieldViewer } from '../fields/access.ts'
 import { type CustomValues, visibleCustom } from '../fields/values.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
@@ -241,84 +241,79 @@ export function findDeal(ctx: DealContext, id: string, scope: Scope, lock = fals
 /**
  * Сделки `ids` под блокировкой до конца транзакции, в одном порядке (по id): одновременные
  * слияния и откаты не сцепятся. Без охвата, в том числе слитые и в корзине: проверяет вызывающий.
+ *
+ * Порядок блокировок (тикет crm-intake/12) — контакт, потом сделка: сначала FOR SHARE основных
+ * контактов этих сделок (lockDealContacts), потом сделки. Слияние и откат контактов держат
+ * контакты FOR UPDATE и потом пишут в их сделки — путь «сделка, потом контакт» сцепился бы с
+ * ними (40P01).
  */
-export function lockDeals(db: Kysely<Database>, ids: readonly string[]): Promise<DealRow[]> {
-  return selectDeals(db)
+export async function lockDeals(db: Kysely<Database>, ids: readonly string[]): Promise<DealRow[]> {
+  if (ids.length === 0) return []
+  const shared = await lockDealContacts(db, ids)
+  const rows = await selectDeals(db)
     .where('id', 'in', [...ids])
     .orderBy('id')
     .forUpdate()
     .execute()
-}
-
-/** Наибольшая длина цепочки слияний, которую идём до конца: защита от цикла в данных. */
-const MAX_MERGE_CHAIN = 100
-
-/** Подробности ответа 404 DEAL_MERGED. */
-export interface DealMergedDetails {
-  /** Последняя оставшаяся сделка цепочки. */
-  merged_into_id: string
-  /**
-   * Слияние, которое скрыло запрошенную сделку; null — его нет или оно сделано вместе со
-   * слиянием контактов и откатывается только с ним.
-   */
-  merge_id: string | null
-  /** До какого времени слияние можно откатить (ISO 8601); null — слияния нет. */
-  undo_until: string | null
+  // Основной контакт сменился, пока ждали контакты (сделки перенесло слияние контактов): его
+  // блокировка — уже после сделки. shortcut: порядок здесь не соблюдён. Взаимоблокировку с ещё
+  // одним слиянием этого контакта слияние и откат превращают в 409 MERGE_RETRY
+  // (merge/store.ts, deadlockRefusal); окончательное удаление сделки (deals/deals.ts, purgeDeal)
+  // и фоновая очистка корзины (trash/purgers.ts) не обёрнуты — там это 500 или повтор задачи.
+  // Переделать, если такие отказы станут заметны в журнале.
+  await shareContacts(
+    db,
+    rows.map((row) => row.primary_contact_id).filter((id) => !shared.includes(id)),
+  )
+  return rows
 }
 
 /**
- * Отказ для сделки `id`, если она слита с другой (тикет crm-intake/02; по образцу пункта 25):
- * 404 DEAL_MERGED с id последней оставшейся в цепочке (A слита в B, B потом в C — C), если та
- * в охвате чтения `scope`; иначе 404 DEAL_NOT_FOUND — ответ не выдаёт ни слияния, ни id чужой
- * сделки (решено без владельца — подтвердить). null — сделка не слита или её нет.
+ * Сделки `ids` и все слитые в них (по цепочке) — одним списком (lockDeals): окончательное
+ * удаление стирает цепочку вместе со строками её слияний (purge_from_trash), и блокировки в том
+ * же порядке, что у слияния и отката, не сцепятся с ними (тикет crm-intake/12).
  */
-export async function mergedDealRefusal(
-  db: Kysely<Database>,
-  id: string,
-  scope: Scope,
-  viewer: Viewer,
-): Promise<Refusal<'DEAL_MERGED' | 'DEAL_NOT_FOUND'> | null> {
-  const row = await db
-    .selectFrom('deal')
-    .select('merged_into_id')
-    .where('id', '=', id)
-    .executeTakeFirst()
-  if (!row?.merged_into_id) return null
-  let last = row.merged_into_id
-  for (let step = 0; step < MAX_MERGE_CHAIN; step++) {
-    const next = await db
-      .selectFrom('deal')
-      .select('merged_into_id')
-      .where('id', '=', last)
-      .executeTakeFirst()
-    if (!next?.merged_into_id) break
-    last = next.merged_into_id
-  }
-  const visible = await db
-    .selectFrom('deal')
+export async function lockDealChains(db: Kysely<Database>, ids: readonly string[]) {
+  const chain = [...ids]
+  for (const id of ids) chain.push(...(await mergedDealIds(db, id)))
+  return lockDeals(db, chain)
+}
+
+/**
+ * Блокирует FOR SHARE контакты `ids` в одном порядке (по id), без проверок: перед блокировкой
+ * сделки, к которой их привязывают (тикет crm-intake/12, порядок «контакт, потом сделка»).
+ * Строку с проверками читает вызывающий; эта блокировка — та же, его FOR SHARE пройдёт сразу.
+ */
+export async function shareContacts(db: Kysely<Database>, ids: readonly string[]): Promise<void> {
+  const unique = [...new Set(ids)]
+  if (unique.length === 0) return
+  await db
+    .selectFrom('contact')
     .select('id')
-    .where('id', '=', last)
-    .where(dealInScope(sql.ref('deal.owner_id'), scope, viewer))
-    .executeTakeFirst()
-  if (!visible) return refuse(404, 'DEAL_NOT_FOUND')
-  const merge = await db
-    .selectFrom('merge_record')
-    .select(['id', 'undo_until'])
-    .where('entity_type', '=', 'deal')
-    .where('merged_id', '=', id)
-    .where('undone_at', 'is', null)
-    // Слияние вместе со слиянием контактов (тикет crm-intake/04) отдельно не откатить: без
-    // merge_id карточка скрытой сделки не предлагает откат.
-    .where('parent_id', 'is', null)
-    .orderBy('merged_at', 'desc')
-    .limit(1)
-    .executeTakeFirst()
-  const details: DealMergedDetails = {
-    merged_into_id: last,
-    merge_id: merge?.id ?? null,
-    undo_until: merge ? new Date(merge.undo_until).toISOString() : null,
-  }
-  return refuse(404, 'DEAL_MERGED', { ...details })
+    .where('id', 'in', unique)
+    .orderBy('id')
+    .forShare()
+    .execute()
+}
+
+/**
+ * Блокирует FOR SHARE основные контакты сделок `ids` (их читают без блокировки) — до
+ * блокировки самих сделок. Возвращает id заблокированных контактов: после блокировки сделки
+ * вызывающий сверяет её основной контакт.
+ */
+export async function lockDealContacts(
+  db: Kysely<Database>,
+  ids: readonly string[],
+): Promise<string[]> {
+  if (ids.length === 0) return []
+  const rows = await db
+    .selectFrom('deal')
+    .select('primary_contact_id')
+    .where('id', 'in', [...ids])
+    .execute()
+  const contactIds = [...new Set(rows.map((row) => row.primary_contact_id))]
+  await shareContacts(db, contactIds)
+  return contactIds
 }
 
 /**

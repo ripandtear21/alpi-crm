@@ -157,6 +157,5 @@
     "merged": "Контакт {{merged}} объединён с {{survivor}}",
     "unmerged": "Контакт {{merged}} снова отдельно от {{survivor}}"
   },
-  "undoDealMerge": "Отменить объединение",
   "undoMerge": "Отменить объединение"
 }

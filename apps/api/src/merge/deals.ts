@@ -1,13 +1,9 @@
 import { can } from '@alpi/shared'
 import { Hono } from 'hono'
-import { sql } from 'kysely'
-import { requestAuthor } from '../api-keys/actor.ts'
-import { type Ctx, fail, ok, readBody, refuse, UUID } from '../contacts/http.ts'
+import { type Ctx, fail, type Outcome, ok, readBody, refuse, UUID } from '../contacts/http.ts'
 import { ownerAllowed } from '../deals/scope.ts'
-import { type DealView, dealView, mergedDealRefusal } from '../deals/store.ts'
-import { visibleCustom } from '../fields/values.ts'
+import { type DealView, dealView } from '../deals/store.ts'
 import { type PermissionsEnv, requestAccess, requirePermission } from '../middleware/permissions.ts'
-import { requestViewer } from '../roles/scope.ts'
 import { undoContactMerge } from './contacts.ts'
 import {
   checkedDealPair,
@@ -17,8 +13,17 @@ import {
   undoDealMerge,
 } from './deal-core.ts'
 import { DEAL_MERGE_REGISTRY, type MovedAmount } from './deal-registry.ts'
+import { mergedRefusal } from './merged.ts'
 import { planAll } from './registry.ts'
-import { type MergeView, mergeViews } from './store.ts'
+import {
+  deadlockRefusal,
+  type MergeView,
+  mergeContext,
+  mergeViews,
+  previewFields,
+  readMergedId,
+  undoableMerges,
+} from './store.ts'
 
 // Слияние сделок с откатом (тикет crm-intake/02; пункты 26, 29, 30, 36; ADR 0005). Только по
 // сессии: ключу API маршруты закрыты (403 API_KEY_NOT_ALLOWED).
@@ -41,45 +46,20 @@ import { type MergeView, mergeViews } from './store.ts'
 // - Обе сделки блокируются FOR UPDATE в одном порядке до первого чтения. Добавление заметки,
 //   файла (timeline/entity.ts, FOR SHARE), строки товара и участника (deals/store.ts,
 //   writableDeal, FOR UPDATE) ждёт слияния и потом не находит скрытую сделку.
+// - Порядок блокировок (тикет crm-intake/12) — «контакт, потом сделка и заметка», как у слияния
+//   контактов: основные контакты сделок — FOR SHARE до сделок (deals/store.ts, lockDeals), запись
+//   слияния при откате — после сделок (merge/store.ts, lockedMerge). Взаимоблокировка, которую
+//   порядок не покрыл, — 409 MERGE_RETRY (merge/store.ts, deadlockRefusal).
 // - Время слияния — clock_timestamp() после блокировок (merge/store.ts, insertMerge). Откат
 //   отказывает, если оставшаяся сама уже слита с другой: иначе перешедшее к ней осталось бы у
 //   скрытой сделки.
 //
 // Проверки пары, слияние и откат — merge/deal-core.ts (общие со слиянием контактов, тикет
-// crm-intake/04). Слияние сделок, сделанное вместе со слиянием контактов, отдельно не
-// откатывается (409 MERGE_UNDO_NESTED) и в списке слияний сделки не показывается.
+// crm-intake/04); контекст, тело, поля предпросмотра и список слияний — merge/store.ts (общие с
+// контактами, тикет crm-intake/12). Слияние сделок, сделанное вместе со слиянием контактов,
+// отдельно не откатывается (409 MERGE_UNDO_NESTED) и в списке слияний сделки не показывается.
 
 type Result<T> = DealResult<T>
-
-async function mergeContext(c: Ctx): Promise<DealMergeContext> {
-  const db = c.get('db')
-  const actor = c.get('actor')
-  const { actorId } = requestAuthor(actor)
-  // Маршруты — только сессия: автор всегда пользователь.
-  if (actorId === null) throw new Error('слияние без пользователя')
-  const { permissions } = c.get('access')
-  return {
-    db,
-    projectId: c.get('projectId'),
-    actorId,
-    actorApiKeyId: null,
-    ip: c.get('clientIp'),
-    permissions,
-    viewer: await requestViewer(db, actor),
-    scope: permissions.scopes.deals,
-  }
-}
-
-function readMergedId(body: Record<string, unknown> | null): Result<string> {
-  if (!body) return refuse(400, 'INVALID_MERGE', { path: '' })
-  const extra = Object.keys(body).find((key) => key !== 'merge_deal_id')
-  if (extra !== undefined) return refuse(400, 'INVALID_MERGE', { path: extra })
-  const id = body.merge_deal_id
-  if (typeof id !== 'string' || !UUID.test(id)) {
-    return refuse(400, 'INVALID_MERGE', { path: 'merge_deal_id' })
-  }
-  return ok(id.toLowerCase())
-}
 
 // ---- Слияние ---------------------------------------------------------------------------------
 
@@ -117,30 +97,15 @@ async function preview(
   const { pair, survivor, merged } = checked.value
   const items = await planAll(DEAL_MERGE_REGISTRY, ctx, pair)
   const of = (kind: string) => items.filter((item) => item.kind === kind)
-  // Пользовательские поля скрытых от роли групп в предпросмотр не попадают (но переходят).
-  const fieldItems = of('field')
-  const [visible = {}] = await visibleCustom(ctx, 'deal', [
-    Object.fromEntries(
-      fieldItems
-        .filter((item) => item.field?.startsWith('custom.'))
-        .map((item) => [(item.field ?? '').slice('custom.'.length), item.value]),
-    ),
-  ])
   const primary = of('primary_participant')[0]
   return ok({
     survivor: await dealView(ctx, survivor),
     merged: await dealView(ctx, merged),
-    fields: fieldItems
-      .filter(
-        (item) =>
-          !item.field?.startsWith('custom.') ||
-          Object.hasOwn(visible, (item.field ?? '').slice('custom.'.length)),
-      )
-      .map((item) => {
-        if (item.field !== 'amount') return { field: item.field ?? '', value: item.value }
-        const { amount, currency } = item.value as MovedAmount
-        return { field: 'amount', value: { amount: Number(amount), currency } }
-      }),
+    fields: (await previewFields(ctx, 'deal', items)).map((item) => {
+      if (item.field !== 'amount') return { field: item.field ?? '', value: item.value }
+      const { amount, currency } = item.value as MovedAmount
+      return { field: 'amount', value: { amount: Number(amount), currency } }
+    }),
     products: of('deal_product').length,
     convertedProducts: of('deal_product').filter(
       (item) => (item.value as { convertedPrice: string | null }).convertedPrice !== null,
@@ -165,22 +130,11 @@ async function dealMerges(ctx: DealMergeContext, id: string): Promise<Result<Dea
   }
   if (deal.merged_into_id !== null) {
     return (
-      (await mergedDealRefusal(ctx.db, deal.id, ctx.scope.read, ctx.viewer)) ??
+      (await mergedRefusal(ctx.db, 'deal', deal.id, ctx.scope.read, ctx.viewer)) ??
       refuse(404, 'DEAL_NOT_FOUND')
     )
   }
-  const rows = await ctx.db
-    .selectFrom('merge_record')
-    .selectAll()
-    .where('entity_type', '=', 'deal')
-    .where('survivor_id', '=', deal.id)
-    // Вложенное (вместе со слиянием контактов) откатывается только с ним.
-    .where('parent_id', 'is', null)
-    .where('undone_at', 'is', null)
-    .where('undo_until', '>', sql<Date>`now()`)
-    .orderBy('merged_at', 'desc')
-    .orderBy('id', 'desc')
-    .execute()
+  const rows = await undoableMerges(ctx.db, 'deal', deal.id)
   const views = await mergeViews(ctx.db, rows)
   const titles =
     rows.length === 0
@@ -205,7 +159,7 @@ async function dealMerges(ctx: DealMergeContext, id: string): Promise<Result<Dea
 
 // ---- Маршруты --------------------------------------------------------------------------------
 
-function respond<T>(c: Ctx, outcome: Result<T>) {
+function respond<T, Code extends string>(c: Ctx, outcome: Outcome<T, Code>) {
   return outcome.ok ? c.json(outcome.value as object) : fail(c, outcome)
 }
 
@@ -214,17 +168,25 @@ export function dealMergeRoutes() {
   const edit = requirePermission('deals', 'edit')
   return new Hono<PermissionsEnv>()
     .get('/:id/merges', requirePermission('deals', 'view'), async (c) =>
-      respond(c, await dealMerges(await mergeContext(c), c.req.param('id'))),
+      respond(c, await dealMerges(await mergeContext(c, 'deal'), c.req.param('id'))),
     )
     .post('/:id/merge/preview', edit, async (c) => {
-      const mergedId = readMergedId(await readBody(c))
+      const mergedId = readMergedId(await readBody(c), 'deal')
       if (!mergedId.ok) return fail(c, mergedId)
-      return respond(c, await preview(await mergeContext(c), c.req.param('id'), mergedId.value))
+      const ctx = await mergeContext(c, 'deal')
+      return respond(
+        c,
+        await deadlockRefusal(ctx.db, () => preview(ctx, c.req.param('id'), mergedId.value)),
+      )
     })
     .post('/:id/merge', edit, async (c) => {
-      const mergedId = readMergedId(await readBody(c))
+      const mergedId = readMergedId(await readBody(c), 'deal')
       if (!mergedId.ok) return fail(c, mergedId)
-      return respond(c, await mergeDeals(await mergeContext(c), c.req.param('id'), mergedId.value))
+      const ctx = await mergeContext(c, 'deal')
+      return respond(
+        c,
+        await deadlockRefusal(ctx.db, () => mergeDeals(ctx, c.req.param('id'), mergedId.value)),
+      )
     })
 }
 
@@ -250,11 +212,13 @@ export function mergesRoutes() {
       // Тикет crm-intake/01: право «контакты: изменять» проверяет ветка контакта.
       case 'contact':
         return undoContactMerge(c, id)
-      case 'deal':
+      case 'deal': {
         if (!can(access.permissions, 'deals', 'edit')) {
           return fail(c, refuse(403, 'PERMISSION_DENIED'))
         }
-        return respond(c, await undoDealMerge(await mergeContext(c), id))
+        const ctx = await mergeContext(c, 'deal')
+        return respond(c, await deadlockRefusal(ctx.db, () => undoDealMerge(ctx, id)))
+      }
       default:
         return fail(c, refuse(404, 'MERGE_NOT_FOUND'))
     }

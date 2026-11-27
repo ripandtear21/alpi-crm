@@ -1,42 +1,34 @@
+import {
+  type FakeMergeState,
+  fakeMergeIds,
+  mergeRecordOf,
+  sampleMergeRecord,
+  survivorMerges,
+  takeFailure,
+  undoneMerge,
+} from '../../../../components/merge/fake-merge-api.ts'
 import type { DealCard } from '../deal-card-api.ts'
 import type { FakeDealCardApi } from '../fake-deal-card-api.ts'
 import {
   type DealHit,
   type DealMergeListItem,
   type DealMergePreview,
-  type DealMergeRecord,
   type DealMergesApi,
   DealMergesApiError,
-  type DealUndoSkip,
 } from './deal-merges-api.tsx'
 
 // Подставной клиент слияния сделок для тестов экрана: слияния живут в памяти, сделки — в
 // подставном клиенте карточки (`cards`): слияние скрывает вторую сделку (её запрос отвечает
 // 404 DEAL_MERGED), откат возвращает. Отказ на следующий вызов слияния или отката — `fail`.
+// Общее с контактами — components/merge/fake-merge-api.ts (тикет crm-intake/12).
 
-export interface FakeDealMergesApi extends DealMergesApi {
-  merges: DealMergeListItem[]
-  /** Что пропустит откат (итог отката). */
-  skipped: DealUndoSkip[]
-  /** Отказ на следующий вызов слияния или отката. */
-  fail: DealMergesApiError | null
-  calls: string[]
-}
+export interface FakeDealMergesApi extends DealMergesApi, FakeMergeState<DealMergeListItem> {}
 
-let counter = 0
-const fakeId = () => `00000000-0000-4000-9600-${String(++counter).padStart(12, '0')}`
+const fakeId = fakeMergeIds('9600')
 
 export function sampleDealMerge(overrides: Partial<DealMergeListItem> = {}): DealMergeListItem {
   return {
-    id: fakeId(),
-    entityType: 'deal',
-    survivorId: '',
-    mergedId: '',
-    parentId: null,
-    mergedBy: { id: 'user-1', name: 'Власник' },
-    mergedAt: '2026-11-20T10:00:00.000Z',
-    undoUntil: '2099-12-20T10:00:00.000Z',
-    undoneAt: null,
+    ...sampleMergeRecord('deal', fakeId(), '2099-12-20T10:00:00.000Z'),
     mergedDeal: { id: '', title: '' },
     ...overrides,
   }
@@ -55,15 +47,6 @@ export function fakeDealMergesApi({
     const found = cards.deals.find((item) => item.id === id)
     if (!found || cards.mergedInto[id]) throw new DealMergesApiError(404, 'DEAL_NOT_FOUND')
     return structuredClone(found)
-  }
-  const takeFailure = () => {
-    const failure = api.fail
-    api.fail = null
-    if (failure) throw failure
-  }
-  const record = (item: DealMergeListItem): DealMergeRecord => {
-    const { mergedDeal: _title, ...merge } = item
-    return structuredClone(merge)
   }
   const api: FakeDealMergesApi = {
     merges: [],
@@ -102,7 +85,7 @@ export function fakeDealMergesApi({
     },
     async merge(_projectId, survivorId, mergedId) {
       api.calls.push(`merge ${survivorId} ${mergedId}`)
-      takeFailure()
+      takeFailure(api)
       const merged = deal(mergedId)
       const item = sampleDealMerge({
         survivorId,
@@ -115,22 +98,18 @@ export function fakeDealMergesApi({
         merge_id: item.id,
         undo_until: item.undoUntil,
       }
-      return { merge: record(item), deal: deal(survivorId) }
+      return { merge: mergeRecordOf(item), deal: deal(survivorId) }
     },
     async dealMerges(_projectId, dealId) {
       api.calls.push(`merges ${dealId}`)
-      return structuredClone(api.merges.filter((m) => m.survivorId === dealId && !m.undoneAt))
+      return survivorMerges(api, dealId)
     },
     async undo(_projectId, mergeId) {
-      api.calls.push(`undo ${mergeId}`)
-      takeFailure()
-      const item = api.merges.find((m) => m.id === mergeId)
-      if (!item) throw new DealMergesApiError(404, 'MERGE_NOT_FOUND')
-      item.undoneAt = '2026-11-21T10:00:00.000Z'
+      const item = undoneMerge(api, mergeId)
       const { [item.mergedId]: _hidden, ...visible } = cards.mergedInto
       cards.mergedInto = visible
       return {
-        merge: record(item),
+        merge: mergeRecordOf(item),
         deal: deal(item.survivorId),
         mergedDeal: deal(item.mergedId),
         skipped: structuredClone(api.skipped),

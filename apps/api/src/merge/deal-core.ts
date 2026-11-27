@@ -1,8 +1,6 @@
-import type { Database } from '@alpi/db'
-import type { ResourceScope } from '@alpi/shared'
-import { type Kysely, sql } from 'kysely'
+import { sql } from 'kysely'
 import { audit } from '../audit/record.ts'
-import { diffFields, type FieldChange, recordChanges } from '../change-log/record.ts'
+import { recordChanges } from '../change-log/record.ts'
 import { type Outcome, ok, refuse, UUID } from '../contacts/http.ts'
 import { ownerAllowed } from '../deals/scope.ts'
 import {
@@ -11,30 +9,24 @@ import {
   dealView,
   LOGGED_FIELDS,
   lockDeals,
-  mergedDealRefusal,
   reloadDeal,
 } from '../deals/store.ts'
 import { emitEvent } from '../events/emit.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { DEAL_MERGE_REGISTRY } from './deal-registry.ts'
+import { mergedRefusal } from './merged.ts'
+import { applyAll, type MergePair, planAll, restoreAll, type UndoSkip } from './registry.ts'
 import {
-  applyAll,
-  canonical,
-  type MergeActor,
-  type MergePair,
-  planAll,
-  restoreAll,
-  type UndoSkip,
-} from './registry.ts'
-import {
-  findMerge,
+  changesOf,
   insertMerge,
-  laterMerge,
+  lockedMerge,
+  type MergeContext,
   type MergeView,
   markUndone,
   mergeViews,
   movedItems,
-  undoExpired,
+  type Snapshot,
+  undoRefusal,
 } from './store.ts'
 
 // Ядро слияния сделок и его отката (тикет crm-intake/02): проверки пары, слияние, откат. Общее
@@ -43,6 +35,7 @@ import {
 // merge/deals.ts импортирует merge/contacts.ts (общий откат), и обратный импорт дал бы цикл.
 //
 // Функции не открывают своей транзакции: работают в транзакции проекта запроса (`ctx.db`).
+// Общее со слиянием контактов (контекст, «было → стало», проверки отката) — merge/store.ts.
 
 export type DealMergeErrorCode =
   | 'PERMISSION_DENIED'
@@ -77,13 +70,16 @@ export type DealMergeErrorCode =
    * вместе с ним, `details.mergeId` — слияние контактов.
    */
   | 'MERGE_UNDO_NESTED'
+  /**
+   * Взаимоблокировка с одновременным изменением тех же записей (тикет crm-intake/12): ничего не
+   * изменилось, запрос можно повторить (merge/store.ts, deadlockRefusal).
+   */
+  | 'MERGE_RETRY'
 
 export type DealResult<T> = Outcome<T, DealMergeErrorCode>
 
-export interface DealMergeContext extends MergeActor {
-  /** Охват сделок. */
-  scope: ResourceScope
-}
+/** Контекст слияния сделок: охват — сделок (merge/store.ts, mergeContext). */
+export type DealMergeContext = MergeContext
 
 // ---- Проверки --------------------------------------------------------------------------------
 
@@ -106,7 +102,7 @@ async function mergeable(
   if (!row) return refuse(404, 'DEAL_NOT_FOUND')
   if (row.merged_into_id !== null) {
     return (
-      (await mergedDealRefusal(ctx.db, id, ctx.scope.read, ctx.viewer)) ??
+      (await mergedRefusal(ctx.db, 'deal', id, ctx.scope.read, ctx.viewer)) ??
       refuse(404, 'DEAL_NOT_FOUND')
     )
   }
@@ -140,26 +136,13 @@ export interface DealMergeResult {
 }
 
 /** Состояние сделки для истории: ответ API и все пользовательские поля (без фильтра роли). */
-async function snapshot(ctx: DealMergeContext, id: string) {
+async function snapshot(ctx: DealMergeContext, id: string): Promise<Snapshot<DealView>> {
   const row = await reloadDeal(ctx, id)
   return { view: await dealView(ctx, row), custom: row.custom }
 }
 
-type Snapshot = Awaited<ReturnType<typeof snapshot>>
-
-/** «Было → стало» сделки: поля истории, строки товаров и пользовательские поля по коду. */
-function changesOf(before: Snapshot, after: Snapshot): FieldChange[] {
-  const changes = diffFields(before.view, after.view, [...LOGGED_FIELDS, 'products'])
-  const codes = [...new Set([...Object.keys(before.custom), ...Object.keys(after.custom)])].sort()
-  for (const code of codes) {
-    const was = before.custom[code] ?? null
-    const now = after.custom[code] ?? null
-    if (canonical(was) !== canonical(now)) {
-      changes.push({ field: `custom.${code}`, before: was, after: now })
-    }
-  }
-  return changes
-}
+/** Поля истории сделки и строки товаров. */
+const HISTORY_FIELDS = [...LOGGED_FIELDS, 'products'] as const
 
 /**
  * Слияние сделки `mergedId` в `survivorId`. `parentId` — слияние контактов, в том же действии
@@ -190,11 +173,11 @@ export async function mergeDeals(
   const record = await insertMerge(ctx, 'deal', pair, items, parentId)
   const survivorAfter = await snapshot(ctx, pair.survivorId)
   await recordChanges(ctx, { type: 'deal', id: pair.survivorId }, [
-    ...changesOf(survivorBefore, survivorAfter),
+    ...changesOf(survivorBefore, survivorAfter, HISTORY_FIELDS),
     { field: 'mergedDealId', before: null, after: pair.mergedId },
   ])
   await recordChanges(ctx, { type: 'deal', id: pair.mergedId }, [
-    ...changesOf(mergedBefore, await snapshot(ctx, pair.mergedId)),
+    ...changesOf(mergedBefore, await snapshot(ctx, pair.mergedId), HISTORY_FIELDS),
     { field: 'mergedIntoId', before: null, after: pair.survivorId },
   ])
   await audit.record(ctx.db, ctx.projectId, {
@@ -245,20 +228,6 @@ async function openDealConflict(ctx: DealMergeContext, merged: DealRow): Promise
   return row?.id ?? null
 }
 
-/** Слияние, которое скрыло сделку `id` и ещё не откачено. */
-async function hidingMerge(db: Kysely<Database>, id: string): Promise<string | null> {
-  const row = await db
-    .selectFrom('merge_record')
-    .select('id')
-    .where('entity_type', '=', 'deal')
-    .where('merged_id', '=', id)
-    .where('undone_at', 'is', null)
-    .orderBy('merged_at', 'desc')
-    .limit(1)
-    .executeTakeFirst()
-  return row?.id ?? null
-}
-
 /**
  * Откат слияния сделок `id`. `parentId` — слияние контактов, которое откатывается вместе с ним
  * (тикет crm-intake/04); у самостоятельного отката null, и вложенное слияние он не откатывает
@@ -270,11 +239,12 @@ export async function undoDealMerge(
   id: string,
   parentId: string | null = null,
 ): Promise<DealResult<DealUndoResult>> {
-  const record = await findMerge(ctx.db, 'deal', id, true)
-  if (!record) return refuse(404, 'MERGE_NOT_FOUND')
-  if (record.undone_at !== null) return refuse(409, 'MERGE_ALREADY_UNDONE')
-  const pair = { survivorId: record.survivor_id, mergedId: record.merged_id }
-  const rows = await lockDeals(ctx.db, [pair.survivorId, pair.mergedId])
+  // Контакты, потом сделки, потом запись слияния (lockDeals, lockedMerge; тикет crm-intake/12).
+  const locked = await lockedMerge(ctx.db, 'deal', id, (pair) =>
+    lockDeals(ctx.db, [pair.survivorId, pair.mergedId]),
+  )
+  if (!locked.ok) return locked
+  const { record, pair, rows } = locked.value
   const survivor = rows.find((row) => row.id === pair.survivorId)
   const merged = rows.find((row) => row.id === pair.mergedId)
   if (!survivor || !merged) return refuse(404, 'MERGE_NOT_FOUND')
@@ -285,20 +255,10 @@ export async function undoDealMerge(
   if (record.parent_id !== parentId) {
     return refuse(409, 'MERGE_UNDO_NESTED', { mergeId: record.parent_id })
   }
-  if (await undoExpired(ctx.db, record)) return refuse(409, 'MERGE_UNDO_EXPIRED')
-  // Оставшаяся сама слита с другой — сначала откатить то слияние: иначе то, что перешло к ней,
-  // осталось бы у скрытой сделки.
-  if (survivor.merged_into_id !== null) {
-    return refuse(409, 'MERGE_UNDO_BLOCKED', {
-      mergeId: await hidingMerge(ctx.db, survivor.id),
-    })
-  }
-  const later = await laterMerge(ctx.db, record)
-  if (later !== null || merged.merged_into_id !== pair.survivorId) {
-    return refuse(409, 'MERGE_UNDO_BLOCKED', { mergeId: later })
-  }
-  if (survivor.deleted_at !== null) return refuse(409, 'MERGE_UNDO_SURVIVOR_TRASHED')
-  // FOR SHARE: контакт не уйдёт в корзину, пока сделка возвращается.
+  const refused = await undoRefusal(ctx.db, record, survivor, merged)
+  if (refused) return refused
+  // FOR SHARE: контакт не уйдёт в корзину, пока сделка возвращается (он уже заблокирован в
+  // lockDeals — до сделок).
   const contact = await ctx.db
     .selectFrom('contact')
     .select('id')
@@ -351,11 +311,11 @@ export async function undoDealMerge(
   const survivorAfter = await snapshot(ctx, pair.survivorId)
   const mergedAfter = await snapshot(ctx, pair.mergedId)
   await recordChanges(ctx, { type: 'deal', id: pair.survivorId }, [
-    ...changesOf(survivorBefore, survivorAfter),
+    ...changesOf(survivorBefore, survivorAfter, HISTORY_FIELDS),
     { field: 'mergedDealId', before: pair.mergedId, after: null },
   ])
   await recordChanges(ctx, { type: 'deal', id: pair.mergedId }, [
-    ...changesOf(mergedBefore, mergedAfter),
+    ...changesOf(mergedBefore, mergedAfter, HISTORY_FIELDS),
     { field: 'mergedIntoId', before: pair.survivorId, after: null },
   ])
   await audit.record(ctx.db, ctx.projectId, {

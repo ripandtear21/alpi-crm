@@ -1,7 +1,8 @@
 # Общий код слияния контактов и сделок; порядок блокировок
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T13:06Z
+Branch: crm-intake/12
 Blocked by: —
 Source: расширенные проверки PR #40 (тикет 02, https://github.com/ripandtear21/alpi-crm/pull/40#issuecomment-7203861626) и PR #39 (тикет 01, https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7206484228), группы Consider и Noted; docs/adr/0005-sliyanie-s-otkatom.md
 
@@ -24,6 +25,10 @@ apps/api/src/merge/**, apps/api/src/contacts/merged.ts, apps/api/src/deals/store
 ## Done when
 
 - [ ] Общие части слияния контактов и сделок — по одной функции с параметром вида записи; копий в `merge/contacts.ts`, `merge/deals.ts`, реестрах и вебе нет.
+  - evidence: commit pass · crm-intake/12: общий код слияния контактов и сделок, один порядок блокировок · - - · e69d7a5
 - [ ] Тесты слияния и отката контактов и сделок зелёные без изменения ожиданий.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge` exit 0 · windows - · e69d7a5
 - [ ] Тест на настоящей базе: слияние контактов одновременно с правкой заметки, добавлением участника сделки и откатом слияния сделок того же человека не даёт 500.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/merge/lock-order.test.ts` exit 0 · windows - · e69d7a5
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · e69d7a5

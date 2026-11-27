@@ -1,6 +1,7 @@
 import type { LostReasonGroupSummary, PipelineSummary } from '@alpi/shared'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import '../../../components/merge/merge.css'
 import type { TimelineItem } from '../../../components/timeline/timeline-api.ts'
 
 // Строка «було → стало» в ленте сделки: поле — подписью карточки, id этапа, воронки, причины и
@@ -135,5 +136,5 @@ export function withMergedMark(change: Change, text: ReactNode): ReactNode {
 
 function MergedMark() {
   const { t } = useTranslation('deal-card')
-  return <span className="deal-merge-mark">({t('changes.fromMerged')})</span>
+  return <span className="merge-mark">({t('changes.fromMerged')})</span>
 }

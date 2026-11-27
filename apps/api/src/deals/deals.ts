@@ -43,6 +43,7 @@ import {
   prepareCustom,
   readCustomInput,
 } from '../fields/values.ts'
+import { mergedRefusal } from '../merge/merged.ts'
 import { type PermissionsEnv, requirePermission } from '../middleware/permissions.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import { dealAggregates, dealOwners, listDeals } from './board.ts'
@@ -81,13 +82,15 @@ import {
   findDeal,
   guardedWrite,
   LOGGED_FIELDS,
+  lockDealChains,
+  lockDealContacts,
   MAX_AMOUNT,
   MAX_TITLE_LENGTH,
   mergedDealIds,
-  mergedDealRefusal,
   type OpenDealTarget,
   type Result,
   reloadDeal,
+  shareContacts,
   writableDeal,
 } from './store.ts'
 
@@ -698,6 +701,9 @@ async function updateDeal(
   const customInput = readCustomInput(body.custom)
   if (customInput === null) return invalid('custom')
   if (Object.keys(input).length === 0 && customInput === undefined) return invalid('')
+  // Новый основной контакт — до строки сделки (порядок «контакт, потом сделка», тикет
+  // crm-intake/12): слияние контактов держит контакт и потом пишет в его сделки.
+  if (input.primaryContactId !== undefined) await shareContacts(ctx.db, [input.primaryContactId])
   let custom: CustomWrite | undefined
   const changed = await changeDeal(ctx, id, async (row) => {
     const set: DealSet = {}
@@ -1031,6 +1037,8 @@ async function trashDeal(ctx: DealContext, id: string): Promise<Result<null>> {
  * сначала контакт), этап открытой сделки действует, «одна открытая сделка» — как при создании.
  */
 async function restoreDeal(ctx: DealContext, id: string): Promise<Result<DealView>> {
+  // Основной контакт — до строки сделки (тикет crm-intake/12, deals/store.ts, lockDealContacts).
+  if (UUID.test(id)) await lockDealContacts(ctx.db, [id.toLowerCase()])
   const found = await writableDeal(ctx, id, { inTrash: true })
   if (!found.ok) return found
   const row = found.value
@@ -1057,6 +1065,9 @@ async function restoreDeal(ctx: DealContext, id: string): Promise<Result<DealVie
  * товаров, заметками, файлами и историей; в журнал опасных действий — только id.
  */
 async function purgeDeal(ctx: DealContext, id: string): Promise<Result<null>> {
+  // Вся цепочка слитых — до строки сделки и в порядке отката слияния (тикет crm-intake/12,
+  // deals/store.ts, lockDealChains): удаление стирает и строки слияний, которые откат блокирует.
+  if (UUID.test(id)) await lockDealChains(ctx.db, [id.toLowerCase()])
   const found = await writableDeal(ctx, id, { inTrash: true })
   if (!found.ok) return found
   if (found.value.deleted_at === null) return refuse(409, 'NOT_IN_TRASH')
@@ -1095,6 +1106,9 @@ async function addParticipant(c: Ctx, ctx: DealContext, id: string): Promise<Res
   if (contactId === undefined) return invalid('contactId')
   const role = readRole(body.role)
   if (role === undefined) return invalid('role')
+  // Контакт — до строки сделки (порядок «контакт, потом сделка», тикет crm-intake/12): слияние
+  // контактов держит контакт FOR UPDATE и потом пишет в его сделки.
+  await shareContacts(ctx.db, [contactId])
   return changeParticipants(ctx, id, async (row) => {
     if (row.primary_contact_id === contactId) return refuse(409, 'CONTACT_IS_PRIMARY')
     const contact = await liveContact(ctx, contactId, 'bind')
@@ -1183,7 +1197,7 @@ export interface DealHistoryEntry {
 
 /**
  * Сделка для чтения: в охвате чтения, не в корзине. Слитая — 404 DEAL_MERGED с id оставшейся
- * (deals/store.ts, mergedDealRefusal), иначе 404 DEAL_NOT_FOUND.
+ * (merge/merged.ts, mergedRefusal), иначе 404 DEAL_NOT_FOUND.
  */
 async function visibleDeal(ctx: DealContext, id: string): Promise<Result<DealRow>> {
   if (!UUID.test(id)) return refuse(404, 'DEAL_NOT_FOUND')
@@ -1191,7 +1205,7 @@ async function visibleDeal(ctx: DealContext, id: string): Promise<Result<DealRow
   if (row && row.deleted_at === null) return ok(row)
   if (row) return refuse(404, 'DEAL_NOT_FOUND')
   return (
-    (await mergedDealRefusal(ctx.db, id.toLowerCase(), ctx.scope.read, ctx.viewer)) ??
+    (await mergedRefusal(ctx.db, 'deal', id.toLowerCase(), ctx.scope.read, ctx.viewer)) ??
     refuse(404, 'DEAL_NOT_FOUND')
   )
 }
