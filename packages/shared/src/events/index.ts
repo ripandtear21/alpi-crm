@@ -99,6 +99,18 @@ export const EVENT_CATALOG = {
     summary: 'Контакт получил отметку «возможный дубль» (его email уже есть у другого контакта)',
     facts: { contact_id: 'uuid' },
   },
+  'contact.merged': {
+    entity: 'contact',
+    summary:
+      'Два контакта объединены: contact_id — оставшийся, merged_contact_id — слитый (скрыт, запрос по его id — 404 CONTACT_MERGED)',
+    facts: { contact_id: 'uuid', merged_contact_id: 'uuid' },
+  },
+  'contact.unmerged': {
+    entity: 'contact',
+    summary:
+      'Слияние контактов отменено: merged_contact_id снова доступен, ему вернулось то, что перешло к contact_id',
+    facts: { contact_id: 'uuid', merged_contact_id: 'uuid' },
+  },
 } as const satisfies Record<string, EventDefinition>
 
 export type EventType = keyof typeof EVENT_CATALOG

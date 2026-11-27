@@ -66,8 +66,8 @@ export function entityCan(c: Ctx, type: EntityType, action: Action): boolean {
 /**
  * Запись `id` вида `type` для чтения (`need: 'read'`) или изменения (`'write'`). Право на действие
  * с частью системы проверяет requirePermission на маршруте; здесь — существование, корзина и
- * охват. `lock: false` — проверка изменения без блокировки строки сделки: загрузка файла берёт
- * её только перед записью строки файла, а не на весь поток тела (files.ts).
+ * охват. `lock: false` — проверка изменения без блокировки строки сделки или контакта: загрузка
+ * файла берёт её только перед записью строки файла, а не на весь поток тела (files.ts).
  */
 export async function entityFor(
   c: Ctx,
@@ -114,15 +114,20 @@ export async function entityFor(
     return ok(ref)
   }
   const scope = permissions.scopes.contacts
-  const contactIn = (contactScope: typeof scope.read) =>
-    db
+  const contactIn = (contactScope: typeof scope.read, share = false) => {
+    const query = db
       .selectFrom('contact')
       .select('id')
       .where('id', '=', ref.id)
       .where('deleted_at', 'is', null)
       .where((eb) => contactScopePredicate(eb, contactScope, viewer))
-      .executeTakeFirst()
-  if (!(await contactIn(scope.read))) return notFound
+    return (share ? query.forShare() : query).executeTakeFirst()
+  }
+  // Слитый контакт скрыт (тикет crm-intake/01; contactScopePredicate). Для изменения строка
+  // блокируется FOR SHARE, как сделка выше: заметка или файл, добавленные ко второму контакту во
+  // время слияния (FOR UPDATE обоих контактов), ждут его и потом получают 404, а не остаются у
+  // скрытого контакта.
+  if (!(await contactIn(scope.read, lock))) return notFound
   if (need === 'write' && scope.write !== scope.read && !(await contactIn(scope.write))) {
     return refuse(403, 'PERMISSION_DENIED')
   }

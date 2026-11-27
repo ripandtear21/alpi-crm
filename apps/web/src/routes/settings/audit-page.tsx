@@ -15,24 +15,31 @@ import { type AuditApi, AuditApiError } from './audit-api.ts'
 import './audit.css'
 import './settings.css'
 import { Button } from '../../ui/button.tsx'
+import { UndoMergeDialog } from '../contacts/merge/undo-merge.tsx'
 import { UndoDealMergeDialog } from '../deals/$dealId/merge/undo-deal-merge.tsx'
 
 // Настройки → журнал: опасные действия в текущем проекте, новые сверху, с фильтром по
 // действию и пользователю; следующая страница — кнопкой «Показати ще». Право — «доступ до
 // налаштувань проєкту» (у шаблонов — только администратор); без него API отвечает 403.
-// У слияния сделок (тикет crm-intake/02) — «Скасувати об'єднання» 30 дней: можно ли его ещё
-// откатить, решает API (уже откачено, позднее слияние — отказ с объяснением).
+// У слияния контактов (тикет crm-intake/01) и сделок (тикет crm-intake/02) — «Скасувати
+// об'єднання» 30 дней: можно ли его ещё откатить, решает API (уже откачено, позднее слияние —
+// отказ с объяснением).
 
-/** Сколько дней слияние сделок можно откатить (apps/api/src/merge/store.ts, UNDO_DAYS). */
-const DEAL_MERGE_UNDO_DAYS = 30
+/** Сколько дней слияние можно откатить (apps/api/src/merge/store.ts, UNDO_DAYS). */
+const MERGE_UNDO_DAYS = 30
 
-/** Слияние сделок из записи журнала, которое ещё может откатиться; null — нет. */
-function undoableDealMerge(entry: AuditEntry<ProjectAuditAction>, now: number): string | null {
-  if (entry.action !== 'deal.merged') return null
+/** Слияние из записи журнала, которое ещё может откатиться; null — нет. */
+function undoableMerge(
+  entry: AuditEntry<ProjectAuditAction>,
+  now: number,
+): { type: 'contact' | 'deal'; id: string } | null {
+  const type =
+    entry.action === 'contact.merged' ? 'contact' : entry.action === 'deal.merged' ? 'deal' : null
+  if (type === null) return null
   const mergeId = entry.details.mergeId
   if (typeof mergeId !== 'string') return null
   const age = now - Date.parse(entry.occurredAt)
-  return age < DEAL_MERGE_UNDO_DAYS * 24 * 60 * 60 * 1000 ? mergeId : null
+  return age < MERGE_UNDO_DAYS * 24 * 60 * 60 * 1000 ? { type, id: mergeId } : null
 }
 
 export function AuditPage({ api }: { api: AuditApi }) {
@@ -105,6 +112,13 @@ function useSummary() {
       case 'organization.purged':
       case 'deal.purged':
         return entry.entityId ?? ''
+      // Тикет crm-intake/01: слияние контактов и его откат — id оставшегося и слитого.
+      case 'contact.merged':
+      case 'contact.unmerged':
+        return t(entry.action === 'contact.merged' ? 'summary.merged' : 'summary.unmerged', {
+          merged: text(entry.details.mergedContactId),
+          survivor: entry.entityId ?? '',
+        })
       // Тикет crm-intake/02: слияние сделок и его откат — id оставшейся и слитой.
       case 'deal.merged':
       case 'deal.unmerged':
@@ -233,8 +247,8 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
   const { t, i18n } = useTranslation('audit')
   const summary = useSummary()
   const [action, setAction] = useState<ProjectAuditAction | ''>('')
-  const [undoingDealMerge, setUndoingDealMerge] = useState<string | null>(null)
   const [actor, setActor] = useState('')
+  const [undoing, setUndoing] = useState<ReturnType<typeof undoableMerge>>(null)
   const filter = { ...(action ? { action } : {}), ...(actor ? { actor } : {}) }
 
   const actors = useQuery({
@@ -338,15 +352,19 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
                   <td>{t(`actions.${entry.action}`)}</td>
                   <td>
                     {summary(entry)}
-                    {undoableDealMerge(entry, Date.now()) !== null && (
+                    {undoableMerge(entry, Date.now()) !== null && (
                       <>
                         {' '}
                         <Button
                           size="sm"
                           type="button"
-                          onClick={() => setUndoingDealMerge(undoableDealMerge(entry, Date.now()))}
+                          onClick={() => setUndoing(undoableMerge(entry, Date.now()))}
                         >
-                          {t('undoDealMerge')}
+                          {t(
+                            undoableMerge(entry, Date.now())?.type === 'deal'
+                              ? 'undoDealMerge'
+                              : 'undoMerge',
+                          )}
                         </Button>
                       </>
                     )}
@@ -358,12 +376,21 @@ function AuditLog({ api, projectId }: { api: AuditApi; projectId: string }) {
           </table>
         </div>
       )}
-      {undoingDealMerge && (
+      {undoing?.type === 'contact' && (
+        <UndoMergeDialog
+          projectId={projectId}
+          mergeId={undoing.id}
+          mergedName={null}
+          onClose={() => setUndoing(null)}
+          onUndone={() => void log.refetch()}
+        />
+      )}
+      {undoing?.type === 'deal' && (
         <UndoDealMergeDialog
           projectId={projectId}
-          mergeId={undoingDealMerge}
+          mergeId={undoing.id}
           mergedTitle={null}
-          onClose={() => setUndoingDealMerge(null)}
+          onClose={() => setUndoing(null)}
           onUndone={() => void log.refetch()}
         />
       )}

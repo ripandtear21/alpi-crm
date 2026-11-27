@@ -6,8 +6,9 @@ import type { Kysely } from 'kysely'
 // выигрывает телефон, а ответ несёт признак конфликта. Его же позже использует приём
 // регистраций.
 //
-// Ищет среди контактов текущего проекта (row-level security) вне корзины, без учёта охвата:
-// что показать пользователю о найденном контакте, решает вызывающий.
+// Ищет среди контактов текущего проекта (row-level security) вне корзины и не слитых с другим
+// (тикет crm-intake/01: скрытый контакт совпадением не считается), без учёта охвата: что
+// показать пользователю о найденном контакте, решает вызывающий.
 
 /** Ключи поиска, уже нормализованные (normalizePhone, normalizeEmail из @alpi/shared). */
 export interface ContactKeys {
@@ -45,6 +46,7 @@ export async function findContactMatch(
           .select('c.id')
           .where('k.phone', 'in', [...keys.phones])
           .where('c.deleted_at', 'is', null)
+          .where('c.merged_into_id', 'is', null)
           .where('c.id', '<>', exclude)
           .orderBy('c.created_at')
           .orderBy('c.id')
@@ -59,6 +61,7 @@ export async function findContactMatch(
           .select('c.id')
           .where('k.email', 'in', [...keys.emails])
           .where('c.deleted_at', 'is', null)
+          .where('c.merged_into_id', 'is', null)
           .where('c.id', '<>', exclude)
           .orderBy('c.created_at')
           .orderBy('c.id')

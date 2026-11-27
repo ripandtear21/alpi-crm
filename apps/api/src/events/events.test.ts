@@ -602,7 +602,9 @@ describe('события', () => {
     expect(Object.keys(document.webhooks).sort()).toEqual(
       [
         'contact.created',
+        'contact.merged',
         'contact.possible_duplicate',
+        'contact.unmerged',
         'deal.archived',
         'deal.created',
         'deal.lost',

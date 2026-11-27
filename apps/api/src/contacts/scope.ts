@@ -53,13 +53,19 @@ export const CONTACT_SCOPE_RULES: readonly ContactScopeRule[] = [CREATED_BY_RULE
 /**
  * Условие WHERE охвата контактов:
  *   .where((eb) => contactScopePredicate(eb, scope, viewer))
+ *
+ * Контакт, слитый с другим (тикет crm-intake/01, `merged_into_id`), скрыт при любом охвате: его
+ * нет в списках, поиске, корзине и выборках охвата. Его самого ищет только слияние и откат —
+ * `includeMerged` (merge/).
  */
 export function contactScopePredicate(
   eb: ExpressionBuilder<Database, 'contact'>,
   scope: Scope,
   viewer: Viewer,
   rules: readonly ContactScopeRule[] = CONTACT_SCOPE_RULES,
+  { includeMerged = false }: { includeMerged?: boolean } = {},
 ): Expression<SqlBool> {
-  if (scope === 'all') return sql<SqlBool>`true`
-  return eb.or(rules.map((rule) => rule(eb, scope, viewer)))
+  const inScope =
+    scope === 'all' ? sql<SqlBool>`true` : eb.or(rules.map((rule) => rule(eb, scope, viewer)))
+  return includeMerged ? inScope : eb.and([eb('contact.merged_into_id', 'is', null), inScope])
 }

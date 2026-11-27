@@ -296,6 +296,8 @@ async function liveContact(
     .select(['first_name', 'last_name'])
     .where('id', '=', id)
     .where('deleted_at', 'is', null)
+    // Слитый контакт скрыт (тикет crm-intake/01): к сделке его не привязать.
+    .where('merged_into_id', 'is', null)
   if (use === 'bind') {
     query = query.where((eb) => contactScopePredicate(eb, scope.read, ctx.viewer))
   }

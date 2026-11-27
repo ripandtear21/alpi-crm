@@ -1,9 +1,8 @@
 # Слияние контактов с откатом
 
 Type: task
-Status: blocked 2026-11-26T16:38Z
-Blocked reason: max-review REJECTED, PR #39: три гонки транзакций — откат при цепочке слияний (merged_at = начало транзакции), фоновая очистка корзины удаляет восстановленный контакт (0026_merge.ts:59), файл или заметка во время слияния уходят к скрытому контакту (timeline/entity.ts:108)
-Waits: owner
+Status: claimed 2026-11-26T23:46Z
+Branch: crm-intake/01
 Risk: high
 Blocked by: —
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 6, 15, 23, 25, 26, 29, 35, 36); docs/adr/0005-sliyanie-s-otkatom.md; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Слияние», «Возможный дубль»); .scratch/crm-intake/spec.md
@@ -54,21 +53,32 @@ Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы влад
 
 ## Where in code
 
-packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.ts, packages/shared/src/events/index.ts, apps/api/src/merge/** (новое: слияние, откат, реестр), apps/api/src/contacts/** (скрытые контакты, `CONTACT_MERGED`, `possible_duplicate_of`), apps/api/src/search/**, apps/api/src/trash/**, apps/api/src/deals/** (выборки с контактом), apps/api/src/openapi/**, apps/web/src/routes/contacts/**, apps/web/src/routes/settings/audit-page.tsx, apps/web/src/locales/{uk,ru}/**.
+packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.ts, packages/shared/src/events/index.ts, apps/api/src/merge/** (новое: слияние, откат, реестр), apps/api/src/contacts/** (скрытые контакты, `CONTACT_MERGED`, `possible_duplicate_of`), apps/api/src/search/**, apps/api/src/trash/**, apps/api/src/deals/** (выборки с контактом), apps/api/src/openapi/**, apps/web/src/routes/contacts/**, apps/web/src/routes/settings/audit-page.tsx, apps/web/src/locales/{uk,ru}/**. Доработка после MAX-REVIEW (круг 3): apps/api/src/timeline/entity.ts, apps/api/src/files/files.ts, apps/api/src/seed/store.ts, apps/api/src/cli/seed.test.ts, apps/api/src/events/events.test.ts.
 
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест изоляции: `merge_record` и `merge_moved_item` проекта A не видны в контексте B без фильтра в коде; слить контакт A с контактом B другого проекта нельзя (404).
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест прав: без «контакты: изменять» — 403; с охватом «свои», когда один контакт чужой, — 403; откат — те же проверки.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест слияния: заполненные поля оставшегося не изменились, пустые заполнились; телефоны и email объединились без повторов; сделки (основной контакт и участие), заметки и файлы второго — у оставшегося, в том числе сделка вне охвата пользователя.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест скрытия: слитый контакт не находится списком, поиском, `findContactMatch` и в корзине; `GET` по его id — 404 `CONTACT_MERGED` с id оставшегося, в цепочке — с id последнего.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест отката: вернулось ровно перешедшее; заметка и телефон, добавленные после слияния, остались у оставшегося; поле, изменённое после слияния, не тронуто и есть в итоге; слитый контакт снова доступен по id.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест отказов: открытые сделки в одной воронке — 409 `MERGE_DEAL_CONFLICT`; откат через 31 день — 409 `MERGE_UNDO_EXPIRED`; откат при более позднем слиянии — 409 `MERGE_UNDO_BLOCKED`.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест событий и журнала: слияние — одно событие `contact.merged`, откат — одно `contact.unmerged`, тела проходят схему каталога; записи в журнале проекта и в истории обоих контактов; слияние, упавшее посередине, не оставляет ни переноса, ни события.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Тест пометки: пара «возможный дубль» после слияния без пометки, после отката — снова с пометкой и ссылкой.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 - [ ] Экран: «Об'єднати з…» с направлением и предпросмотром, «Скасувати об'єднання» в карточке и журнале, страница слитого контакта; тексты uk и ru; работает на 375 px.
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
+  - evidence: gate pass · `gate fast` exit 0 · windows - · d16b927ffe9b2813abc09ccbac2fadf9a7251392
 
 ### Итог (2026-11-26)
 
@@ -81,3 +91,36 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/audit.
   - файл или заметка, созданные во время слияния, уходят к скрытому контакту: проверка контакта без блокировки строки (`apps/api/src/timeline/entity.ts:108-121`).
 - Решение владельца: доработать эти три пункта (исправления названы в вердикте) или слить как есть. Без решения тикет 02 (слияние сделок) и тикеты, ждущие 01, не запускаются.
 - Долги (Consider) и замечания (Noted) — в вердикте расширенной проверки; вопрос владельцу: заметки, файлы и лента слитого контакта отвечают `CONTACT_NOT_FOUND`, а не `CONTACT_MERGED`.
+
+### Доработка, круг 3 (2026-11-27)
+
+Владелец выбрал доработку после слияния тикета 02. Ветка перенесена на `main` с общей инфраструктурой слияния тикета 02 (PR #40): общие файлы — как в `main`, у PR остаётся только часть контактов.
+
+- Миграция контактов — новая `packages/db/migrations/0027_contact_merge.ts` (0026 занят слиянием сделок): столбцы и права контакта, ветка контакта `purge_from_trash`; ветка сделки — байт в байт как в 0026.
+- Откат — один маршрут `POST /api/v1/merges/:id/undo` (`apps/api/src/merge/deals.ts`, `mergesRoutes`) с веткой `contact` рядом с `deal`; право «контакты: изменять» проверяет ветка (`undoContactMerge`).
+- Находка 1: откат отказывает 409 `MERGE_UNDO_BLOCKED`, если оставшийся сам слит; время слияния — `clock_timestamp()` после блокировок (и в `merge_record`, и в `contact.merged_at`).
+- Находка 2: ветка контакта `purge_from_trash` блокирует корень FOR UPDATE, удаляет корень с условием «в корзине» и проверяет его по числу удалённых строк; цепочка слитых — после блокировки корня. Фоновая очистка (`CONTACT_PURGER`) не менялась: скрытые сделки контакта — по-прежнему первыми.
+- Находка 3: `entityFor` (`apps/api/src/timeline/entity.ts`) берёт FOR SHARE на строку контакта для записи; загрузка файла — без блокировки на входе и с блокировкой перед записью строки, как у сделки.
+- Находка 4: `seed --reset` оставляет контакт seed, в который слит контакт, созданный руками.
+- Вместе с переносом: скрытые сделки (тикет 02) не считаются в `MERGE_DEAL_CONFLICT` и в `MERGE_UNDO_DEAL_CONFLICT` — правило «одна открытая сделка в воронке» их не считает.
+
+Долги из вердикта расширенной проверки (https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199), не исправлены:
+
+- debt: `GET /contacts/:id/merges` отдаёт имя слитого контакта по охвату только оставшегося (`apps/api/src/merge/contacts.ts`, `contactMerges`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: отметка «возможный дубль» у третьих контактов, указывающая на скрытый, не перенацеливается на оставшийся (`apps/api/src/merge/contact-registry.ts`, `POSSIBLE_DUPLICATE`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: «Скасувати об'єднання» в журнале показывается и у уже откаченного слияния (`apps/web/src/routes/settings/audit-page.tsx`, `undoableMerge`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: повторное чтение и `contactView` оставшегося после слияния (`apps/api/src/merge/contacts.ts`, `mergeContacts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: `mergedContactRefusal(...) ?? refuse(404, …)` трижды (`apps/api/src/contacts/contacts.ts`, `apps/api/src/merge/contacts.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: необязательный `viewer` с недостижимой веткой (`apps/api/src/contacts/contacts.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: `MERGE_UNDO_DAYS` в журнале копирует `UNDO_DAYS` (`apps/web/src/routes/settings/audit-page.tsx`, `apps/api/src/merge/store.ts`) — место ему в `@alpi/shared` — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: подписи полей дважды (`apps/web/src/routes/contacts/merge/merge-dialog.tsx`, `undo-merge.tsx`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: `participantsOf` копирует `apps/api/src/deals/dependents.ts` (`apps/api/src/merge/contact-registry.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: `canonical` копирует `apps/api/src/fields/values.ts` (`apps/api/src/merge/registry.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: откат телефона и email через удаление и вставку вместо `UPDATE` (`apps/api/src/merge/contact-registry.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: параметр `lock` у `findMerge` всегда `true` (`apps/api/src/merge/store.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: контекст клиента слияний через `useState` (`apps/web/src/routes/contacts/merge/merges-api.tsx`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: `onClose` окна отката всегда вызывает `onUndone()` — лишний запрос (`apps/web/src/routes/contacts/merge/undo-merge.tsx`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: `undoableMerge` считается дважды на строку журнала (`apps/web/src/routes/settings/audit-page.tsx`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: `permissions` и `viewer` в `MergeActor` реестр контактов не использует (`apps/api/src/merge/registry.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: цепочка слияний обходится по запросу на шаг (`apps/api/src/contacts/merged.ts`) — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199
+- debt: вопрос владельцу — заметки, файлы и лента слитого контакта отвечают `CONTACT_NOT_FOUND`, а не `CONTACT_MERGED` — https://github.com/ripandtear21/alpi-crm/pull/39#issuecomment-7197908199

@@ -7,6 +7,7 @@ import { type FieldType, normalizeFieldValue, normalizePhone } from '@alpi/share
 import { type SqlBool, sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildSeedPlan, FRANCH_PRICED_FROM_STAGE } from '../seed/plan.ts'
+import { SEED_SOURCE } from '../seed/store.ts'
 import { readCredentials } from '../seed/users.ts'
 import { type ApiHarness, ORIGIN, startApiHarness } from '../testing/api-harness.ts'
 import { totp } from '../testing/totp.ts'
@@ -792,6 +793,70 @@ describe('pnpm seed', () => {
         ]),
       )
       expect(log.join('\n')).toMatch(/Оставлены записи seed[^\n]*сделок 1/)
+    },
+    SLOW,
+  )
+
+  it(
+    '--reset оставляет контакт seed, в который слили ручной контакт, — сброс проекта не срывается',
+    async () => {
+      const alpi = await projectId('alpi')
+      if (!alpi) throw new Error('нет проекта')
+      // Прошлые сбросы уже удалили свободные контакты seed: два контакта с меткой seed — здесь.
+      const seedContact = async (name: string) => {
+        const row = await h.owner
+          .insertInto('contact')
+          .values({ project_id: alpi, first_name: name })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+        await h.owner
+          .insertInto('external_link')
+          .values({
+            project_id: alpi,
+            entity_type: 'contact',
+            entity_id: row.id,
+            source: SEED_SOURCE,
+            external_id: `merge-test-${row.id}`,
+          })
+          .execute()
+        return row
+      }
+      const survivor = await seedContact('Демо, у якого злиття')
+      // Контрольный: такой же контакт seed без слияния сброс удаляет.
+      const free = await seedContact('Демо без злиття')
+      // Ручной контакт, слитый в контакт seed (тикет crm-intake/01): скрыт, ссылается на него.
+      const hidden = await h.owner
+        .insertInto('contact')
+        .values({ project_id: alpi, first_name: 'Злитий руками' })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      await h.owner
+        .updateTable('contact')
+        .set({ merged_into_id: survivor.id, merged_at: new Date() })
+        .where('id', '=', hidden.id)
+        .execute()
+
+      const log: string[] = []
+      const loud = { log: (m: string) => log.push(m), error: (m: string) => log.push(m) }
+      expect(await runSeed({ ...deps, out: loud }, ['--reset'])).toBe(0)
+
+      expect(await projectId('alpi')).toBe(alpi)
+      const contacts = await h.owner
+        .selectFrom('contact')
+        .select(['id', 'merged_into_id'])
+        .where('id', 'in', [survivor.id, hidden.id])
+        .execute()
+      expect(contacts).toEqual(
+        expect.arrayContaining([
+          { id: survivor.id, merged_into_id: null },
+          { id: hidden.id, merged_into_id: survivor.id },
+        ]),
+      )
+      expect(contacts).toHaveLength(2)
+      expect(
+        await h.owner.selectFrom('contact').select('id').where('id', '=', free.id).execute(),
+      ).toEqual([])
+      expect(log.join('\n')).toMatch(/Оставлены записи seed[^\n]*контактов [1-9]/)
     },
     SLOW,
   )

@@ -698,7 +698,12 @@ describe('контакты и организации', () => {
         expect(res.status).toBe(200)
         const text = await res.text()
         expect((JSON.parse(text) as ContactView).possibleDuplicate).toBe(true)
-        expect(text).not.toContain(theirs.id)
+        // Ссылка на совпавший контакт (тикет crm-intake/01) — только если он в охвате чтения.
+        if (owner === admin) {
+          expect((JSON.parse(text) as ContactView).possibleDuplicateOf).toBe(theirs.id)
+        } else {
+          expect(text).not.toContain(theirs.id)
+        }
         expect(text).not.toContain('Таємний')
         expect(await inTrash(mine.id)).toBe(false)
         const logged = await h.owner

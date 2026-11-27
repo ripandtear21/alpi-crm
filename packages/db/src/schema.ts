@@ -350,6 +350,14 @@ export interface ContactTable {
   deleted_by: string | null
   /** Ключ API, создавший контакт (migrations/0023); не вместе с `created_by`. */
   created_by_api_key_id: string | null
+  /**
+   * Контакт слит с этим (migrations/0027_contact_merge.ts) и скрыт: нет в списках, поиске и корзине;
+   * запрос по id — 404 CONTACT_MERGED. Вместе с `merged_at`.
+   */
+  merged_into_id: ColumnType<string | null, never, string | null>
+  merged_at: ColumnType<Date | string | null, never, Date | string | null>
+  /** С каким контактом связана отметка «возможный дубль»; null — не связана или его нет. */
+  possible_duplicate_of: ColumnType<string | null, string | null | undefined, string | null>
 }
 
 /** Телефон контакта в E.164; не больше одного основного у контакта. */
