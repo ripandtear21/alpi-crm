@@ -1,10 +1,13 @@
 import type { Database } from '@alpi/db'
 import { type Kysely, type Selectable, sql } from 'kysely'
+import { enqueueDuplicateScan } from '../duplicates/queue.ts'
 import type { MergeActor, MergeEntity, MergePair, MovedItem } from './registry.ts'
 
 // Запись слияния и перешедшее (таблицы merge_record и merge_moved_item, migrations/0026_merge.ts)
 // — общие для контактов и сделок (тикет crm-intake/02). Строка слияния не удаляется: откат
-// ставит отметку undone_at.
+// ставит отметку undone_at. Запись слияния и отметка отката ставят поиск дублей обеих записей
+// той же транзакцией (тикет crm-intake/05, duplicates/queue.ts): слияние переносит телефоны,
+// email и сделки, слитая запись выходит из пар, откат возвращает её.
 
 /** Сколько дней слияние можно откатить (пункт 29; ADR 0005). */
 export const UNDO_DAYS = 30
@@ -59,7 +62,7 @@ export async function insertMergeRecord(
   pair: MergePair,
   parentId: string | null = null,
 ): Promise<MergeRow> {
-  return actor.db
+  const row = await actor.db
     .insertInto('merge_record')
     .values({
       project_id: actor.projectId,
@@ -73,6 +76,8 @@ export async function insertMergeRecord(
     })
     .returningAll()
     .executeTakeFirstOrThrow()
+  await scanPair(actor, entity, pair)
+  return row
 }
 
 /** Перешедшее при слиянии `mergeId`. */
@@ -111,6 +116,14 @@ export function nestedMerges(db: Kysely<Database>, parentId: string): Promise<Me
     .orderBy('id')
     .forUpdate()
     .execute()
+}
+
+/** Поиск дублей обеих записей слияния — той же транзакцией. */
+function scanPair(actor: MergeActor, entity: MergeEntity, pair: MergePair) {
+  return enqueueDuplicateScan(actor.db, actor.projectId, [
+    { entity, id: pair.survivorId },
+    { entity, id: pair.mergedId },
+  ])
 }
 
 /** Слияние `id` записей вида `entity`; `lock` — заблокировать строку до конца транзакции. */
@@ -170,12 +183,17 @@ export async function undoExpired(db: Kysely<Database>, merge: MergeRow): Promis
 }
 
 export async function markUndone(actor: MergeActor, mergeId: string): Promise<MergeRow> {
-  return actor.db
+  const row = await actor.db
     .updateTable('merge_record')
     .set({ undone_at: sql`now()`, undone_by: actor.actorId })
     .where('id', '=', mergeId)
     .returningAll()
     .executeTakeFirstOrThrow()
+  await scanPair(actor, row.entity_type as MergeEntity, {
+    survivorId: row.survivor_id,
+    mergedId: row.merged_id,
+  })
+  return row
 }
 
 /** Ответ API для строк слияний: имена тех, кто сливал, — одним запросом. */

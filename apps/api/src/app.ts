@@ -17,6 +17,7 @@ import { dealsRoutes, pipelineAggregatesRoutes } from './deals/deals.ts'
 import { DEAL_CONTACT_DEPENDENTS } from './deals/dependents.ts'
 import { dealListRoutes } from './deals/list-routes.ts'
 import { CUSTOM_FIELD_REQUIREMENTS, type StageRequirements } from './deals/stage-requirements.ts'
+import { duplicatesRoutes } from './duplicates/routes.ts'
 import type { WebhookDeliveryOptions } from './events/deliver.ts'
 import { type FieldsDeps, NO_FIELD_JOBS } from './fields/common.ts'
 import { fieldsRoutes } from './fields/fields.ts'
@@ -167,6 +168,8 @@ function v1Routes({
       // Слияние контактов с откатом (тикет crm-intake/01): только по сессии; откат — общий
       // маршрут /merges выше.
       .route('/contacts', contactMergeRoutes())
+      // Экран «Дублі» (тикет crm-intake/05): группы похожих записей и «не дубль»; только сессия.
+      .route('/duplicates', duplicatesRoutes())
       .route('/organizations', organizationsRoutes())
       .route('/products', productsRoutes())
       // Заметки, файлы и лента записи: /v1/deals/:id/notes, …/files, …/timeline.

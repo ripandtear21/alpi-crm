@@ -105,6 +105,8 @@ describe('фоновые задачи по расписанию', () => {
         .map((s) => ({ name: s.name, cron: s.cron, tz: s.options?.tz }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     ).toEqual([
+      // Пары дублей заново, все проекты (тикет crm-intake/05).
+      { name: QUEUES.duplicateNightly, cron: '30 4 * * *', tz: 'Europe/Kyiv' },
       { name: QUEUES.signInPurge, cron: '30 3 * * *', tz: 'Europe/Kyiv' },
       { name: QUEUES.idempotencyPurge, cron: '45 3 * * *', tz: 'Europe/Kyiv' },
       // Журнал входящих старше 30 дней (тикет crm-intake/06).

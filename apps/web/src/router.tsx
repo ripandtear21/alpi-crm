@@ -39,6 +39,8 @@ import { createDealsApi, type DealsApi } from './routes/deals/deals-api.ts'
 import { KanbanPage } from './routes/deals/kanban-page.tsx'
 import { DealsListPage, type DealsListSearch } from './routes/deals/list/deals-list-page.tsx'
 import { createListsApi, type ListsApi } from './routes/deals/list/lists-api.ts'
+import { createDuplicatesApi, type DuplicatesApi } from './routes/duplicates/duplicates-api.ts'
+import { DuplicatesPage } from './routes/duplicates/duplicates-page.tsx'
 import { OrganizationCardPage } from './routes/organizations/$organizationId/organization-card-page.tsx'
 import { OrganizationsListPage } from './routes/organizations/organizations-list-page.tsx'
 import { type ApiKeysApi, createApiKeysApi } from './routes/settings/api-keys-api.ts'
@@ -91,6 +93,13 @@ export interface RouterContext {
    * предупреждения: тестам маршрутов оно не нужно, браузеру его передаёт main.tsx.
    */
   webhookAlerts?: WebhookAlertsApi | undefined
+  /** Экран «Дублі» (тикет crm-intake/05). */
+  duplicates: DuplicatesApi
+  /**
+   * Счётчик дублей в шапке и пункт меню «Дублі». Нет — нет и их: тестам маршрутов они не нужны,
+   * браузеру клиент передаёт main.tsx.
+   */
+  duplicatesCounter?: DuplicatesApi | undefined
   /** Кэш TanStack Query приложения: тот же, что в QueryClientProvider (main.tsx). */
   queryClient: QueryClient
 }
@@ -161,7 +170,8 @@ const appRoute = createRoute({
 })
 
 function AppShell() {
-  const { projects, queryClient, search, webhookAlerts } = appRoute.useRouteContext()
+  const { projects, queryClient, search, webhookAlerts, duplicatesCounter } =
+    appRoute.useRouteContext()
   // Код проекта — из адреса (`/p/<код>/…`); шапке он нужен так же, как экрану.
   const code = useRouterState({
     select: (state) =>
@@ -177,7 +187,7 @@ function AppShell() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <CurrentProjectProvider projects={projects} code={code} queryClient={queryClient}>
-          <AppLayout search={search} webhookAlerts={webhookAlerts}>
+          <AppLayout search={search} webhookAlerts={webhookAlerts} duplicates={duplicatesCounter}>
             <Outlet />
           </AppLayout>
         </CurrentProjectProvider>
@@ -414,6 +424,16 @@ const apiKeysRoute = createRoute({
   },
 })
 
+// Дублі (тикет crm-intake/05): группы похожих контактов и сделок.
+const duplicatesRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: 'duplicates',
+  component: function DuplicatesRoute() {
+    const { duplicates } = duplicatesRoute.useRouteContext()
+    return <DuplicatesPage api={duplicates} />
+  },
+})
+
 // Налаштування → Вебхуки (тикет crm-api/07).
 const webhooksRoute = createRoute({
   getParentRoute: () => projectRoute,
@@ -503,6 +523,7 @@ const routeTree = rootRoute.addChildren([
       dealsRoute,
       dealsListRoute,
       contactsRoute,
+      duplicatesRoute,
       organizationsRoute,
       tasksRoute,
       reportsRoute,
@@ -562,6 +583,10 @@ export interface AppRouterOptions {
   webhooks?: WebhooksApi
   /** Предупреждение об отключённых адресах событий; в тестах маршрутов — нет. */
   webhookAlerts?: WebhookAlertsApi
+  /** Только в тестах: подставной клиент экрана «Дублі». В браузере — запросы к API. */
+  duplicates?: DuplicatesApi
+  /** Счётчик дублей в шапке и пункт меню; в тестах маршрутов — нет. */
+  duplicatesCounter?: DuplicatesApi
   /** В браузере — кэш из main.tsx; в тестах — новый на каждый роутер. */
   queryClient?: QueryClient
 }
@@ -585,6 +610,8 @@ export function createAppRouter({
   apiKeys = createApiKeysApi(),
   webhooks = createWebhooksApi(),
   webhookAlerts,
+  duplicates = createDuplicatesApi(),
+  duplicatesCounter,
   queryClient = new QueryClient(),
 }: AppRouterOptions = {}) {
   const context: RouterContext = {
@@ -605,6 +632,8 @@ export function createAppRouter({
     apiKeys,
     webhooks,
     webhookAlerts,
+    duplicates,
+    duplicatesCounter,
     queryClient,
   }
   return createRouter(history ? { routeTree, context, history } : { routeTree, context })

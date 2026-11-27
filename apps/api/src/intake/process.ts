@@ -17,6 +17,7 @@ import {
 import { findContactMatch, findEmailContact } from '../contacts/match.ts'
 import { finishNewDeal, insertDealRow, placement } from '../deals/deals.ts'
 import { MAX_TITLE_LENGTH } from '../deals/store.ts'
+import { enqueueDuplicateScan } from '../duplicates/queue.ts'
 import { emitEvent } from '../events/emit.ts'
 import { inSavepoint, sqlState } from '../roles/roles.ts'
 import type { IntakeSource } from './auth.ts'
@@ -34,6 +35,8 @@ import type { IntakeSource } from './auth.ts'
 // 4. Сделка: открытая неархивная сделка контакта в воронке источника (FOR UPDATE), иначе новая
 //    на первом этапе воронки. Существующей сделке ничего не меняется (ADR 0003).
 // 5. Регистрация, события, история.
+// 6. Поиск дублей контакта и его сделок (тикет crm-intake/05) — после каждой регистрации, той же
+//    транзакцией: регистрация могла создать вторую открытую сделку в воронке.
 // Порядок блокировок — ключи, контакт, сделка (как у слияния контактов, тикет 12).
 // Известное ограничение: слияние сделок (merge/deal-registry.ts, строка основного контакта
 // слитой — FOR SHARE на контакт после блокировки сделок) и его откат берут сделку, потом
@@ -402,6 +405,7 @@ export async function processRegistration(
     deal_created: deal.created,
     contact_created: contact.created,
   })
+  await enqueueDuplicateScan(trx, source.projectId, [{ entity: 'contact', id: contact.row.id }])
   return {
     ok: true,
     status: 201,

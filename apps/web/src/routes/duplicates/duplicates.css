@@ -1,0 +1,119 @@
+/* Экран «Дублі» (тикет crm-intake/05): группы карточками одна под другой; записи и пары —
+   списками, длинные имена, телефоны и email переносятся в любом месте; на узком экране (375 px)
+   кнопка «Не дубль» уходит под текст пары. */
+
+.duplicates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.duplicates > h1 {
+  margin-bottom: 0;
+}
+
+.duplicates__intro {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.duplicates__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.duplicates__list > .ui-button {
+  align-self: flex-start;
+}
+
+.duplicates__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-block);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.duplicates__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.duplicates__records,
+.duplicates__pairs,
+.duplicates__previews,
+.duplicates__done {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.duplicates__records li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-2);
+}
+
+.duplicates__meta {
+  color: var(--ink-3);
+  font-size: var(--fs-small);
+}
+
+.duplicates__pairs {
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--line);
+}
+
+.duplicates__pairs li,
+.duplicates__done li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.duplicates__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.duplicates__keep {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-3);
+  padding: 0;
+  border: 0;
+  overflow-wrap: anywhere;
+}
+
+.duplicates__keep legend {
+  margin-bottom: var(--s-2);
+  font-weight: 600;
+}
+
+.duplicates__keep label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.duplicates__preview {
+  margin: var(--s-1) 0 0;
+  padding-left: 1.2em;
+}
+
+.duplicates__previews > li {
+  overflow-wrap: anywhere;
+}

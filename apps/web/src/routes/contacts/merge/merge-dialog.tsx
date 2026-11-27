@@ -191,14 +191,7 @@ export function MergeContactDialog({
             <>
               <DealPairs
                 pairs={preview.data.dealPairs}
-                onSwap={(pair) => {
-                  const ids = [pair.survivorDeal?.id, pair.mergedDeal?.id]
-                  const other = pair.keepDealId === pair.survivorDeal?.id ? pair.mergedDeal : null
-                  setKeep((value) => [
-                    ...value.filter((id) => !ids.includes(id)),
-                    ...(other ? [other.id] : []),
-                  ])
-                }}
+                onSwap={(pair) => setKeep((value) => swapDealPair(value, pair))}
               />
               <PreviewDetails preview={preview.data} />
             </>
@@ -252,8 +245,21 @@ function PreviewDetails({ preview }: { preview: MergePreview }) {
   )
 }
 
-/** Открытые сделки обоих в одной воронке: объединятся вместе с контактами. */
-function DealPairs({
+/**
+ * `keep_deal_ids` после «Поміняти» на паре `pair`: остаётся другая сделка пары. Общий с экраном
+ * «Дублі» (тикет crm-intake/05).
+ */
+export function swapDealPair(keep: readonly string[], pair: DealPairPreview): string[] {
+  const ids = [pair.survivorDeal?.id, pair.mergedDeal?.id]
+  const other = pair.keepDealId === pair.survivorDeal?.id ? pair.mergedDeal : null
+  return [...keep.filter((id) => !ids.includes(id)), ...(other ? [other.id] : [])]
+}
+
+/**
+ * Открытые сделки обоих в одной воронке: объединятся вместе с контактами. Общий с экраном
+ * «Дублі» (тикет crm-intake/05).
+ */
+export function DealPairs({
   pairs,
   onSwap,
 }: {

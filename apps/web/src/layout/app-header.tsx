@@ -2,7 +2,9 @@ import { useTranslation } from 'react-i18next'
 import { ProjectSwitcher } from '../components/project-switcher/project-switcher.tsx'
 import type { SearchApi } from '../components/search-bar/search-api.ts'
 import { SearchBar } from '../components/search-bar/search-bar.tsx'
+import type { DuplicatesApi } from '../routes/duplicates/duplicates-api.ts'
 import { NAV_ID } from './app-nav.tsx'
+import { DuplicatesCounter } from './duplicates-counter.tsx'
 import { LanguageSwitcher } from './language-switcher.tsx'
 import { ThemeSwitcher } from './theme-switcher.tsx'
 
@@ -10,11 +12,13 @@ type AppHeaderProps = {
   // Кнопка меню есть только на телефоне: на широком экране меню видно всегда.
   menuToggle: { open: boolean; onToggle: () => void } | null
   search: SearchApi
+  /** Счётчик «Дублів: N» (тикет crm-intake/05); нет — нет и счётчика. */
+  duplicates?: DuplicatesApi | undefined
 }
 
-// Шапка: переключатель проекта и строка поиска; уведомления и профиль пока только занимают
-// свои места — их поведение добавят тикеты уведомлений и входа.
-export function AppHeader({ menuToggle, search }: AppHeaderProps) {
+// Шапка: переключатель проекта, строка поиска и счётчик дублей; уведомления и профиль пока
+// только занимают свои места — их поведение добавят тикеты уведомлений и входа.
+export function AppHeader({ menuToggle, search, duplicates }: AppHeaderProps) {
   const { t } = useTranslation(['layout', 'common'])
 
   return (
@@ -37,6 +41,7 @@ export function AppHeader({ menuToggle, search }: AppHeaderProps) {
       </span>
       <ProjectSwitcher />
       <SearchBar api={search} />
+      {duplicates && <DuplicatesCounter api={duplicates} />}
       <div className="app-header__prefs">
         <LanguageSwitcher />
         <ThemeSwitcher />
