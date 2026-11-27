@@ -37,20 +37,9 @@ export async function findEmailContact(
   emails: readonly string[],
   options: { excludeId?: string } = {},
 ): Promise<string | null> {
-  if (emails.length === 0) return null
-  const row = await db
-    .selectFrom('contact_email as k')
-    .innerJoin('contact as c', 'c.id', 'k.contact_id')
-    .select('c.id')
-    .where('k.email', 'in', [...emails])
-    .where('c.deleted_at', 'is', null)
-    .where('c.merged_into_id', 'is', null)
-    .where('c.id', '<>', options.excludeId ?? NO_CONTACT)
-    .orderBy('c.created_at')
-    .orderBy('c.id')
-    .limit(1)
-    .executeTakeFirst()
-  return row?.id ?? null
+  // Ветка email из findContactMatch: правило «вне корзины и не слитый» — в одном месте.
+  const match = await findContactMatch(db, { phones: [], emails }, options)
+  return match?.contactId ?? null
 }
 
 /**

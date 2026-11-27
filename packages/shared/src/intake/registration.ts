@@ -132,30 +132,68 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 /** Символ NUL: PostgreSQL не хранит его ни в text, ни в jsonb — убирается. */
 const NUL = String.fromCharCode(0)
 
-/** Значение JSON без символов NUL в строках и ключах (для `extra`). */
-function withoutNul(value: unknown): unknown {
-  if (typeof value === 'string') return value.replaceAll(NUL, '')
-  if (Array.isArray(value)) return value.map(withoutNul)
+/** Одиночная половинка суррогатной пары UTF-16 (например, обрезанный эмодзи). */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+/**
+ * Строка, которую PostgreSQL сохранит: без NUL, одиночная половинка суррогатной пары — U+FFFD,
+ * как у `String.prototype.toWellFormed` (её нет в lib ES2023). jsonb такую половинку
+ * отвергает (22P02) — регистрация терялась бы.
+ */
+function storableText(value: string): string {
+  return value.replaceAll(NUL, '').replace(LONE_SURROGATE, '�')
+}
+
+/**
+ * Значение JSON для `extra`: строки и ключи — storableText. Объекты — без прототипа: ключ
+ * `__proto__` из тела остаётся обычным ключом, и JSON.stringify его выводит.
+ */
+function storableJson(value: unknown): unknown {
+  if (typeof value === 'string') return storableText(value)
+  if (Array.isArray(value)) return value.map(storableJson)
   if (isObject(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key.replaceAll(NUL, ''), withoutNul(item)]),
-    )
+    const result: Record<string, unknown> = Object.create(null)
+    for (const [key, item] of Object.entries(value)) result[storableText(key)] = storableJson(item)
+    return result
   }
   return value
 }
 
 /**
- * Строка поля: строка — без пробелов по краям, число и да/нет — их запись; пустое — null.
- * Объект, список и null — undefined: в столбец не годится.
+ * Строка поля: строка — storableText без пробелов по краям, число и да/нет — их запись;
+ * пустое — null. Объект, список и null — undefined: в столбец не годится.
  */
 function scalarText(value: unknown): string | null | undefined {
   if (typeof value === 'string') {
-    const text = value.replaceAll(NUL, '').trim()
+    const text = storableText(value).trim()
     return text === '' ? null : text.slice(0, MAX_REGISTRATION_TEXT_LENGTH)
   }
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   if (typeof value === 'boolean') return String(value)
   return undefined
+}
+
+/**
+ * `event_id` тела: строка, число или да/нет — как у строкового поля, 1–255 символов; иначе
+ * null. Одна функция для разбора тела и для строки журнала входящих: у строки журнала и у
+ * регистрации один `event_id`, и проведение строки заново даёт повтор.
+ */
+export function registrationEventId(body: unknown): string | null {
+  if (!isObject(body)) return null
+  const eventId = scalarText(body.event_id)
+  return typeof eventId === 'string' && eventId.length <= MAX_EVENT_ID_LENGTH ? eventId : null
+}
+
+/**
+ * Время регистрации в ISO 8601, если год по UTC 1–9999; иначе null. `timestamptz` не примет
+ * запись toISOString с годом 0, отрицательным или пятизначным — вставка упала бы.
+ */
+function registeredAtOf(raw: string | null): string | null {
+  const time = raw === null ? Number.NaN : Date.parse(raw)
+  if (Number.isNaN(time)) return null
+  const date = new Date(time)
+  const year = date.getUTCFullYear()
+  return year >= 1 && year <= 9999 ? date.toISOString() : null
 }
 
 /**
@@ -183,12 +221,11 @@ export function registrationPhone(raw: string, dialCode: string | null): string 
 /** Тело регистрации (уже разобранный JSON): значения или код ошибки 400. */
 export function parseRegistration(body: unknown): RegistrationParse {
   if (!isObject(body)) return { ok: false, code: 'INVALID_REGISTRATION' }
-  const eventId = scalarText(body.event_id)
-  if (typeof eventId !== 'string' || eventId.length > MAX_EVENT_ID_LENGTH) {
-    return { ok: false, code: 'INVALID_EVENT_ID' }
-  }
+  const eventId = registrationEventId(body)
+  if (eventId === null) return { ok: false, code: 'INVALID_EVENT_ID' }
   const known = new Set<string>(REGISTRATION_BODY_FIELDS)
-  const extra: Record<string, unknown> = {}
+  // Без прототипа: ключ `__proto__` из тела — обычный ключ, а не замена прототипа.
+  const extra: Record<string, unknown> = Object.create(null)
   for (const [key, value] of Object.entries(body)) {
     if (!known.has(key)) extra[key] = value
   }
@@ -214,8 +251,7 @@ export function parseRegistration(body: unknown): RegistrationParse {
   if (emailRaw !== null && email === null) warnings.push('EMAIL_INVALID')
 
   const registeredRaw = field('registered_at')
-  const registeredTime = registeredRaw === null ? Number.NaN : Date.parse(registeredRaw)
-  const registeredAt = Number.isNaN(registeredTime) ? null : new Date(registeredTime).toISOString()
+  const registeredAt = registeredAtOf(registeredRaw)
   if (registeredRaw !== null && registeredAt === null) extra.registered_at = body.registered_at
   const ownerRaw = field('owner_email')
 
@@ -231,7 +267,7 @@ export function parseRegistration(body: unknown): RegistrationParse {
       ownerEmail: ownerRaw === null ? null : normalizeEmail(ownerRaw),
       ownerGiven: body.owner_email !== undefined && body.owner_email !== null,
       text,
-      extra: withoutNul(extra) as Record<string, unknown>,
+      extra: storableJson(extra) as Record<string, unknown>,
       warnings,
     },
   }

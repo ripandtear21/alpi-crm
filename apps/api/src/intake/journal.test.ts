@@ -19,6 +19,7 @@ import {
 } from '../testing/api-harness.ts'
 import { createApiKey, createRole } from '../testing/api-key.ts'
 import { problemOf } from '../testing/problem.ts'
+import { handleRegistration } from './journal.ts'
 import { type InboundReplayMessage, replayInbound } from './replay.ts'
 
 // Журнал входящих и «провести заново» (тикет crm-intake/06; ADR 0006) на настоящем PostgreSQL.
@@ -161,6 +162,50 @@ describe('журнал входящих', () => {
           warnings: [],
           replay_of: null,
         },
+      ])
+    })
+
+    it('event_id не строкой и с NUL: у строки журнала и регистрации один event_id, проведение строки заново — повтор с теми же id', async () => {
+      const own = await createSource()
+      const padded = `${eventId()}${'x'.repeat(220)}`.slice(0, 250)
+      const bodies = [
+        { event_id: true, phone: fakePhone() },
+        `{"event_id":"${padded}${'\\u0000'.repeat(10)}","phone":"${fakePhone()}"}`,
+      ]
+      for (const body of bodies) {
+        const answer = await accepted(await register(body, own.key))
+        const registration = await h.owner
+          .selectFrom('registration')
+          .select('event_id')
+          .where('id', '=', answer.registration_id ?? '')
+          .executeTakeFirstOrThrow()
+        const row = await h.owner
+          .selectFrom('inbound_request')
+          .select(['id', 'event_id', 'body'])
+          .where('intake_source_id', '=', own.source.id)
+          .orderBy('received_at', 'desc')
+          .orderBy('id', 'desc')
+          .executeTakeFirstOrThrow()
+        expect(row.event_id, row.body).toBe(registration.event_id)
+
+        const again = await handleRegistration(
+          h.appDb,
+          { id: own.source.id, projectId: projectA, pipelineId },
+          row.body,
+          { replayOf: row.id },
+        )
+        expect([again.status, again.outcome]).toEqual([200, 'repeat'])
+        expect(again.body).toMatchObject({
+          registration_id: answer.registration_id,
+          contact_id: answer.contact_id,
+          deal_id: answer.deal_id,
+        })
+      }
+      expect((await journalOf(own.source.id)).map((row) => [row.outcome, row.event_id])).toEqual([
+        ['accepted', 'true'],
+        ['repeat', 'true'],
+        ['accepted', padded],
+        ['repeat', padded],
       ])
     })
 

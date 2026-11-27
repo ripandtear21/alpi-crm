@@ -9,6 +9,7 @@ import {
   parseRegistration,
   type RegistrationAccepted,
   type RegistrationErrorCode,
+  registrationEventId,
 } from '@alpi/shared'
 import { type Kysely, sql } from 'kysely'
 import { decodePageCursor, encodePageCursor } from '../filters/page.ts'
@@ -91,15 +92,6 @@ class ProcessingRefusal extends Error {
   }
 }
 
-/** `event_id` тела для журнала (строка или число до 255 символов), не разбирая остального. */
-function eventIdOf(body: unknown): string | null {
-  if (typeof body !== 'object' || body === null) return null
-  const value = (body as Record<string, unknown>).event_id
-  const text =
-    typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : null
-  return text !== null && text !== '' && text.length <= 255 ? text.replaceAll(NUL, '') : null
-}
-
 function parseJson(raw: string): unknown {
   try {
     return JSON.parse(raw) as unknown
@@ -122,7 +114,8 @@ export async function handleRegistration(
   const entry = {
     channel: REGISTRATION_CHANNEL,
     sourceId: source.id,
-    eventId: eventIdOf(body),
+    // Та же функция, что в разборе тела: проведение строки заново находит ту же регистрацию.
+    eventId: registrationEventId(body),
     body: raw,
     replayOf: options.replayOf ?? null,
   }

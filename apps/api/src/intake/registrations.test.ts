@@ -335,6 +335,55 @@ describe('приём регистраций', () => {
       expect(await keysOf(answer.contact_id ?? '')).toEqual({ phones: [], emails: [email] })
     })
 
+    it('registered_at с годом вне 1–9999 по UTC — 201, в столбце null, как прислано — в extra; годы 1 и 9999 — в столбце', async () => {
+      for (const raw of [
+        '0000-01-01T00:00:00Z',
+        '-000001-01-01T00:00:00Z',
+        '+010000-01-01T00:00:00Z',
+      ]) {
+        const answer = await accepted(
+          await register({ event_id: eventId(), phone: fakePhone(), registered_at: raw }),
+        )
+        const registration = await registrationRow(answer.registration_id ?? '')
+        expect([registration.registered_at, registration.extra], raw).toEqual([
+          null,
+          { registered_at: raw },
+        ])
+      }
+      for (const [raw, iso] of [
+        ['0001-01-01T00:00:00Z', '0001-01-01T00:00:00.000Z'],
+        ['9999-12-31T23:59:59Z', '9999-12-31T23:59:59.000Z'],
+      ] as const) {
+        const answer = await accepted(
+          await register({ event_id: eventId(), phone: fakePhone(), registered_at: raw }),
+        )
+        const registration = await registrationRow(answer.registration_id ?? '')
+        expect(registration.registered_at?.toISOString(), raw).toBe(iso)
+        expect(registration.extra).toEqual({})
+      }
+    })
+
+    it('одиночная половинка суррогатной пары (обрезанный эмодзи) в неизвестном ключе — 201, в extra она заменена на U+FFFD', async (ctx) => {
+      // U+FFFD хранит только база в UTF8. Встроенная база на Windows берёт
+      // кодировку системы (WIN1251) и такой символ не примет никогда — там тест пропускается;
+      // саму замену проверяет тест разбора в packages/shared без базы.
+      const { rows } = await sql<{ server_encoding: string }>`show server_encoding`.execute(h.owner)
+      if (rows[0]?.server_encoding !== 'UTF8') ctx.skip()
+      const raw = `{"event_id":"${eventId()}","phone":"${fakePhone()}","comment":"abc\\ud83d"}`
+      const answer = await accepted(await register(raw))
+      const registration = await registrationRow(answer.registration_id ?? '')
+      expect(registration.extra).toEqual({ comment: `abc${String.fromCharCode(0xfffd)}` })
+    })
+
+    it('ключ __proto__ в теле — обычный ключ extra, не теряется', async () => {
+      const raw = `{"event_id":"${eventId()}","phone":"${fakePhone()}","__proto__":{"x":1},"y":2}`
+      const answer = await accepted(await register(raw))
+      const registration = await registrationRow(answer.registration_id ?? '')
+      const extra = registration.extra as Record<string, unknown>
+      expect(Object.getOwnPropertyDescriptor(extra, '__proto__')?.value).toEqual({ x: 1 })
+      expect(extra.y).toBe(2)
+    })
+
     it('601-й запрос источника в минуту — 429 с Retry-After, в журнал не пишется', async () => {
       const now = 9_000_000
       const app = createApp({ auth: h.auth, db: h.appDb, rateLimit: { now: () => now } })
