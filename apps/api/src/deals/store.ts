@@ -256,9 +256,11 @@ export async function lockDeals(db: Kysely<Database>, ids: readonly string[]): P
     .forUpdate()
     .execute()
   // Основной контакт сменился, пока ждали контакты (сделки перенесло слияние контактов): его
-  // блокировка — уже после сделки. shortcut: порядок здесь не соблюдён, взаимоблокировку с ещё
-  // одним слиянием этого контакта ловят слияние и откат (merge/store.ts, deadlockRefusal) —
-  // переделать, если такие 409 MERGE_RETRY станут заметны в журнале.
+  // блокировка — уже после сделки. shortcut: порядок здесь не соблюдён. Взаимоблокировку с ещё
+  // одним слиянием этого контакта слияние и откат превращают в 409 MERGE_RETRY
+  // (merge/store.ts, deadlockRefusal); окончательное удаление сделки (deals/deals.ts, purgeDeal)
+  // и фоновая очистка корзины (trash/purgers.ts) не обёрнуты — там это 500 или повтор задачи.
+  // Переделать, если такие отказы станут заметны в журнале.
   await shareContacts(
     db,
     rows.map((row) => row.primary_contact_id).filter((id) => !shared.includes(id)),

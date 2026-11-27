@@ -63,7 +63,9 @@ export async function mergedRefusal<E extends MergeEntity>(
     )
     select id, next from chain
   `.execute(db)
-  if (!rows.find((row) => row.id === id)?.next) return null
+  // База отдаёт uuid в нижнем регистре, а маршрут принимает id в любом.
+  const start = id.toLowerCase()
+  if (!rows.find((row) => row.id === start)?.next) return null
   const last = rows.find((row) => row.next === null)?.id
   if (last === undefined) return refuse(404, codes.notFound)
   const visible =

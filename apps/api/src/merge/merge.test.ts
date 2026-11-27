@@ -495,6 +495,10 @@ describe('слияние контактов с откатом', () => {
       const patch = await call(admin, 'PATCH', `/v1/contacts/${second.id}`, { lastName: 'Ні' })
       expect(patch.status).toBe(404)
       expect((await problemOf(patch)).code).toBe('CONTACT_MERGED')
+      // Маршрут принимает id в любом регистре — ответ тот же.
+      const upper = await call(admin, 'GET', `/v1/contacts/${second.id.toUpperCase()}`)
+      expect(upper.status).toBe(404)
+      expect((await problemOf(upper)).code).toBe('CONTACT_MERGED')
 
       const keyRole = await createRole(h, projectA, {
         actions: { contacts: ['view'] },
