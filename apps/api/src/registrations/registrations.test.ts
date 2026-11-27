@@ -2,11 +2,12 @@ import {
   fullPermissions,
   type IntakeSourceWithKey,
   type Page,
+  type RegistrationAccepted,
   type RolePermissions,
 } from '@alpi/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
-import { createApiKey, createRole, type KeyClient } from '../testing/api-key.ts'
+import { createApiKey, createRole, type KeyClient, keyRequest } from '../testing/api-key.ts'
 import { problemOf } from '../testing/problem.ts'
 import { RegistrationSchema } from './openapi.ts'
 import type { RegistrationView } from './registrations.ts'
@@ -36,8 +37,9 @@ describe('регистрации в API', () => {
   let projectB: string
   let pipelineA: string
   let pipelineB: string
-  let sourceA: { id: string; name: string }
-  let sourceB: { id: string; name: string }
+  /** Источник регистраций и его ключ (для настоящего приёма). */
+  let sourceA: { id: string; name: string; key: string }
+  let sourceB: { id: string; name: string; key: string }
   let full: KeyClient
   let noDeals: KeyClient
   /** Охват контактов «свои» (у ключа — созданные ключом), сделки — все. */
@@ -72,7 +74,7 @@ describe('регистрации в API', () => {
       }),
       201,
     )
-    return created.source
+    return { ...created.source, key: created.key }
   }
 
   async function createContact(projectId = projectA) {
@@ -368,6 +370,85 @@ describe('регистрации в API', () => {
         (await ownContacts.api('GET', `/v1/contacts/${deal.contactId}/registrations`)).status,
       ).toBe(404)
     })
+
+    it('контакт вне охвата: extra, адрес страницы и referrer тоже скрыты (телефон массивом лёг в extra)', async () => {
+      // Настоящий приём: телефон массивом — не той формы, поэтому уходит в extra.phone;
+      // неизвестный ключ — тоже в extra; адрес страницы и referrer несут email и телефон.
+      const accepted = await json<RegistrationAccepted>(
+        await keyRequest(h.app, sourceA.key, 'POST', '/intake/registrations', {
+          body: {
+            event_id: `evt-pd-${++counter}`,
+            email: `pd-${counter}@example.test`,
+            phone: ['+380671112299'],
+            telegram: '@olena_vyhadana',
+            page_url: 'https://example.test/kurs?email=olena%40example.test',
+            referrer: 'https://example.test/form?phone=380671112299',
+          },
+        }),
+        201,
+      )
+      const id = accepted.registration_id ?? ''
+      const open = await json<RegistrationView>(await full.api('GET', `/v1/registrations/${id}`))
+      expect(open.extra).toEqual({ phone: ['+380671112299'], telegram: '@olena_vyhadana' })
+      expect(open.pageUrl).toBe('https://example.test/kurs?email=olena%40example.test')
+      expect(open.referrer).toBe('https://example.test/form?phone=380671112299')
+
+      // Контакт создан приёмом (не ключом), а сделку берёт администратор (без ответственного она
+      // в общей очереди и открыла бы контакт): для охвата контактов «свои» контакт чужой.
+      await h.owner
+        .updateTable('deal')
+        .set({ owner_id: admin.id })
+        .where('id', '=', accepted.deal_id ?? '')
+        .execute()
+      const hidden = await json<RegistrationView>(
+        await ownContacts.api('GET', `/v1/registrations/${id}`),
+      )
+      expect(hidden.extra).toEqual({})
+      expect(hidden).toMatchObject({
+        id,
+        email: null,
+        phone: null,
+        phoneRaw: null,
+        extra: {},
+        pageUrl: null,
+        referrer: null,
+      })
+      const page = await json<Page<RegistrationView>>(
+        await ownContacts.api('GET', `/v1/deals/${accepted.deal_id}/registrations`),
+      )
+      expect(page.data.map((r) => [r.id, r.extra, r.pageUrl, r.referrer])).toEqual([
+        [id, {}, null, null],
+      ])
+    })
+
+    it('регистрация сделки в корзине — 404 по id и нет в списке контакта', async () => {
+      const contact = await createContact()
+      const live = await createDeal({ contactId: contact.id })
+      const trashed = await createDeal({
+        contactId: contact.id,
+        pipelineId: await createPipeline(projectA),
+      })
+      const regLive = await insertRegistration({
+        contactId: contact.id,
+        dealId: live.id,
+        createdAt: at(7),
+      })
+      const regTrashed = await insertRegistration({
+        contactId: contact.id,
+        dealId: trashed.id,
+        createdAt: at(8),
+      })
+      const removed = await admin.api('DELETE', `/v1/deals/${trashed.id}`, { project: projectA })
+      expect(removed.status, await removed.text()).toBeLessThan(300)
+
+      const byId = await full.api('GET', `/v1/registrations/${regTrashed}`)
+      expect(byId.status).toBe(404)
+      expect((await problemOf(byId)).code).toBe('REGISTRATION_NOT_FOUND')
+      const list = await json<Page<RegistrationView>>(
+        await full.api('GET', `/v1/contacts/${contact.id}/registrations`),
+      )
+      expect(list.data.map((r) => r.id)).toEqual([regLive])
+    })
   })
 
   describe('списки', () => {
@@ -379,8 +460,9 @@ describe('регистрации в API', () => {
         contactId: contact.id,
         pipelineId: await createPipeline(projectA),
       })
-      // Семь регистраций: две — в одно и то же время (порядок между ними — по id).
-      const minutes = [10, 11, 12, 12, 13, 14, 15]
+      // Семь регистраций: две — в одно и то же время (порядок между ними — по id), и они стоят
+      // третьей и четвёртой — на границе первой страницы по 3: курсор без id потерял бы вторую.
+      const minutes = [10, 11, 12, 13, 13, 14, 15]
       const rows: { id: string; minute: number; deal: string }[] = []
       for (const [i, minute] of minutes.entries()) {
         const dealId = i % 2 === 0 ? first.id : second.id

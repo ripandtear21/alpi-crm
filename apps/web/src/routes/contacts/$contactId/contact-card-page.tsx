@@ -28,7 +28,10 @@ import { Badge } from '../../../ui/badge.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
 import { Skeleton } from '../../../ui/feedback.tsx'
-import { Registrations } from '../../deals/$dealId/registrations/registrations.tsx'
+import {
+  Registrations,
+  registrationsQueryKey,
+} from '../../deals/$dealId/registrations/registrations.tsx'
 import type { DealsApi } from '../../deals/deals-api.ts'
 import { NewDealDialog } from '../../deals/new-deal-dialog.tsx'
 import { MergeContactDialog } from '../merge/merge-dialog.tsx'
@@ -148,6 +151,8 @@ function ContactCardScreen({
       contactKey,
       dealsKey,
       projectQueryKey(projectId, 'contact-merges', contactId),
+      // Слияние и его откат переносят регистрации между контактами (тикет crm-intake/09).
+      registrationsQueryKey(projectId, { kind: 'contact', id: contactId }),
     ]) {
       void queryClient.invalidateQueries({ queryKey: key })
     }

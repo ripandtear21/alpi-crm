@@ -517,6 +517,35 @@ describe('карточка контакта: слияние (тикет crm-inta
     expect(merges.calls).toContain(`undo ${merges.merges[0]?.id}`)
   })
 
+  it('после отката слияния регистрации контакта перечитываются (тикет crm-intake/09)', async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    const merges = fakeMergesApi({ contacts: () => api.contacts })
+    merges.merges.push(
+      sampleMerge({
+        survivorId: CONTACT_ID,
+        mergedId: OTHER_CONTACT_ID,
+        mergedContact: { id: OTHER_CONTACT_ID, firstName: 'Олег', lastName: 'Коваль' },
+      }),
+    )
+    const own = sampleRegistration({ contactId: CONTACT_ID, sourceName: 'Своя' })
+    const moved = sampleRegistration({ contactId: CONTACT_ID, sourceName: 'Перенесена' })
+    const registrations = fakeRegistrationsApi({ [`contact:${CONTACT_ID}`]: [moved, own] })
+    await renderCard({ api, merges, registrations })
+    const sources = async () =>
+      within(await screen.findByRole('list', { name: 'Реєстрації' }))
+        .getAllByText(/^(Своя|Перенесена)$/)
+        .map((node) => node.textContent)
+    expect(await sources()).toEqual(['Перенесена', 'Своя'])
+
+    registrations.byOwner.set(`contact:${CONTACT_ID}`, [own])
+    const block = await screen.findByRole('region', { name: "Об'єднання" })
+    fireEvent.click(within(block).getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    await waitFor(async () => expect(await sources()).toEqual(['Своя']))
+  })
+
   it("прямая ссылка на слитый контакт: «Контакт об'єднано» со ссылкой на оставшийся и откатом", async () => {
     const api = fakeContactsApi({ contacts: [sampleContact()] })
     const merges = fakeMergesApi({ contacts: () => api.contacts })

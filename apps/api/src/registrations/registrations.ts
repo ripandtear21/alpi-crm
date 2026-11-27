@@ -36,9 +36,11 @@ import {
 //   видна только с охватом сделок «все» (решено без владельца — подтвердить).
 // - Регистрации слитой сделки слияние переносит к оставшейся (merge/deal-registry.ts), поэтому
 //   отдельной логики для слитых здесь нет: слитая сделка отвечает 404 (entityFor).
-// - Имя, телефон и email — null, если контакт регистрации вне охвата чтения контактов или у роли
+// - Персональные данные — null, если контакт регистрации вне охвата чтения контактов или у роли
 //   нет права «контакты: смотреть»: так же карточки сделок не показывают имя контакта вне
-//   охвата (deals/board.ts; решено без владельца — подтвердить).
+//   охвата (deals/board.ts; решено без владельца — подтвердить). Кроме имени, телефона и email
+//   это адрес страницы и referrer (в строке запроса бывают email и телефон) и `extra` — пустой
+//   объект: туда попадают неизвестные ключи и поля не той формы (телефон массивом).
 // - Чужой проект: запросы идут в транзакции проекта, RLS отдаёт только его строки.
 
 export type RegistrationView = z.infer<typeof RegistrationSchema>
@@ -121,8 +123,8 @@ function toView(row: Row, contactVisible: boolean): RegistrationView {
     form: row.form,
     webinar: row.webinar,
     planName: row.plan_name,
-    pageUrl: row.page_url,
-    referrer: row.referrer,
+    pageUrl: person(row.page_url),
+    referrer: person(row.referrer),
     utmSource: row.utm_source,
     utmMedium: row.utm_medium,
     utmCampaign: row.utm_campaign,
@@ -136,7 +138,7 @@ function toView(row: Row, contactVisible: boolean): RegistrationView {
     fbp: row.fbp,
     fbc: row.fbc,
     userAgent: row.user_agent,
-    extra: row.extra,
+    extra: contactVisible ? row.extra : {},
     // shortcut: просмотр вебинара всегда null — столбцы view_* добавляет миграция 0030 тикета
     // crm-intake/08, её ещё нет в main; подключить (view_started_at, view_finished_at,
     // view_minutes, view_extra, view_updated_at; null view_updated_at — просмотра не было),

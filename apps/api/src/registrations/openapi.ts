@@ -60,8 +60,8 @@ export const RegistrationSchema = z
     form: text('Форма'),
     webinar: text('Вебинар'),
     planName: text('Тариф'),
-    pageUrl: text('Адрес страницы формы'),
-    referrer: text('referrer'),
+    pageUrl: text('Адрес страницы формы; null и у контакта вне охвата'),
+    referrer: text('referrer; null и у контакта вне охвата'),
     utmSource: text('utm_source'),
     utmMedium: text('utm_medium'),
     utmCampaign: text('utm_campaign'),
@@ -76,7 +76,8 @@ export const RegistrationSchema = z
     fbc: text('fbc'),
     userAgent: text('user_agent'),
     extra: z.record(z.string(), z.unknown()).openapi({
-      description: 'Остальные ключи тела, как прислал источник',
+      description:
+        'Остальные ключи тела, как прислал источник; пустой объект у контакта вне охвата чтения контактов',
     }),
     view: RegistrationViewSchema.nullable().openapi({
       description: 'Просмотр вебинара; null — данных о просмотре нет',
@@ -139,7 +140,7 @@ export const getRegistrationRoute = keyRoute({
   tags: ['Регистрации'],
   summary: 'Регистрация',
   description:
-    'Регистрация видна тому, кто видит её сделку (право «сделки: смотреть» и охват чтения); иначе 404, как несуществующая. Регистрация без сделки (сделку удалили окончательно) видна только с охватом «все». Имя, телефон и email — null, если контакт вне охвата чтения контактов.',
+    'Регистрация видна тому, кто видит её сделку (право «сделки: смотреть» и охват чтения); иначе 404, как несуществующая. Регистрация без сделки (сделку удалили окончательно) видна только с охватом «все». Имя, телефон, email, адрес страницы и referrer — null, а `extra` — пустой объект, если контакт вне охвата чтения контактов.',
   middleware: [view],
   request: { params: pathParams({ id: EXAMPLE_IDS.registration }) },
   responses: {

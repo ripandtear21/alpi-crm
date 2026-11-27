@@ -27,6 +27,7 @@ import { DealHeader } from './deal-header.tsx'
 import { type DealRights, dealRights } from './deal-rights.ts'
 import { DealSidebar } from './deal-sidebar.tsx'
 import { MergedDealNotice } from './merge/undo-deal-merge.tsx'
+import { registrationsQueryKey } from './registrations/registrations.tsx'
 import './deal-card.css'
 
 // Карточка сделки (тикет crm-deals/13; spec.md MVP, раздел 5.2): раскладка Pipedrive в стиле
@@ -172,6 +173,10 @@ function DealCardScreen({
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: dealKey })
     void queryClient.invalidateQueries({ queryKey: timelineQueryKey(projectId, 'deals', dealId) })
+    // Слияние и его откат переносят регистрации между сделками (тикет crm-intake/09).
+    void queryClient.invalidateQueries({
+      queryKey: registrationsQueryKey(projectId, { kind: 'deal', id: dealId }),
+    })
   }
 
   function ownerName(ownerId: string | null): string {

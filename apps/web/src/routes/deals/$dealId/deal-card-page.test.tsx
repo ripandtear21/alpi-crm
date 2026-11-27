@@ -843,6 +843,35 @@ describe('карточка сделки: слияние (тикет crm-intake/0
     await screen.findByRole('heading', { level: 1, name: SECOND })
   })
 
+  it('регистрации перечитываются после слияния и после отката (тикет crm-intake/09)', async () => {
+    const api = twoDeals()
+    const own = sampleRegistration({ dealId: DEAL_ID, sourceName: 'Своя' })
+    const moved = sampleRegistration({ dealId: DEAL_ID, sourceName: 'Перенесена' })
+    const registrations = fakeRegistrationsApi({ [`deal:${DEAL_ID}`]: [own] })
+    await renderCard({ api, registrations })
+    const sources = async () =>
+      within(await screen.findByRole('list', { name: 'Реєстрації' }))
+        .getAllByText(/^(Своя|Перенесена)$/)
+        .map((node) => node.textContent)
+    expect(await sources()).toEqual(['Своя'])
+
+    // Слияние переносит регистрации второй сделки к этой.
+    const dialog = await openMergeDialog()
+    await within(dialog).findByRole('region', { name: 'Що перейде' })
+    registrations.byOwner.set(`deal:${DEAL_ID}`, [moved, own])
+    fireEvent.click(within(dialog).getByRole('button', { name: "Об'єднати" }))
+    await waitFor(async () => expect(await sources()).toEqual(['Перенесена', 'Своя']))
+
+    // Откат возвращает их второй сделке.
+    registrations.byOwner.set(`deal:${DEAL_ID}`, [own])
+    const list = await screen.findByRole('region', { name: "Об'єднані угоди" })
+    fireEvent.click(within(list).getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    await waitFor(async () => expect(await sources()).toEqual(['Своя']))
+  })
+
   it('срок отката прошёл — на странице слитой сделки кнопки отката нет', async () => {
     const api = twoDeals()
     api.mergedInto[SECOND_ID] = {
