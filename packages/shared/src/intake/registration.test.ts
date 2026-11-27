@@ -57,6 +57,12 @@ describe('строки, которые PostgreSQL не хранит', () => {
     })
   })
 
+  it('две старшие половинки подряд перед младшей — заменяется только первая', () => {
+    expect(parsed({ ...base, comment: `${lone}${lone}${low}` }).extra).toEqual({
+      comment: `${replacement}${lone}${low}`,
+    })
+  })
+
   it('полная суррогатная пара (эмодзи) не меняется', () => {
     expect(parsed({ ...base, comment: 'ok 😀' }).extra).toEqual({ comment: 'ok 😀' })
   })
