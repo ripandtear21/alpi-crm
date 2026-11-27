@@ -11,8 +11,11 @@ import { type Kysely, sql } from 'kysely'
 // Отличие от журнала опасных действий (audit/record.ts): там — кто что сделал (роль, вход,
 // окончательное удаление), здесь — история значений полей записи для её карточки.
 
-/** Чья история: тип сущности в change_log.entity_type. */
-export type ChangeLogEntity = 'contact' | 'organization' | 'deal'
+/**
+ * Чья история: тип сущности в change_log.entity_type. 'registration' — просмотры вебинара
+ * (тикет crm-intake/08); удаляется вместе с регистрацией (триггер миграции 0030).
+ */
+export type ChangeLogEntity = 'contact' | 'organization' | 'deal' | 'registration'
 
 /** Изменение одного поля; значения — то, что API отдаёт в ответе (JSON). */
 export interface FieldChange {

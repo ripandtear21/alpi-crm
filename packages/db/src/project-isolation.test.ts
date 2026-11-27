@@ -41,6 +41,7 @@ const migrationNames = [
   '0027_contact_merge',
   '0028_registration_intake',
   '0029_duplicates',
+  '0030_webinar_views',
 ]
 
 const tablesOfMigration = [
@@ -300,11 +301,13 @@ describe('схема и изоляция проектов', () => {
           removed.push((await note({ author_api_key_id: apiKeyId })).id)
         }
 
-        // Откат до 0021: сначала 0029, 0028, 0027, 0026, 0025 и 0024 (дубли, приём регистраций,
-        // слияния, источники и доставка событий — данных в них нет), затем 0023.
+        // Откат до 0021: сначала 0030, 0029, 0028, 0027, 0026, 0025 и 0024 (просмотры, дубли,
+        // приём регистраций, слияния, источники и доставка событий — данных в них нет), затем
+        // 0023.
         const down = await createMigrator(scratch).migrateTo('0021_webhook_events')
         expect(down.error).toBeUndefined()
         expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
+          ['0030_webinar_views', 'Down', 'Success'],
           ['0029_duplicates', 'Down', 'Success'],
           ['0028_registration_intake', 'Down', 'Success'],
           ['0027_contact_merge', 'Down', 'Success'],
@@ -335,6 +338,7 @@ describe('схема и изоляция проектов', () => {
           ['0027_contact_merge', 'Success'],
           ['0028_registration_intake', 'Success'],
           ['0029_duplicates', 'Success'],
+          ['0030_webinar_views', 'Success'],
         ])
       } finally {
         await scratch.destroy()

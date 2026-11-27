@@ -15,6 +15,7 @@ import {
 import { bearerSecret } from '../middleware/api-key.ts'
 import { handleRegistration } from './journal.ts'
 import { hashIntakeKey } from './key.ts'
+import { handleWebinarView } from './webinar.ts'
 
 // Запрос приёма по ключу источника (тикет crm-intake/03; .scratch/crm-intake/spec.md, «Общие
 // правила»): `/api/intake/...` (снаружи префикс /api снимает обратный прокси, сюда доходит
@@ -120,7 +121,6 @@ export function intakeSourceAuth(db: Kysely<Database>, limiter: RateLimiter) {
 
 /**
  * Группа `/intake` (снаружи — /api/intake): ключ источника и лимит, затем маршруты приёма.
- * Маршрут просмотров вебинара добавляет тикет 08 — между проверкой и последней строкой.
  * Неизвестный путь с действующим ключом — 404 здесь же, чтобы запрос не ушёл к проверке ключа
  * API и сессии.
  */
@@ -138,6 +138,15 @@ export function intakeRoutes(db: Kysely<Database>, rateLimit: RateLimitOptions =
           return problem(c, answer.status as ContentfulStatusCode, answer.body.code)
         }
         return c.json(answer.body, answer.status as ContentfulStatusCode)
+      })
+      // Просмотр вебинара (тикет crm-intake/08): дописывается в последнюю регистрацию контакта
+      // на тот же вебинар — 200 с `matched`; ничего не создаёт (intake/webinar.ts).
+      .post('/webinar-views', async (c) => {
+        const answer = await handleWebinarView(db, c.get('intakeSource'), await c.req.text())
+        if ('code' in answer.body) {
+          return problem(c, answer.status as ContentfulStatusCode, answer.body.code)
+        }
+        return c.json(answer.body, 200)
       })
       .all('*', (c) => problem(c, 404, 'NOT_FOUND'))
   )

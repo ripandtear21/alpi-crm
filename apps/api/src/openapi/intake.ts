@@ -2,6 +2,7 @@ import {
   INTAKE_RATE_LIMIT,
   MAX_EVENT_ID_LENGTH,
   MAX_REGISTRATION_TEXT_LENGTH,
+  MAX_VIEW_MINUTES,
   PROBLEM_CONTENT_TYPE,
   type REGISTRATION_TEXT_FIELDS,
 } from '@alpi/shared'
@@ -137,6 +138,125 @@ const DESCRIPTION = `Регистрация с формы или лендинг�
 
 Лимит — ${INTAKE_RATE_LIMIT} запросов в минуту на источник; сверх — 429 \`RATE_LIMITED\` с \`Retry-After\`.`
 
+const VIEW_TIME = { type: 'string', format: 'date-time' } as const
+
+const WEBINAR_VIEW_BODY = {
+  type: 'object',
+  description:
+    'Просмотр вебинара. Любые другие ключи верхнего уровня (процент, нажатые кнопки и т. п.) сохраняются в `view_extra` регистрации как есть; неверные started_at, finished_at и minutes — тоже, как прислано.',
+  required: ['event_id', 'webinar'],
+  properties: {
+    event_id: {
+      type: 'string',
+      minLength: 1,
+      maxLength: MAX_EVENT_ID_LENGTH,
+      description:
+        'id события у источника: уникален в пределах источника и хранится вечно. Повтор — 200 с тем же ответом, ничего не меняется',
+    },
+    phone: {
+      type: 'string',
+      description:
+        'Телефон; без кода страны — украинский. Контакт ищется по телефону, затем по email',
+    },
+    email: { type: 'string', description: 'Email' },
+    webinar: {
+      ...TEXT,
+      description: 'Вебинар: совпадает с полем webinar регистрации целиком',
+    },
+    started_at: { ...VIEW_TIME, description: 'Начал смотреть (ISO 8601)' },
+    finished_at: { ...VIEW_TIME, description: 'Вышел (ISO 8601)' },
+    minutes: {
+      type: 'number',
+      minimum: 0,
+      maximum: MAX_VIEW_MINUTES,
+      description: 'Минут просмотрено; дробное округляется',
+    },
+  },
+} as const
+
+const VIEW_ANSWER = {
+  type: 'object',
+  required: ['registration_id', 'matched'],
+  properties: {
+    registration_id: { type: ['string', 'null'], format: 'uuid' },
+    matched: {
+      type: 'boolean',
+      description:
+        'true — просмотр записан в регистрацию registration_id; false — контакт или его регистрация на этот вебинар не найдены, ничего не записано',
+    },
+  },
+} as const
+
+const VIEW_DESCRIPTION = `Просмотр вебинара: данные вебинарной платформы о том, как человек смотрел вебинар. Ничего не создаёт — ни контакта, ни регистрации, ни сделки.
+
+Контакт ищется по телефону, затем по email; просмотр дописывается в его последнюю регистрацию с тем же \`webinar\`. «Начал смотреть», «вышел», «минут просмотрено» и остальные поля просмотра заменяются значениями запроса — последние значения заменяют прежние. Нет контакта или регистрации — 200 с \`matched: false\` и строка «без регистрации» в журнале входящих источника.
+
+Лимит — ${INTAKE_RATE_LIMIT} запросов в минуту на источник, общий с регистрациями; сверх — 429 \`RATE_LIMITED\` с \`Retry-After\`.`
+
+/** Путь `/api/intake/webinar-views` (тикет crm-intake/08). */
+function webinarViewPath() {
+  return {
+    servers: [{ url: '/api' }],
+    post: {
+      summary: 'Принять просмотр вебинара',
+      description: VIEW_DESCRIPTION,
+      operationId: 'intake_webinar_view',
+      tags: ['intake'],
+      security: [{ [INTAKE_SECURITY]: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: WEBINAR_VIEW_BODY,
+            example: {
+              event_id: 'view-2026-11-27-000045',
+              phone: '067 000 00 00',
+              webinar: 'Продажі 2027',
+              started_at: '2026-11-27T18:02:00Z',
+              finished_at: '2026-11-27T19:31:00Z',
+              minutes: 89,
+              percent: 92,
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Просмотр принят (или повтор event_id — тот же ответ)',
+          content: {
+            'application/json': {
+              schema: VIEW_ANSWER,
+              example: { registration_id: '0b6f6c1e-6a52-4d8e-9a4e-3f1d2c5b7a90', matched: true },
+            },
+          },
+        },
+        400: {
+          description:
+            'INVALID_WEBINAR_VIEW — тело не объект JSON; INVALID_EVENT_ID — нет event_id или он не 1–255 символов; CONTACT_KEYS_REQUIRED — нет ни верного телефона, ни верного email; WEBINAR_REQUIRED — нет webinar',
+          content: problemContent,
+        },
+        401: { description: 'INTAKE_KEY_INVALID — ключ не действует', content: problemContent },
+        413: { description: 'Тело больше 100 КБ', content: problemContent },
+        429: {
+          description: `Больше ${INTAKE_RATE_LIMIT} запросов в минуту на источник`,
+          headers: {
+            'Retry-After': {
+              description: 'Секунд до конца окна',
+              schema: { type: 'integer', example: 42 },
+            },
+          },
+          content: problemContent,
+        },
+        500: {
+          description:
+            'INTERNAL — сбой обработки: ничего не записано, строка в журнале входящих есть; запрос можно повторить',
+          content: problemContent,
+        },
+      },
+    },
+  }
+}
+
 /** Пути и схема безопасности раздела `/api/intake`. */
 export function intakePaths() {
   return {
@@ -205,6 +325,7 @@ export function intakePaths() {
           },
         },
       },
+      '/intake/webinar-views': webinarViewPath(),
     },
   }
 }

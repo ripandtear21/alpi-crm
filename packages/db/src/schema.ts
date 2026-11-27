@@ -893,6 +893,16 @@ export interface RegistrationTable {
   user_agent: RegistrationText
   /** Остальные ключи тела, как прислал источник: объект JSON. */
   extra: ColumnType<Record<string, unknown>, string | undefined, never>
+  /**
+   * Последний просмотр вебинара (migrations/0030, тикет crm-intake/08): новый просмотр заменяет
+   * все пять столбцов; пока просмотра не было — null.
+   */
+  view_started_at: ColumnType<Date | null, never, Date | string | null>
+  view_finished_at: ColumnType<Date | null, never, Date | string | null>
+  view_minutes: ColumnType<number | null, never, number | null>
+  /** Поля просмотра сверх трёх названных: объект JSON, пишется строкой. */
+  view_extra: ColumnType<Record<string, unknown> | null, never, string | null>
+  view_updated_at: ColumnType<Date | null, never, Date | string | null>
 }
 
 /**
@@ -902,7 +912,7 @@ export interface RegistrationTable {
 export interface IntakeEventTable {
   project_id: string
   intake_source_id: string
-  /** 'registration'. */
+  /** 'registration' | 'webinar_view' (migrations/0030). */
   kind: string
   event_id: string
   registration_id: string | null
@@ -913,12 +923,12 @@ export interface IntakeEventTable {
 export interface InboundRequestTable {
   id: Generated<string>
   project_id: string
-  /** Канал: 'intake.registration' (тикет 08 — 'intake.webinar_view'). */
+  /** Канал: 'intake.registration' | 'intake.webinar_view'. */
   channel: string
   intake_source_id: string | null
   received_at: ColumnType<Date, Date | string | undefined, never>
   status_code: number
-  /** 'accepted' | 'repeat' | 'error'. */
+  /** 'accepted' | 'repeat' | 'error' | 'unmatched' (просмотр без регистрации, migrations/0030). */
   outcome: string
   error_code: string | null
   event_id: string | null

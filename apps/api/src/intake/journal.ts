@@ -32,7 +32,7 @@ import { type ProcessResult, processRegistration } from './process.ts'
 export const REGISTRATION_CHANNEL: InboundChannel = 'intake.registration'
 
 /** Строка журнала для записи. */
-interface InboundEntry {
+export interface InboundEntry {
   channel: InboundChannel
   sourceId: string
   statusCode: number
@@ -49,7 +49,8 @@ interface InboundEntry {
 const NUL = String.fromCharCode(0)
 const REPLACEMENT = String.fromCharCode(0xfffd)
 
-async function writeInbound(
+/** Пишет строку журнала транзакцией проекта `trx` (и для просмотров вебинара, webinar.ts). */
+export async function writeInbound(
   trx: Kysely<Database>,
   projectId: string,
   entry: InboundEntry,
@@ -92,7 +93,8 @@ class ProcessingRefusal extends Error {
   }
 }
 
-function parseJson(raw: string): unknown {
+/** Тело запроса как JSON; не JSON — undefined. */
+export function parseJson(raw: string): unknown {
   try {
     return JSON.parse(raw) as unknown
   } catch {
