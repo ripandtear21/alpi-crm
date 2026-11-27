@@ -60,7 +60,7 @@ Code: `apps/web/src/routes/settings/intake-sources/intake-sources-page.tsx:134-1
 
 ## 4. Кто администратор: запрос хода отвечает 403 всем остальным
 
-Code: `apps/api/src/intake/replay.ts:63-68` · key lines: 65, 66, 67
+Code: `apps/api/src/intake/replay.ts:66-71` · key lines: 68, 69, 70
 ```ts
     .get('/replay', async (c) => {
       // Ход и итог последнего запуска (тикет crm-intake/07): тоже только администратору.
@@ -175,7 +175,7 @@ Code: `apps/web/src/routes/settings/intake-sources/inbound-journal.tsx:135-140` 
 
 1. Как экран узнаёт, показывать ли кнопку «Провести заново», если `GET /project/access` не говорит, администратор ли пользователь?
    - Ответ: он запрашивает ход `GET /v1/inbound/replay`; не администратору API отвечает 403, клиент превращает его в null, и раздел не показывается.
-   - Строки: `apps/api/src/intake/replay.ts:63-68`
+   - Строки: `apps/api/src/intake/replay.ts:66-71`
 2. Почему экран показывает «Виконується», пока итога нет, и как он понимает, что задача закончилась?
    - Ответ: запуск и итог пишутся в журнал проекта отдельными записями; итог ищется по тем же since и until, и пока записи итога нет, задача считается идущей.
    - Строки: `apps/api/src/intake/replay-status.ts:33-47`
