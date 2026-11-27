@@ -15,6 +15,7 @@ import type { MiddlewareHandler } from 'hono'
 import { problem } from '../http/problem.ts'
 import { apiKeyRoute } from '../middleware/api-key.ts'
 import { eventWebhooks } from './events.ts'
+import { intakePaths } from './intake.ts'
 
 // Описание API `/api/v1` в формате OpenAPI 3.1, построенное из кода (тикет crm-api/02).
 //
@@ -246,12 +247,17 @@ export function v1Document(app: OpenAPIHono<any, any, any>) {
     servers: [{ url: '/api/v1' }],
   })
   const events = eventWebhooks()
+  // Приём регистраций (/api/intake, тикет crm-intake/06) — вне приложения /v1: свой сервер и
+  // своя схема безопасности (openapi/intake.ts).
+  const intake = intakePaths()
   return {
     ...document,
+    paths: { ...document.paths, ...intake.paths },
     webhooks: events.webhooks,
     components: {
       ...document.components,
       schemas: { ...document.components?.schemas, ...events.schemas },
+      securitySchemes: { ...document.components?.securitySchemes, ...intake.securitySchemes },
     },
   }
 }

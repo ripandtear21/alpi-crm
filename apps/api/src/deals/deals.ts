@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import { sql, type UpdateObject } from 'kysely'
 import { recordInRequest } from '../audit/record.ts'
 import {
+  type ChangeAuthor,
   diffFields,
   type FieldChange,
   purgeFromTrash,
@@ -223,7 +224,7 @@ function unknownKey(body: Record<string, unknown>, allowed: readonly string[]): 
 // ---- Проверки ссылок ------------------------------------------------------------------------
 
 /** Воронка и этап сделки. */
-interface Placement {
+export interface Placement {
   pipelineId: string
   stageId: string
 }
@@ -231,9 +232,10 @@ interface Placement {
 /**
  * Куда ставится открытая сделка: действующая воронка проекта и её действующий этап (по
  * умолчанию первый). Этап блокируется FOR SHARE до конца транзакции: удаление этапа подождёт.
+ * Общая для ручного создания и приёма регистраций (тикет crm-intake/06).
  */
-async function placement(
-  ctx: DealContext,
+export async function placement(
+  ctx: Pick<DealContext, 'db'>,
   pipelineId: string,
   stageId: string | undefined,
 ): Promise<Result<Placement>> {
@@ -249,7 +251,7 @@ async function placement(
 
 /** Действующий этап воронки (`stageId` или первый), заблокированный FOR SHARE. */
 async function liveStage(
-  ctx: DealContext,
+  ctx: Pick<DealContext, 'db'>,
   pipelineId: string,
   stageId: string | undefined,
 ): Promise<Result<Placement>> {
@@ -421,6 +423,58 @@ interface NewDeal {
   custom: CustomValues
 }
 
+/** Новая сделка: что пишет insertDealRow. */
+export interface NewDealRow {
+  title: string
+  placement: Placement
+  contactId: string
+  ownerId: string | null
+  organizationId?: string | null
+  amount?: number
+  currency?: DealCurrency
+  expectedCloseDate?: string | null
+  /** Колонка `custom` (customInsert); по умолчанию — пусто. */
+  custom?: string
+}
+
+/**
+ * Вставка новой сделки — общая для ручного создания и приёма регистраций (тикет crm-intake/06).
+ * Отказ базы («одна открытая сделка», удалённый этап) бросается: вызывающий оборачивает её в
+ * точку сохранения (guardedWrite) и решает, что ответить. После неё — finishNewDeal.
+ */
+export function insertDealRow(author: ChangeAuthor, deal: NewDealRow): Promise<{ id: string }> {
+  return author.db
+    .insertInto('deal')
+    .values({
+      project_id: author.projectId,
+      title: deal.title,
+      pipeline_id: deal.placement.pipelineId,
+      stage_id: deal.placement.stageId,
+      amount: deal.amount ?? 0,
+      currency: deal.currency ?? DEFAULT_CURRENCY,
+      owner_id: deal.ownerId,
+      primary_contact_id: deal.contactId,
+      organization_id: deal.organizationId ?? null,
+      expected_close_date: deal.expectedCloseDate ?? null,
+      ...(deal.custom === undefined ? {} : { custom: deal.custom }),
+      created_by: author.actorId,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow()
+}
+
+/** После вставки сделки: значения пользовательских полей и событие deal.created. */
+export async function finishNewDeal(
+  author: ChangeAuthor,
+  id: string,
+  custom?: CustomWrite,
+): Promise<DealRow> {
+  if (custom) await finishCustom(author, { type: 'deal', id }, custom, { history: false })
+  const row = await reloadDeal(author, id)
+  await emitDealCreated(author, row)
+  return row
+}
+
 async function insertDeal(
   ctx: DealContext,
   deal: NewDeal,
@@ -448,30 +502,20 @@ async function insertDeal(
     ctx,
     { pipelineId: place.value.pipelineId, contactId: deal.contactId },
     () =>
-      ctx.db
-        .insertInto('deal')
-        .values({
-          project_id: ctx.projectId,
-          title: deal.title,
-          pipeline_id: place.value.pipelineId,
-          stage_id: place.value.stageId,
-          amount: deal.amount,
-          currency: deal.currency,
-          owner_id: owner.value,
-          primary_contact_id: deal.contactId,
-          organization_id: deal.organizationId,
-          expected_close_date: deal.expectedCloseDate,
-          custom: customInsert(custom.value),
-          created_by: ctx.actorId,
-        })
-        .returning('id')
-        .executeTakeFirstOrThrow(),
+      insertDealRow(ctx, {
+        title: deal.title,
+        placement: place.value,
+        amount: deal.amount,
+        currency: deal.currency,
+        ownerId: owner.value,
+        contactId: deal.contactId,
+        organizationId: deal.organizationId,
+        expectedCloseDate: deal.expectedCloseDate,
+        custom: customInsert(custom.value),
+      }),
   )
   if (!inserted.ok) return inserted
-  const id = inserted.value.id
-  await finishCustom(ctx, { type: 'deal', id }, custom.value, { history: false })
-  const row = await reloadDeal(ctx, id)
-  await emitDealCreated(ctx, row)
+  const row = await finishNewDeal(ctx, inserted.value.id, custom.value)
   return ok(await dealView(ctx, row))
 }
 

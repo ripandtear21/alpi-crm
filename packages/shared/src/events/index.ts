@@ -21,14 +21,23 @@ export const EVENT_ID_PREFIX = 'evt_'
  * Вид факта в `data`:
  * - `uuid` — id записи CRM (сделка, воронка, этап, контакт, причина проигрыша);
  * - `user_or_null` — id пользователя или null (без ответственного — общая очередь);
- * - `placement` — воронка и этап: `{ pipeline_id, stage_id }`.
+ * - `placement` — воронка и этап: `{ pipeline_id, stage_id }`;
+ * - `text_or_null` — короткая строка (до EVENT_TEXT_MAX_LENGTH символов) или null: например,
+ *   форма регистрации; не имя, не телефон и не email;
+ * - `boolean` — да/нет.
  */
-export type EventFactKind = 'uuid' | 'user_or_null' | 'placement'
+export type EventFactKind = 'uuid' | 'user_or_null' | 'placement' | 'text_or_null' | 'boolean'
+
+/** Наибольшая длина факта `text_or_null`. */
+export const EVENT_TEXT_MAX_LENGTH = 2000
+
+/** Тип сущности события. */
+export type EventEntity = 'deal' | 'contact' | 'registration'
 
 /** Описание типа события в каталоге. */
 export interface EventDefinition {
   /** Тип сущности; её id в `data` — факт `<entity>_id`. */
-  entity: 'deal' | 'contact'
+  entity: EventEntity
   /** Когда событие пишется — для описания API. */
   summary: string
   /** Факты изменения в `data`, по порядку. */
@@ -111,6 +120,20 @@ export const EVENT_CATALOG = {
       'Слияние контактов отменено: merged_contact_id снова доступен, ему вернулось то, что перешло к contact_id',
     facts: { contact_id: 'uuid', merged_contact_id: 'uuid' },
   },
+  'registration.created': {
+    entity: 'registration',
+    summary:
+      'Принята регистрация от источника (тикет crm-intake/06): в какой контакт и сделку она легла; deal_created и contact_created — созданы ли они этой регистрацией; form — форма из запроса или null',
+    facts: {
+      registration_id: 'uuid',
+      contact_id: 'uuid',
+      deal_id: 'uuid',
+      source_id: 'uuid',
+      form: 'text_or_null',
+      deal_created: 'boolean',
+      contact_created: 'boolean',
+    },
+  },
 } as const satisfies Record<string, EventDefinition>
 
 export type EventType = keyof typeof EVENT_CATALOG
@@ -129,7 +152,11 @@ type FactValue<K> = K extends 'uuid'
     ? string | null
     : K extends 'placement'
       ? EventPlacement
-      : never
+      : K extends 'text_or_null'
+        ? string | null
+        : K extends 'boolean'
+          ? boolean
+          : never
 
 /** Факты изменения события `T` — то, что передаёт вызывающий. */
 export type EventFacts<T extends EventType> = {
@@ -203,6 +230,12 @@ function factProblem(kind: EventFactKind, value: unknown, path: string): string 
         (isUuid(value.stage_id) ? null : `${path}.stage_id: ожидается uuid`)
       )
     }
+    case 'text_or_null':
+      return value === null || (typeof value === 'string' && value.length <= EVENT_TEXT_MAX_LENGTH)
+        ? null
+        : `${path}: ожидается строка до ${EVENT_TEXT_MAX_LENGTH} символов или null`
+    case 'boolean':
+      return typeof value === 'boolean' ? null : `${path}: ожидается true или false`
   }
 }
 
@@ -272,6 +305,10 @@ function factSchema(kind: EventFactKind): JsonSchema {
         required: ['pipeline_id', 'stage_id'],
         properties: { pipeline_id: UUID_SCHEMA, stage_id: UUID_SCHEMA },
       }
+    case 'text_or_null':
+      return { type: ['string', 'null'], maxLength: EVENT_TEXT_MAX_LENGTH }
+    case 'boolean':
+      return { type: 'boolean' }
   }
 }
 

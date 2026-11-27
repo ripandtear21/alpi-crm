@@ -69,6 +69,16 @@ function part(details: Record<string, unknown>, key: 'before' | 'after') {
 /** Что именно изменилось — одной строкой. */
 function useSummary() {
   const { t, i18n } = useTranslation('audit')
+  /** Дата «с …» из подробностей — коротко, в языке интерфейса; не дата — как есть. */
+  const sinceText = (value: unknown): string => {
+    const since = Date.parse(text(value))
+    return Number.isNaN(since)
+      ? text(value)
+      : new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(
+          since,
+        )
+  }
+  const count = (value: unknown) => (typeof value === 'number' ? value : '')
   return (entry: AuditEntry<ProjectAuditAction>): string => {
     const before = part(entry.details, 'before')
     const after = part(entry.details, 'after')
@@ -226,19 +236,22 @@ function useSummary() {
       case 'intake_source.enabled':
         return text(entry.details.name)
       // Тикет crm-api/09: «догнать события с даты» — адрес, дата и сколько событий поставлено.
-      case 'webhook_endpoint.caught_up': {
-        const since = Date.parse(text(entry.details.since))
+      case 'webhook_endpoint.caught_up':
         return t('summary.caughtUp', {
           url: text(entry.details.url),
-          since: Number.isNaN(since)
-            ? text(entry.details.since)
-            : new Intl.DateTimeFormat(i18n.language, {
-                dateStyle: 'short',
-                timeStyle: 'short',
-              }).format(since),
+          since: sinceText(entry.details.since),
           n: typeof entry.details.queued === 'number' ? entry.details.queued : '',
         })
-      }
+      // Тикет crm-intake/06: «провести заново» входящие с даты — запуск и итог по исходам.
+      case 'inbound.replay_started':
+        return t('summary.replayStarted', { since: sinceText(entry.details.since) })
+      case 'inbound.replay_finished':
+        return t('summary.replayFinished', {
+          since: sinceText(entry.details.since),
+          accepted: count(entry.details.accepted),
+          repeats: count(entry.details.repeats),
+          errors: count(entry.details.errors),
+        })
     }
   }
 }

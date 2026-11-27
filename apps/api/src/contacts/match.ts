@@ -28,6 +28,21 @@ export interface ContactMatch {
 const NO_CONTACT = '00000000-0000-0000-0000-000000000000'
 
 /**
+ * Первый по времени создания контакт (вне корзины, не слитый, не `excludeId`) с одним из email;
+ * null — таких нет. Приём регистраций (тикет crm-intake/06): при конфликте findContactMatch —
+ * тот «другой» контакт, на который ссылается отметка «возможный дубль».
+ */
+export async function findEmailContact(
+  db: Kysely<Database>,
+  emails: readonly string[],
+  options: { excludeId?: string } = {},
+): Promise<string | null> {
+  // Ветка email из findContactMatch: правило «вне корзины и не слитый» — в одном месте.
+  const match = await findContactMatch(db, { phones: [], emails }, options)
+  return match?.contactId ?? null
+}
+
+/**
  * Первый по времени создания контакт с одним из телефонов, иначе — с одним из email.
  * `excludeId` — сам изменяемый контакт: совпадение с собой не совпадение.
  */

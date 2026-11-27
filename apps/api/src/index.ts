@@ -63,6 +63,8 @@ const app = createApp({
   },
   storage: localDiskStorage(env.storageDir),
   webhooks,
+  // «Провести заново входящие» — фоновая задача (intake/replay.ts).
+  inbound: { enqueueReplay: jobs.enqueueInboundReplay },
 })
 
 const server = serve({ fetch: app.fetch, port }, (info) => {

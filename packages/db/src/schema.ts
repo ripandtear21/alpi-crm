@@ -847,6 +847,90 @@ export interface MergeMovedItemTable {
   value: ColumnType<unknown, string | null, never>
 }
 
+/** Строковое поле регистрации: пишется при вставке, не меняется. */
+type RegistrationText = ColumnType<string | null, string | null | undefined, never>
+
+/**
+ * Регистрация (migrations/0028_registration_intake.ts, тикет crm-intake/06): поля заметки
+ * Pipedrive «Информация из формы», остальное — в `extra`. Меняются только контакт и сделка — их
+ * переносит слияние. Удаляется вместе с контактом (окончательное удаление); окончательное
+ * удаление сделки оставляет её у контакта с `deal_id` null.
+ */
+export interface RegistrationTable {
+  id: Generated<string>
+  project_id: string
+  intake_source_id: ColumnType<string, string, never>
+  /** id события у источника: уникален в пределах источника. */
+  event_id: ColumnType<string, string, never>
+  contact_id: string
+  /** null — сделку удалили окончательно, регистрация осталась у контакта. */
+  deal_id: string | null
+  created_at: ColumnType<Date, Date | string | undefined, never>
+  name: RegistrationText
+  /** Телефон в E.164; null — не прислан или не разобран (тогда как прислан — `phone_raw`). */
+  phone: RegistrationText
+  phone_raw: RegistrationText
+  dial_code: RegistrationText
+  email: RegistrationText
+  form: RegistrationText
+  webinar: RegistrationText
+  plan_name: RegistrationText
+  page_url: RegistrationText
+  referrer: RegistrationText
+  utm_source: RegistrationText
+  utm_medium: RegistrationText
+  utm_campaign: RegistrationText
+  utm_term: RegistrationText
+  utm_content: RegistrationText
+  ad_id: RegistrationText
+  gclid: RegistrationText
+  gbraid: RegistrationText
+  wbraid: RegistrationText
+  fbclid: RegistrationText
+  fbp: RegistrationText
+  fbc: RegistrationText
+  registered_at: ColumnType<Date | null, Date | string | null | undefined, never>
+  user_agent: RegistrationText
+  /** Остальные ключи тела, как прислал источник: объект JSON. */
+  extra: ColumnType<Record<string, unknown>, string | undefined, never>
+}
+
+/**
+ * Пара «источник, event_id» входящего (migrations/0028): хранится вечно, без персональных
+ * данных. `registration_id` — null, пока регистрация пишется, и после её окончательного удаления.
+ */
+export interface IntakeEventTable {
+  project_id: string
+  intake_source_id: string
+  /** 'registration'. */
+  kind: string
+  event_id: string
+  registration_id: string | null
+  created_at: ColumnType<Date, Date | string | undefined, never>
+}
+
+/** Журнал входящих (migrations/0028): строка не меняется; ночная очистка — через 30 дней. */
+export interface InboundRequestTable {
+  id: Generated<string>
+  project_id: string
+  /** Канал: 'intake.registration' (тикет 08 — 'intake.webinar_view'). */
+  channel: string
+  intake_source_id: string | null
+  received_at: ColumnType<Date, Date | string | undefined, never>
+  status_code: number
+  /** 'accepted' | 'repeat' | 'error'. */
+  outcome: string
+  error_code: string | null
+  event_id: string | null
+  /** Сырое тело запроса, как пришло. */
+  body: string
+  /** id созданного или найденного: JSON, пишется строкой. */
+  result: ColumnType<Record<string, unknown> | null, string | null, never>
+  warnings: ColumnType<string[], string[] | undefined, never>
+  /** Строка журнала, которую провели заново. */
+  replay_of: string | null
+}
+
 export interface Database {
   project: ProjectTable
   project_member: ProjectMemberTable
@@ -895,4 +979,7 @@ export interface Database {
   intake_source: IntakeSourceTable
   merge_record: MergeRecordTable
   merge_moved_item: MergeMovedItemTable
+  registration: RegistrationTable
+  intake_event: IntakeEventTable
+  inbound_request: InboundRequestTable
 }

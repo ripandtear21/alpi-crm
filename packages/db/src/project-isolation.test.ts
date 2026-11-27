@@ -39,6 +39,7 @@ const migrationNames = [
   '0025_intake_sources',
   '0026_merge',
   '0027_contact_merge',
+  '0028_registration_intake',
 ]
 
 const tablesOfMigration = [
@@ -108,6 +109,10 @@ const tablesOfMigration = [
   // 0026_merge
   'merge_record',
   'merge_moved_item',
+  // 0028_registration_intake
+  'registration',
+  'intake_event',
+  'inbound_request',
 ]
 
 describe('схема и изоляция проектов', () => {
@@ -291,12 +296,12 @@ describe('схема и изоляция проектов', () => {
           removed.push((await note({ author_api_key_id: apiKeyId })).id)
         }
 
-        // Откат до 0021: сначала 0027, 0026, 0025 и 0024 (слияния, источники и доставка событий —
-        // данных в них нет),
-        // затем 0023.
+        // Откат до 0021: сначала 0028, 0027, 0026, 0025 и 0024 (приём регистраций, слияния,
+        // источники и доставка событий — данных в них нет), затем 0023.
         const down = await createMigrator(scratch).migrateTo('0021_webhook_events')
         expect(down.error).toBeUndefined()
         expect(down.results?.map((r) => [r.migrationName, r.direction, r.status])).toEqual([
+          ['0028_registration_intake', 'Down', 'Success'],
           ['0027_contact_merge', 'Down', 'Success'],
           ['0026_merge', 'Down', 'Success'],
           ['0025_intake_sources', 'Down', 'Success'],
@@ -323,6 +328,7 @@ describe('схема и изоляция проектов', () => {
           ['0025_intake_sources', 'Success'],
           ['0026_merge', 'Success'],
           ['0027_contact_merge', 'Success'],
+          ['0028_registration_intake', 'Success'],
         ])
       } finally {
         await scratch.destroy()
@@ -457,6 +463,8 @@ describe('схема и изоляция проектов', () => {
         { table: 'field_required_stage', rls: true, policies: 1 },
         { table: 'file', rls: true, policies: 1 },
         { table: 'idempotency_record', rls: true, policies: 1 },
+        { table: 'inbound_request', rls: true, policies: 1 },
+        { table: 'intake_event', rls: true, policies: 1 },
         { table: 'intake_source', rls: true, policies: 1 },
         { table: 'lost_reason', rls: true, policies: 1 },
         { table: 'lost_reason_group', rls: true, policies: 1 },
@@ -468,6 +476,7 @@ describe('схема и изоляция проектов', () => {
         { table: 'pipeline_card_field', rls: true, policies: 1 },
         { table: 'product', rls: true, policies: 1 },
         { table: 'project_member', rls: true, policies: 1 },
+        { table: 'registration', rls: true, policies: 1 },
         { table: 'role', rls: true, policies: 1 },
         { table: 'saved_filter', rls: true, policies: 1 },
         { table: 'stage', rls: true, policies: 1 },

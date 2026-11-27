@@ -81,3 +81,5 @@ export type IntakeSourcesErrorCode =
  * после смены ключ и отсутствие ключа — одинаковый 401.
  */
 export type IntakeRequestErrorCode = 'INTAKE_KEY_INVALID'
+
+export * from './registration.ts'

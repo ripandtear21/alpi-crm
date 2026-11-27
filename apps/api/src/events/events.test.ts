@@ -615,6 +615,7 @@ describe('события', () => {
         'deal.unarchived',
         'deal.unmerged',
         'deal.won',
+        'registration.created',
       ].sort(),
     )
     for (const [type, webhook] of Object.entries(document.webhooks)) {

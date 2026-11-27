@@ -1,7 +1,8 @@
 # Приём регистраций и журнал входящих
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T09:23Z
+Branch: crm-intake/06
 Risk: high
 Blocked by: 01, 02, 03
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 1–5, 12–16, 19, 20, 35, 37, 38); docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; docs/adr/0006-zashchita-ot-poteri-dannykh.md; GLOSSARY.md («Регистрация», «Возможный дубль», «Журнал входящих», «Архив»); docs/research/pipedrive-intake-flows.md, потоки 1.1, 1.3; .scratch/crm-mvp/spec.md, раздел 6.1 (частично заменён ответами владельца); .scratch/crm-intake/spec.md
@@ -57,16 +58,61 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
 - [ ] Тест изоляции: регистрации и журнал проекта A не видны в контексте B без фильтра в коде; ключ источника проекта A создаёт данные только в проекте A и воронке источника.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест прав: неизвестный, отключённый и старый после смены ключ — одинаковый 401; ключ API на `/api/intake` — 401; ключ источника на `/api/v1` — 401; «провести заново» не администратором — 403, ключом API — 403; журнал без «интеграции: смотреть» — 403.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts apps/api/src/intake/journal.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест приёма: новый человек — 201, новый контакт и сделка «<имя> · <форма>» на первом этапе воронки источника без ответственного, регистрация со всеми полями пункта 12, неизвестные ключи — в `extra`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/intake/registration.test.ts apps/api/src/intake apps/api/src/contacts` exit 0 · windows - · 43f30c6
 - [ ] Тест повтора: тот же `event_id` — 200 с теми же id, ничего не создано; два одновременных одинаковых запроса — одна регистрация; тот же `event_id` у другого источника — новая регистрация.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
 - [ ] Тест поиска контакта: все пять случаев шага 2, включая пометку «возможный дубль» со ссылкой; пустые поля найденного заполнены, заполненные не тронуты; чужой телефон не добавлен.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест сделки: открытая сделка получает регистрацию; только архивная или закрытая — новая сделка; ответственный по `owner_email` ставится только в новую сделку; неизвестный email — сделка без ответственного и `OWNER_NOT_FOUND`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест проверки тела: без `event_id` — 400; без верного телефона и email — 400; неверный телефон при верном email — 201 с `PHONE_INVALID` и исходным телефоном в регистрации; 601-й запрос в минуту — 429.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/intake/registration.test.ts apps/api/src/intake apps/api/src/contacts` exit 0 · windows - · 43f30c6
 - [ ] Тест ADR 0003: приём не меняет этап, статус и ответственного существующей сделки и не создаёт задач.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест событий: новый человек — `registration.created`, `contact.created`, `deal.created` с автором-источником; повтор — ни одного события; тела проходят схему каталога и не содержат имён, телефонов и email.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест журнала: принятый запрос, повтор и ошибка — по строке с сырым телом и итогом; ошибка обработки не оставляет данных, но оставляет строку журнала; строки старше 30 дней удаляет ночная задача.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/journal.test.ts apps/api/src/jobs/jobs.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест «провести заново»: базу откатили (удалили регистрации после T в тесте), провели заново с T — регистрации вернулись с теми же `event_id`, а то, что не удалялось, не задвоилось; T старше 30 дней — 422.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/journal.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/intake/registration.test.ts apps/api/src/intake apps/api/src/contacts` exit 0 · windows - · 43f30c6
 - [ ] Тест слияния: при слиянии контактов и сделок регистрации переходят и при откате возвращаются.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 7b288db
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 43f30c6
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 43f30c6
+
+## Результат
+
+Решено без владельца — подтвердить:
+
+- Окончательное удаление из корзины (уточнение оркестратора после проверки PR #41): регистрации удаляются вместе с контактом (внешний ключ `on delete cascade`). Окончательное удаление одной сделки — вручную или ночной очисткой корзины — оставляет регистрацию у контакта: обнуляется только `deal_id` (`on delete set null (deal_id)`, `project_id` составного ключа не трогается). `purge_from_trash` не менялась. Пара «источник, `event_id`» хранится вечно в отдельной таблице `intake_event` без персональных данных. Повтор события, чей контакт удалён, — 200 со всеми id `null` и предупреждением `RECORDS_DELETED`; повтор события, чья сделка удалена, — 200 с id регистрации и контакта, `deal_id` `null` и тем же предупреждением `RECORDS_DELETED`. Ничего не создаётся.
+- Запросы с недействующим ключом (401) и сверх лимита (429) в журнал входящих не пишутся. CORS не открыт: ключ источника — для сервера или n8n, не для браузера посетителя.
+- Имена полей тела — как в тикете. `name` целиком идёт в имя контакта. Телефон без «+» получает `dial_code`, ведущий национальный 0 отбрасывается.
+- Телефон у контакта A, email у контакта B: регистрация идёт к A, пометка «возможный дубль» ставится на A со ссылкой на B.
+- Телефона в теле нет, email — у контакта A: регистрация идёт к A, его пустые поля дополняются, как при находке по телефону.
+- Без имени имя контакта — телефон в международном виде, без телефона — email. Такое «имя-заглушка» считается пустым и заполняется следующей регистрацией с именем: заглушка — когда фамилии нет, а имя равно телефону контакта в международном виде или его email (до 100 символов).
+- Название новой сделки без формы — «<имя или телефон> · <название источника>».
+- Обязательные поля «всегда» (crm-fields) при приёме не проверяются.
+- Одновременные запросы о том же человеке упорядочены блокировкой `pg_advisory_xact_lock` по нормализованным телефонам и email (один отсортированный список). Ручные пути контактов теперь тоже блокируют email, а `updateContact` и `restoreContact` берут эти блокировки до блокировки строки контакта (восстановление — по записанным телефонам и email контакта).
+- «Провести заново» берёт источник по id: источник, отключённый после приёма, не мешает. Проводятся только исходные строки (`replay_of is null`) канала `intake.registration` — с `since` до момента запуска. Запуск и итог (принято, повторов, ошибок) — в журнале проекта (`inbound.replay_started`, `inbound.replay_finished`).
+- Добавлено предупреждение `EMAIL_INVALID` (в тикете его нет): email не разобран, регистрация принята по телефону.
+- У `intake_event` есть столбец `kind` (сейчас только `registration`) — для тикета 08.
+
+Вне раздела «Where in code»: `apps/api/src/index.ts` (задача «провести заново» в зависимостях приложения), `apps/api/src/http/http.test.ts` (схема ключа источника в описании API), `apps/api/src/events/events.test.ts` (новый тип события в разделе webhooks), `packages/db/src/project-isolation.test.ts` (миграция 0028 в списках), `packages/shared/src/events/webhooks.ts` (название типа события), `apps/web/src/locales/{ru,uk}/{audit,webhooks}.json` и `apps/web/src/routes/settings/audit-page.tsx` (подписи новых действий журнала проекта и сущности «регистрация»; без них падала проверка типов и полноты переводов).
+
+Известное ограничение: само слияние сделок (`apps/api/src/merge/deal-registry.ts`, основной контакт слитой сделки — FOR SHARE после блокировки сделок) и его откат блокируют сделку, потом контакт, а приём — контакт (FOR UPDATE), потом сделку. Одновременно возможна взаимоблокировка (40P01), одна из транзакций откатится; приём тогда отвечает 500 и пишет строку журнала, источник может повторить. Единый порядок блокировок слияния — тикет 12.

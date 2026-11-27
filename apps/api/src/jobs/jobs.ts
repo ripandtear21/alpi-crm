@@ -18,6 +18,7 @@ import {
 } from '../events/queue.ts'
 import { FIELD_PURGE_BATCH_SIZE, type FieldPurgeMessage, purgeField } from '../fields/purge.ts'
 import { FIELD_RETYPE_BATCH_SIZE, type FieldRetypeMessage, retypeField } from '../fields/retype.ts'
+import { type InboundReplayMessage, replayInbound } from '../intake/replay.ts'
 import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
 import {
   buildFieldIndex,
@@ -26,6 +27,7 @@ import {
   pendingFieldIndexes,
 } from './field-index.ts'
 import { purgeIdempotencyRecords } from './idempotency-purge.ts'
+import { purgeInboundJournal } from './inbound-purge.ts'
 import { purgeWebhookLog } from './webhook-purge.ts'
 
 // Фоновые задачи на pg-boss (тикет crm-deals/04). Обработчик работает в процессе API (решено без
@@ -55,9 +57,13 @@ import { purgeWebhookLog } from './webhook-purge.ts'
 //   подпись, отправка, повторы pg-boss; webhook-deliver-dead помечает failed доставку, задача
 //   которой исчерпала повторы, не дойдя до итога;
 // - webhook-purge — ежедневно: события, доставки и попытки старше 30 дней (webhook-purge.ts).
+// - inbound-purge — ежедневно: строки журнала входящих старше 30 дней (inbound-purge.ts, тикет
+//   crm-intake/06);
+// - inbound-replay — «провести заново входящие с момента T» по запросу администратора
+//   (intake/replay.ts): каждая строка журнала проводится той же функцией, что запрос источника.
 // Обработчики событий и доставки работают в withProject проекта из задачи.
-// Задачи по расписанию трогают только корзину, журнал входов, ответы Idempotency-Key и журнал
-// доставки и никогда не меняют сделки (ADR 0003).
+// Задачи по расписанию трогают только корзину, журнал входов, ответы Idempotency-Key, журнал
+// доставки и журнал входящих и никогда не меняют сделки (ADR 0003).
 
 /** Схема таблиц pg-boss; та же константа — в packages/db/migrations/0007_jobs_bulk.ts. */
 export const PGBOSS_SCHEMA = 'pgboss'
@@ -77,6 +83,8 @@ export const QUEUES = {
   fieldPurge: 'field-purge',
   fieldRetype: 'field-retype',
   fieldIndex: 'field-index',
+  inboundPurge: 'inbound-purge',
+  inboundReplay: 'inbound-replay',
 } as const
 
 /** Время расписания — киевское: ночью, когда в CRM никто не работает. */
@@ -85,6 +93,7 @@ const TRASH_PURGE_CRON = '0 3 * * *'
 const SIGN_IN_PURGE_CRON = '30 3 * * *'
 const IDEMPOTENCY_PURGE_CRON = '45 3 * * *'
 const WEBHOOK_PURGE_CRON = '0 4 * * *'
+const INBOUND_PURGE_CRON = '15 4 * * *'
 
 /**
  * Доставок одновременно в процессе: медленный адрес (до 15 с на попытку) не задерживает
@@ -138,6 +147,8 @@ export interface Jobs {
   enqueueFieldRetype(trx: Transaction<Database>, message: FieldRetypeMessage): Promise<void>
   /** Ставит построение копии «часто фильтруют» той же транзакцией проекта, что отметила поле. */
   enqueueFieldIndex(trx: Transaction<Database>, message: FieldIndexMessage): Promise<void>
+  /** Ставит «провести заново входящие» той же транзакцией проекта, что пишет запуск в журнал. */
+  enqueueInboundReplay(trx: Transaction<Database>, message: InboundReplayMessage): Promise<void>
   /** Перестаёт брать задачи и дожидается текущих (не дольше stopTimeoutMs). Повторный вызов — тот же. */
   stop(): Promise<void>
 }
@@ -181,6 +192,14 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   // Ошибку построения задача пишет полю сама (failed) и не повторяется.
   await boss.createQueue(QUEUES.fieldIndex, { retryLimit: 2, retryDelay: 60 })
   await boss.createQueue(QUEUES.webhookPurge, { retryLimit: 3, retryDelay: 15 * 60 })
+  await boss.createQueue(QUEUES.inboundPurge, { retryLimit: 3, retryDelay: 15 * 60 })
+  // Повтор после сбоя проводит строки снова: безопасно по event_id. Час на задачу — как у
+  // массовой операции.
+  await boss.createQueue(QUEUES.inboundReplay, {
+    retryLimit: 3,
+    retryDelay: 60,
+    expireInSeconds: 60 * 60,
+  })
   // Очереди событий: рассылку ставит запись события (events/emit.ts), доставки — рассылка и
   // ручной повтор.
   await attachEventQueue(boss, options.webhookQueue ?? WEBHOOK_DELIVER_QUEUE_OPTIONS)
@@ -261,6 +280,14 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   await boss.work(QUEUES.webhookPurge, polling, async () => {
     await purgeWebhookLog(options.db)
   })
+  await boss.work(QUEUES.inboundPurge, polling, async () => {
+    await purgeInboundJournal(options.db)
+  })
+  await boss.work<InboundReplayMessage>(QUEUES.inboundReplay, polling, async (batch) => {
+    for (const job of batch) {
+      await replayInbound(options.db, job.data)
+    }
+  })
   for (const message of await pendingFieldIndexes(options.db)) {
     await boss.send(QUEUES.fieldIndex, message, { singletonKey: message.fieldId })
   }
@@ -269,6 +296,7 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
     await boss.schedule(QUEUES.signInPurge, SIGN_IN_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.idempotencyPurge, IDEMPOTENCY_PURGE_CRON, null, { tz: TIMEZONE })
     await boss.schedule(QUEUES.webhookPurge, WEBHOOK_PURGE_CRON, null, { tz: TIMEZONE })
+    await boss.schedule(QUEUES.inboundPurge, INBOUND_PURGE_CRON, null, { tz: TIMEZONE })
   }
 
   return {
@@ -296,6 +324,9 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
         db: fromKysely(trx),
         singletonKey: message.fieldId,
       })
+    },
+    async enqueueInboundReplay(trx, message) {
+      await boss.send(QUEUES.inboundReplay, message, { db: fromKysely(trx) })
     },
     async stop() {
       // Очередь событий отключается только после остановки: штатная остановка дожидается

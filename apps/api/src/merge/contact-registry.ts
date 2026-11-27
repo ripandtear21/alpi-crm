@@ -481,9 +481,10 @@ async function isParticipant(actor: ChangeAuthor, dealId: string, contactId: str
   return row !== undefined
 }
 
-// ---- 4. Заметки и файлы ----------------------------------------------------------------------
+// ---- 4. Заметки, файлы и регистрации ---------------------------------------------------------
 
-function attachedRow(kind: 'note' | 'file'): MergeRegistryRow {
+/** Регистрации (тикет crm-intake/06) переходят и возвращаются так же, как заметки и файлы. */
+function attachedRow(kind: 'note' | 'file' | 'registration'): MergeRegistryRow {
   return {
     kinds: [kind],
     async plan(actor, pair) {
@@ -600,6 +601,7 @@ export const CONTACT_MERGE_REGISTRY: MergeRegistry = [
   DEALS,
   attachedRow('note'),
   attachedRow('file'),
+  attachedRow('registration'),
   POSSIBLE_DUPLICATE,
 ]
 

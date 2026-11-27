@@ -2,6 +2,7 @@ import { type Database, withProject } from '@alpi/db'
 import { INTAKE_RATE_LIMIT, type IntakeRequestErrorCode, isIntakeKey } from '@alpi/shared'
 import { type Context, Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { type Kysely, sql } from 'kysely'
 import { problem } from '../http/problem.ts'
 import {
@@ -12,6 +13,7 @@ import {
   rateLimitHeaders,
 } from '../http/rate-limit.ts'
 import { bearerSecret } from '../middleware/api-key.ts'
+import { handleRegistration } from './journal.ts'
 import { hashIntakeKey } from './key.ts'
 
 // Запрос приёма по ключу источника (тикет crm-intake/03; .scratch/crm-intake/spec.md, «Общие
@@ -118,13 +120,25 @@ export function intakeSourceAuth(db: Kysely<Database>, limiter: RateLimiter) {
 
 /**
  * Группа `/intake` (снаружи — /api/intake): ключ источника и лимит, затем маршруты приёма.
- * Маршруты регистраций и просмотров вебинара добавляют тикеты 06 и 08 — между проверкой и
- * последней строкой. Неизвестный путь с действующим ключом — 404 здесь же, чтобы запрос не
- * ушёл к проверке ключа API и сессии.
+ * Маршрут просмотров вебинара добавляет тикет 08 — между проверкой и последней строкой.
+ * Неизвестный путь с действующим ключом — 404 здесь же, чтобы запрос не ушёл к проверке ключа
+ * API и сессии.
  */
 export function intakeRoutes(db: Kysely<Database>, rateLimit: RateLimitOptions = {}) {
   const limiter = createRateLimiter({ limit: INTAKE_RATE_LIMIT, ...rateLimit })
-  return new Hono<IntakeEnv>()
-    .use('*', intakeSourceAuth(db, limiter))
-    .all('*', (c) => problem(c, 404, 'NOT_FOUND'))
+  return (
+    new Hono<IntakeEnv>()
+      .use('*', intakeSourceAuth(db, limiter))
+      // Регистрация (тикет crm-intake/06): обработка в том же запросе — 201 с id регистрации,
+      // контакта и сделки, повтор event_id — 200 с теми же id; строка журнала входящих — всегда
+      // (intake/journal.ts). Тело читается как текст: в журнал — как пришло.
+      .post('/registrations', async (c) => {
+        const answer = await handleRegistration(db, c.get('intakeSource'), await c.req.text())
+        if ('code' in answer.body) {
+          return problem(c, answer.status as ContentfulStatusCode, answer.body.code)
+        }
+        return c.json(answer.body, answer.status as ContentfulStatusCode)
+      })
+      .all('*', (c) => problem(c, 404, 'NOT_FOUND'))
+  )
 }

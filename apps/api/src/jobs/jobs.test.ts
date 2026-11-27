@@ -107,6 +107,8 @@ describe('фоновые задачи по расписанию', () => {
     ).toEqual([
       { name: QUEUES.signInPurge, cron: '30 3 * * *', tz: 'Europe/Kyiv' },
       { name: QUEUES.idempotencyPurge, cron: '45 3 * * *', tz: 'Europe/Kyiv' },
+      // Журнал входящих старше 30 дней (тикет crm-intake/06).
+      { name: QUEUES.inboundPurge, cron: '15 4 * * *', tz: 'Europe/Kyiv' },
       { name: QUEUES.trashPurge, cron: '0 3 * * *', tz: 'Europe/Kyiv' },
       // Журнал доставки событий старше 30 дней (тикет crm-api/06).
       { name: QUEUES.webhookPurge, cron: '0 4 * * *', tz: 'Europe/Kyiv' },

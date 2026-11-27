@@ -27,6 +27,7 @@ import { idempotency } from './http/idempotency.ts'
 import { problem } from './http/problem.ts'
 import { createRateLimiter, type RateLimitOptions } from './http/rate-limit.ts'
 import { intakeRoutes } from './intake/auth.ts'
+import { type InboundDeps, inboundRoutes, NO_INBOUND } from './intake/replay.ts'
 import { intakeSourcesRoutes } from './intake/sources.ts'
 import { lostReasonsRoutes } from './lost-reasons/lost-reasons.ts'
 import { teamDirectoryRoutes, usersRoutes } from './members/directory.ts'
@@ -103,6 +104,11 @@ export interface AppDeps {
    * (только тесты), разрешение имён; без ключа адреса не создаются (500).
    */
   webhooks?: WebhookDeliveryOptions
+  /**
+   * Журнал входящих (тикет crm-intake/06): очередь «провести заново»; без неё запуск — ошибка
+   * 500.
+   */
+  inbound?: InboundDeps
 }
 
 /** Код ошибки ответа на HTTPException (её бросают промежуточные слои Hono и @hono/zod-openapi). */
@@ -205,6 +211,7 @@ export function createApp({
   fields = NO_FIELD_JOBS,
   rateLimit,
   webhooks = NO_WEBHOOKS,
+  inbound = NO_INBOUND,
 }: AppDeps) {
   const jsonBodyLimit = bodyLimit({
     maxSize: MAX_BODY_BYTES,
@@ -264,6 +271,8 @@ export function createApp({
       .use('/v1/*', idempotency())
       .route('/v1/bulk-jobs', bulkRoutes(bulk))
       .route('/v1/members', memberTransferRoutes(bulk))
+      // «Провести заново входящие» (тикет crm-intake/06): только сессия администратора проекта.
+      .route('/v1/inbound', inboundRoutes(inbound))
       .route('/v1', v1)
       // Ошибки в формате RFC 9457 (http/problem.ts): неизвестный путь — 404 NOT_FOUND,
       // необработанная ошибка — 500 INTERNAL без подробностей (они — только в журнал процесса).
