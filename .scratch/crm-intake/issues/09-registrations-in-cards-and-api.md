@@ -1,7 +1,8 @@
 # Регистрации в карточках и в API
 
 Type: task
-Status: open
+Status: done 2026-11-27T18:45Z
+PR: #48
 Blocked by: 06
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 2, 12, 16, 17, 35); GLOSSARY.md («Регистрация», «Просмотр вебинара»); .scratch/crm-deals/spec.md («Не входит»: заглушка регистраций в карточке сделки); .scratch/crm-api/issues/04-contacts-orgs-reference-for-keys.md (образец запросов для ключа); .scratch/crm-intake/spec.md
 
