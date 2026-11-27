@@ -17,6 +17,10 @@ import type { PlannedFieldValue, ProjectPlan } from './plan.ts'
 // Пользовательские поля заводит стартовая настройка (applyProjectPreset, тикет crm-fields/08);
 // значения полей у части сделок ALPI пишутся в `custom` при вставке сделки и уходят вместе со
 // сделкой, поля — вместе с проектом.
+//
+// Данные приёма (тикет crm-intake/10) пишет intake-store.ts; источники, строки журнала и
+// слияния помечены так же. --reset удаляет и их: всё, что пришло через источник seed (журнал,
+// регистрации, история с автором-источником), сам источник, слияния записей seed.
 
 export const SEED_SOURCE = 'seed'
 
@@ -24,7 +28,7 @@ export const SEED_SOURCE = 'seed'
 const CHUNK = 1000
 
 type Db = Kysely<Database>
-type Trx = Transaction<Database>
+export type Trx = Transaction<Database>
 
 /** Таблицы помеченных записей: тип сущности в external_link — имя таблицы. */
 type SeedTable =
@@ -37,6 +41,9 @@ type SeedTable =
   | 'deal'
   | 'deal_participant'
   | 'deal_product'
+  | 'intake_source'
+  | 'inbound_request'
+  | 'merge_record'
 
 /** Помеченные записи, которые --reset удаляет сам (остальное уходит с проектом). */
 const RESET_TABLES = [
@@ -52,7 +59,7 @@ const RESET_TABLES = [
  * Ключ плана → id для записей типа `table` в проекте. Ссылки на записи, которых уже нет (их
  * удалили руками), стираются: такие записи будут созданы заново.
  */
-async function seededIds(
+export async function seededIds(
   db: Trx,
   projectId: string,
   table: SeedTable,
@@ -72,7 +79,7 @@ async function seededIds(
   return new Map(rows.map((r) => [r.external_id, r.entity_id]))
 }
 
-async function link(
+export async function link(
   db: Trx,
   projectId: string,
   table: SeedTable,
@@ -97,7 +104,7 @@ async function link(
  * Досоздаёт записи `items`, которых ещё нет (по ключу). `insert` вставляет порцию с готовыми id
  * и возвращает id реально вставленных (сделка, нарушающая правило базы, пропускается).
  */
-async function ensure<T extends { key: string }>(
+export async function ensure<T extends { key: string }>(
   db: Trx,
   projectId: string,
   table: SeedTable,
@@ -293,7 +300,9 @@ export async function writeProject(
     }
 
     // Контакты: создатель — администратор (как при импорте), «свои» у менеджера — через сделки.
+    const createdContacts = new Set<string>()
     const contacts = await ensure(db, pid, 'contact', plan.contacts, async (rows) => {
+      for (const { item } of rows) createdContacts.add(item.key)
       await db
         .insertInto('contact')
         .values(
@@ -331,6 +340,16 @@ export async function writeProject(
       const id = contacts.ids.get(key)
       if (!id) throw new Error(`нет контакта ${key}`)
       return id
+    }
+    // Отметка «возможный дубль» (тикет crm-intake/10) — только у созданных сейчас: снятую руками
+    // отметку повторный запуск не возвращает.
+    for (const item of plan.contacts) {
+      if (item.duplicateOfKey === undefined || !createdContacts.has(item.key)) continue
+      await db
+        .updateTable('contact')
+        .set({ possible_duplicate: true, possible_duplicate_of: contactId(item.duplicateOfKey) })
+        .where('id', '=', contactId(item.key))
+        .execute()
     }
 
     const pipelines = await db
@@ -603,11 +622,30 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
         and not exists (select 1 from file f where f.${sql.raw(column)} = ${sql.raw(alias)}.id)`
       const ids = (rows: { id: string }[]) => rows.map((r) => r.id)
 
+      // Всё, что пришло через источник seed (тикет crm-intake/10): журнал, события приёма,
+      // регистрации и история с автором-источником. Регистрация человека, внесённая руками через
+      // ключ источника seed, уходит вместе с источником; её контакт и сделка остаются.
+      const seedSources = sql`(
+        select l.entity_id::uuid from external_link l
+        where l.project_id = ${pid} and l.source = ${SEED_SOURCE} and l.entity_type = 'intake_source'
+      )`
+      for (const table of ['inbound_request', 'intake_event', 'registration'] as const) {
+        await sql`
+          delete from ${sql.table(table)}
+          where project_id = ${pid} and intake_source_id in ${seedSources}
+        `.execute(db)
+      }
+      await sql`
+        delete from change_log
+        where project_id = ${pid} and actor_intake_source_id in ${seedSources}
+      `.execute(db)
+
       // Сделка seed остаётся, если к ней руками добавили заметку, файл, строку товара или
       // участника: иначе они ушли бы каскадом вместе со сделкой. Сделка, в которую слита другая
       // (тикет crm-intake/02), тоже остаётся: скрытая ссылается на неё без каскада
       // (deal_merged_into_fkey), удаление сорвало бы сброс проекта.
-      const deals = await sql<{ id: string }>`
+      const deleteDeals = () =>
+        sql<{ id: string }>`
         delete from deal d
         where d.project_id = ${pid} and ${marked('deal', 'd.id')} and ${notes('deal_id', 'd')}
           and not exists (
@@ -624,7 +662,8 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
       `.execute(db)
       // Контакт, в который слит другой (тикет crm-intake/01), остаётся, как сделка выше:
       // скрытый ссылается на него без каскада (contact_merged_into_fkey).
-      const contacts = await sql<{ id: string }>`
+      const deleteContacts = () =>
+        sql<{ id: string }>`
         delete from contact c
         where c.project_id = ${pid} and ${marked('contact', 'c.id')} and ${notes('contact_id', 'c')}
           and not exists (
@@ -634,6 +673,35 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
           and not exists (select 1 from deal_participant p where p.contact_id = c.id)
         returning c.id
       `.execute(db)
+      // Слияния seed (тикет crm-intake/10): скрытая запись seed держит оставшуюся. Проход удаляет
+      // свободные записи, следующий — те, что держали только удалённые; до прохода без удалений.
+      const deals = { rows: [] as { id: string }[] }
+      const contacts = { rows: [] as { id: string }[] }
+      for (;;) {
+        const dealPass = await deleteDeals()
+        const contactPass = await deleteContacts()
+        deals.rows.push(...dealPass.rows)
+        contacts.rows.push(...contactPass.rows)
+        if (dealPass.rows.length + contactPass.rows.length === 0) break
+      }
+      // Источники seed; слияния, пары дублей и отметки «не дубль», чьих записей больше нет.
+      await sql`
+        delete from intake_source s where s.project_id = ${pid} and ${marked('intake_source', 's.id')}
+      `.execute(db)
+      const gone = (column: string) => sql`(
+        not exists (select 1 from contact c where c.id = ${sql.raw(column)})
+        and not exists (select 1 from deal d where d.id = ${sql.raw(column)})
+      )`
+      await sql`
+        delete from merge_record m
+        where m.project_id = ${pid} and (${gone('m.survivor_id')} or ${gone('m.merged_id')})
+      `.execute(db)
+      for (const table of ['duplicate_pair', 'not_duplicate'] as const) {
+        await sql`
+          delete from ${sql.table(table)} p
+          where p.project_id = ${pid} and (${gone('p.a_id')} or ${gone('p.b_id')})
+        `.execute(db)
+      }
       const organizations = await sql<{ id: string }>`
         delete from organization o
         where o.project_id = ${pid} and ${marked('organization', 'o.id')}
@@ -658,7 +726,12 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
           .execute()
       }
       // Ссылки на удалённые записи (и на строки и участников, ушедших каскадом со сделками).
-      for (const table of RESET_TABLES) {
+      for (const table of [
+        ...RESET_TABLES,
+        'intake_source',
+        'inbound_request',
+        'merge_record',
+      ] as const) {
         await sql`
           delete from external_link l
           where l.project_id = ${pid} and l.source = ${SEED_SOURCE} and l.entity_type = ${table}
@@ -690,7 +763,7 @@ export async function resetProjects(serviceDb: Db): Promise<ResetOutcome> {
 
 /**
  * Есть ли в проекте записи, созданные не командой seed: сделки, контакты, организации, товары,
- * заметки, файлы, массовые операции; участники проекта, команды, строки товаров и участники
+ * заметки, файлы, массовые операции, источники регистраций; участники проекта, команды, строки товаров и участники
  * сделок без пометки seed; свои роли, воронки и пользовательские поля
  * не из стартовой настройки. Сам проект seed помечен ссылкой только тогда, когда его создал seed.
  */
@@ -722,6 +795,7 @@ async function hasHandMadeData(db: Trx, pid: string): Promise<boolean> {
       or exists (select 1 from note where project_id = ${pid})
       or exists (select 1 from file where project_id = ${pid})
       or exists (select 1 from bulk_job where project_id = ${pid})
+      or exists (select 1 from intake_source where project_id = ${pid})
       or exists (select 1 from role where project_id = ${pid} and template_key is null)
       or exists (
         select 1 from pipeline where project_id = ${pid} and not (code = any(${presetCodes}::text[]))

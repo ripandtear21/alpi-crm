@@ -400,7 +400,7 @@ export interface ContactMergeView extends MergeView {
 }
 
 /** Тело слияния и предпросмотра. */
-interface MergeRequest {
+export interface MergeRequest {
   mergedId: string
   /** Сделки конфликтующих пар, которые остаются вместо сделки оставшегося контакта. */
   keepDealIds: string[]
@@ -525,7 +525,8 @@ async function snapshot(ctx: MergeContext, id: string): Promise<Snapshot<Contact
   return { view: await contactView(ctx, row), custom: row.custom }
 }
 
-async function mergeContacts(
+/** Слияние пары контактов (и пар их сделок) — маршрут `POST …/merge` и pnpm seed (тикет 10). */
+export async function mergeContacts(
   ctx: MergeContext,
   survivorId: string,
   request: MergeRequest,

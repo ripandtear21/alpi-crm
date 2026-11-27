@@ -129,6 +129,7 @@ async function start(): Promise<StackInfo> {
       {
         serviceDb,
         databaseUrl: serviceUrl,
+        appDatabaseUrl: appUrl,
         auth,
         authUrl: baseURL,
         env,
