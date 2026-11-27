@@ -4,7 +4,11 @@
 // Работает служебной ролью (владелец таблиц) из MIGRATION_DATABASE_URL, как мигратор; схему
 // не мигрирует — сначала pnpm --filter @alpi/db migrate. Пользователей заводит через Better
 // Auth (нужны BETTER_AUTH_SECRET и BETTER_AUTH_URL, как у API), их пароли и секреты 2FA
-// печатает и пишет в .seed-credentials.json в корне репозитория (файл вне git).
+// печатает и пишет в .seed-credentials.json в корне репозитория (файл вне git). Функции
+// приложения (приём регистраций, слияние, надсмотрщик) — ролью приложения из DATABASE_URL, как
+// API: изоляцию проектов в них держит row-level security. Данные эпика
+// crm-intake (тикет crm-intake/10): источники регистраций, регистрации, журнал входящих, готовые
+// дубли и слияния; ключи источников — только в том же файле, в вывод не печатаются.
 // На проде не запускается: NODE_ENV=production — отказ; нелокальная база — только с
 // --allow-remote.
 import { realpathSync } from 'node:fs'
@@ -14,14 +18,19 @@ import type { Kysely } from 'kysely'
 import { parse } from 'pg-connection-string'
 import { type Auth, createAuth } from '../auth/auth.ts'
 import { readApiEnv } from '../config.ts'
+import { startEventQueue } from '../jobs/jobs.ts'
+import { writeIntake } from '../seed/intake-store.ts'
 import { buildSeedPlan } from '../seed/plan.ts'
 import { findSeedProject, resetProjects, writeProject } from '../seed/store.ts'
 import {
   deleteSeedUsers,
   ensureUsers,
   readCredentials,
+  readSourceKeys,
   type SeedCredential,
+  type SourceKey,
   writeCredentials,
+  writeSourceKeys,
 } from '../seed/users.ts'
 
 const USAGE = 'Использование: pnpm seed [--scale <доля от 0 до 1>] [--reset] [--allow-remote]'
@@ -41,6 +50,11 @@ export interface SeedDeps {
   serviceDb: Kysely<Database>
   /** Строка подключения `serviceDb`: по ней проверяется, что база локальная. */
   databaseUrl: string
+  /**
+   * Строка подключения ролью приложения (DATABASE_URL): им работают функции приёма, слияния и
+   * надсмотрщика, им же — очередь pg-boss их задач. Тоже должна быть локальной.
+   */
+  appDatabaseUrl: string
   auth: Auth
   /** Публичный адрес сайта (BETTER_AUTH_URL): origin запросов включения 2FA. */
   authUrl: string
@@ -118,8 +132,11 @@ export async function runSeed(deps: SeedDeps, args: string[]): Promise<number> {
     out.error(USAGE)
     return 2
   }
-  const refused = refusal(deps.env ?? process.env, deps.databaseUrl, parsed.allowRemote)
-  if (refused) {
+  const env = deps.env ?? process.env
+  const refused = [deps.databaseUrl, deps.appDatabaseUrl]
+    .map((url) => refusal(env, url, parsed.allowRemote))
+    .find((reason) => reason !== null)
+  if (refused !== undefined) {
     out.error(`seed не запущен: ${refused}`)
     return 1
   }
@@ -137,6 +154,28 @@ export async function runSeed(deps: SeedDeps, args: string[]): Promise<number> {
     await writeCredentials(
       credentialsFile,
       known.filter((c) => !users.deleted.includes(c.email)),
+    )
+    // Ключи удалённых источников больше не нужны.
+    const keys = await readSourceKeys(credentialsFile)
+    const left =
+      keys.length === 0
+        ? new Set<string>()
+        : new Set(
+            (
+              await deps.serviceDb
+                .selectFrom('intake_source')
+                .select('id')
+                .where(
+                  'id',
+                  'in',
+                  keys.map((k) => k.sourceId),
+                )
+                .execute()
+            ).map((r) => r.id),
+          )
+    await writeSourceKeys(
+      credentialsFile,
+      keys.filter((k) => left.has(k.sourceId)),
     )
     const d = projects.deleted
     out.log(
@@ -182,17 +221,41 @@ export async function runSeed(deps: SeedDeps, args: string[]): Promise<number> {
   )
   out.log(`Пользователи: создано ${users.created}, всего ${plan.users.length}`)
 
-  for (const project of plan.projects) {
-    const counts = await writeProject(deps.serviceDb, project, users.ids, plan.adminKey)
-    out.log(
-      `«${project.name}»: создано товаров ${counts.products}, организаций ${counts.organizations}, контактов ${counts.contacts}, сделок ${counts.deals}` +
-        (counts.skippedDeals > 0
-          ? `; пропущено сделок ${counts.skippedDeals} (у человека уже есть открытая сделка в воронке)`
-          : ''),
-    )
+  const adminId = users.ids.get(plan.adminKey)
+  if (!adminId) throw new Error('нет администратора seed')
+  const knownKeys = await readSourceKeys(credentialsFile)
+  let sourceKeys: SourceKey[] = knownKeys.filter(
+    (k) => !plan.projects.some((p) => p.code === k.project),
+  )
+  // Роль приложения и очередь pg-boss: приём регистраций и слияние ставят задачи событий и
+  // поиска дублей той же транзакцией (обрабатывает их потом фоновый процесс API).
+  const appDb = createDb(deps.appDatabaseUrl)
+  const queue = await startEventQueue(deps.appDatabaseUrl)
+  try {
+    for (const project of plan.projects) {
+      const counts = await writeProject(deps.serviceDb, project, users.ids, plan.adminKey)
+      out.log(
+        `«${project.name}»: создано товаров ${counts.products}, организаций ${counts.organizations}, контактов ${counts.contacts}, сделок ${counts.deals}` +
+          (counts.skippedDeals > 0
+            ? `; пропущено сделок ${counts.skippedDeals} (у человека уже есть открытая сделка в воронке)`
+            : ''),
+      )
+      const intake = await writeIntake(deps.serviceDb, appDb, project, adminId, knownKeys)
+      sourceKeys = [...sourceKeys, ...intake.keys]
+      // Ключи — в файл сразу: при сбое следующего проекта ключи этого не теряются.
+      await writeSourceKeys(credentialsFile, sourceKeys)
+      const c = intake.counts
+      out.log(
+        `«${project.name}»: создано источников ${c.sources}, регистраций ${c.registrations}, строк журнала входящих ${c.inbound}, слияний ${c.merges}; пар дублей в проекте ${c.pairs}`,
+      )
+    }
+  } finally {
+    await queue.stop()
+    await appDb.destroy()
   }
 
   printCredentials(out, users.credentials, credentialsFile)
+  out.log(`Ключи источников регистраций — только в ${credentialsFile} (в вывод не печатаются)`)
   if (users.unknown.length > 0) {
     out.log(
       `Пароль неизвестен (нет в ${credentialsFile}): ${users.unknown.join(', ')} — pnpm seed --reset и заново`,
@@ -240,7 +303,13 @@ if (isMain()) {
       secureCookies: env.secureCookies,
     })
     process.exitCode = await runSeed(
-      { serviceDb: db, databaseUrl: url, auth, authUrl: env.authUrl },
+      {
+        serviceDb: db,
+        databaseUrl: url,
+        appDatabaseUrl: env.databaseUrl,
+        auth,
+        authUrl: env.authUrl,
+      },
       process.argv.slice(2),
     )
   } finally {

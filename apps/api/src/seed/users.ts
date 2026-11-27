@@ -20,27 +20,60 @@ export interface SeedCredential {
   totpSecret: string
 }
 
-interface CredentialsFile {
-  users: SeedCredential[]
+/**
+ * Ключ источника регистраций seed (тикет crm-intake/10): как пароль — только в файле учётных
+ * данных, в вывод команды не печатается. В базе — лишь его отпечаток, другого способа узнать
+ * ключ нет.
+ */
+export interface SourceKey {
+  /** Код проекта. */
+  project: string
+  name: string
+  sourceId: string
+  key: string
 }
 
-export async function readCredentials(file: string): Promise<SeedCredential[]> {
+interface CredentialsFile {
+  users: SeedCredential[]
+  sources?: SourceKey[]
+}
+
+async function readFileOf(file: string): Promise<CredentialsFile> {
   try {
-    return (JSON.parse(await readFile(file, 'utf8')) as CredentialsFile).users
+    return JSON.parse(await readFile(file, 'utf8')) as CredentialsFile
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { users: [] }
     throw error
   }
 }
 
-export async function writeCredentials(file: string, users: SeedCredential[]): Promise<void> {
-  if (users.length === 0) {
+/** Пишет файл; пустой (ни пользователей, ни ключей) — удаляет. */
+async function writeFileOf(file: string, content: CredentialsFile): Promise<void> {
+  const sources = content.sources ?? []
+  if (content.users.length === 0 && sources.length === 0) {
     await rm(file, { force: true })
     return
   }
-  await writeFile(file, `${JSON.stringify({ users } satisfies CredentialsFile, null, 2)}\n`, {
-    mode: 0o600,
-  })
+  const body: CredentialsFile = sources.length > 0 ? content : { users: content.users }
+  await writeFile(file, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 })
+}
+
+export async function readCredentials(file: string): Promise<SeedCredential[]> {
+  return (await readFileOf(file)).users
+}
+
+/** Пользователи файла; ключи источников остаются как были. */
+export async function writeCredentials(file: string, users: SeedCredential[]): Promise<void> {
+  await writeFileOf(file, { users, sources: (await readFileOf(file)).sources ?? [] })
+}
+
+export async function readSourceKeys(file: string): Promise<SourceKey[]> {
+  return (await readFileOf(file)).sources ?? []
+}
+
+/** Ключи источников файла; пользователи остаются как были. */
+export async function writeSourceKeys(file: string, sources: SourceKey[]): Promise<void> {
+  await writeFileOf(file, { users: (await readFileOf(file)).users, sources })
 }
 
 export interface EnsuredUsers {

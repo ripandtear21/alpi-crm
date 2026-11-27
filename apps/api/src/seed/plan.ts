@@ -1,6 +1,14 @@
 import { type FieldPreset, PROJECT_PRESETS, type PresetKey } from '@alpi/db'
 import type { ProductCurrency } from '@alpi/shared'
 import {
+  ALPI_INTAKE,
+  addIntake,
+  emptyIntake,
+  FRANCH_INTAKE,
+  type IntakePlan,
+  phoneOf,
+} from './intake-plan.ts'
+import {
   BUSINESS_KINDS,
   BUSINESS_NAMES,
   CITIES,
@@ -20,6 +28,9 @@ import { createRandom, type Random } from './random.ts'
 // Стартовые поля ALPI (тикет crm-fields/08) заполнены выдуманными значениями у части сделок
 // (alpiCustom); поля, обязательные по правилу «з етапу X» / при выигрыше, — у сделок, которые
 // до этого этапа дошли или выиграны.
+//
+// Данные эпика crm-intake (тикет crm-intake/10) — источники, регистрации, журнал, готовые дубли
+// и слияния — строит intake-plan.ts своим генератором после людей и сделок.
 
 /** Зерно по умолчанию: менять — значит получить других людей при следующем запуске. */
 export const DEFAULT_SEED = 20261123
@@ -64,6 +75,8 @@ export interface PlannedContact {
   organizationKey: string | null
   phone: string
   email: string | null
+  /** Отметка «возможный дубль» со ссылкой на контакт плана с этим ключом. */
+  duplicateOfKey?: string
 }
 
 export type DealStatus = 'open' | 'won' | 'lost'
@@ -114,6 +127,7 @@ export interface ProjectPlan {
   organizations: PlannedOrganization[]
   contacts: PlannedContact[]
   deals: PlannedDeal[]
+  intake: IntakePlan
 }
 
 export interface SeedPlan {
@@ -130,11 +144,6 @@ export interface PlanOptions {
 }
 
 const DAY = 86_400_000
-
-/** Телефон из диапазона +380 70: код 70 абонентам в Украине не выдан. Номер `n` — от 1. */
-function phoneOf(n: number): string {
-  return `+38070${String(n).padStart(7, '0')}`
-}
 
 function pad(n: number, width = 4): string {
   return String(n).padStart(width, '0')
@@ -201,6 +210,16 @@ export function buildSeedPlan(options: PlanOptions = {}): SeedPlan {
     now,
   })
   franch.members = franchManagers.map((userKey) => ({ userKey, role: 'manager' }))
+
+  // Данные приёма — своим генератором: люди, этапы и суммы при том же зерне не меняются.
+  const intakeRandom = createRandom((options.seed ?? DEFAULT_SEED) + INTAKE_SEED_OFFSET)
+  addIntake(alpi, intakeRandom, { now, count, ownerKeys: managerKeys, profile: ALPI_INTAKE })
+  addIntake(franch, intakeRandom, {
+    now,
+    count,
+    ownerKeys: franchManagers,
+    profile: FRANCH_INTAKE,
+  })
 
   return { users, adminKey, projects: [alpi, franch] }
 }
@@ -441,11 +460,14 @@ function alpiPlan(
     organizations: [],
     contacts,
     deals,
+    intake: emptyIntake(),
   }
 }
 
 /** Сдвиг зерна генератора значений полей. */
 const FIELD_SEED_OFFSET = 8
+/** Сдвиг зерна генератора данных приёма (тикет crm-intake/10). */
+const INTAKE_SEED_OFFSET = 10
 /** Доля сделок на первом этапе (лид ещё не обработан) с заполненными полями. */
 const UNTOUCHED_FILLED = 0.1
 /** Вероятность, что необязательное поле обработанной сделки заполнено. */
@@ -637,5 +659,6 @@ function franchPlan(
     organizations,
     contacts,
     deals,
+    intake: emptyIntake(),
   }
 }

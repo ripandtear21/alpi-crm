@@ -3,19 +3,28 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createProject, PROJECT_PRESETS } from '@alpi/db'
-import { type FieldType, normalizeFieldValue, normalizePhone } from '@alpi/shared'
+import {
+  type FieldType,
+  INTAKE_KEY_PREFIX,
+  normalizeFieldValue,
+  normalizePhone,
+} from '@alpi/shared'
 import { type SqlBool, sql } from 'kysely'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { DUPLICATE_REASONS } from '../duplicates/finder.ts'
+import { hashIntakeKey } from '../intake/key.ts'
 import { buildSeedPlan, FRANCH_PRICED_FROM_STAGE } from '../seed/plan.ts'
 import { SEED_SOURCE } from '../seed/store.ts'
-import { readCredentials } from '../seed/users.ts'
+import { readCredentials, readSourceKeys } from '../seed/users.ts'
 import { type ApiHarness, ORIGIN, startApiHarness } from '../testing/api-harness.ts'
 import { totp } from '../testing/totp.ts'
 import { refusal, runSeed, type SeedDeps } from './seed.ts'
 
 // `pnpm seed` (тикет crm-deals/10): тестовые данные на уменьшенном объёме (1/10) — числа,
 // правила базы, повторный запуск, --reset, отказ на проде и чтение созданного через API под
-// менеджером.
+// менеджером. Данные эпика crm-intake (тикет crm-intake/10): источники, регистрации, журнал
+// входящих, дубли каждого правила и слияния; экран «Дублі» и откат — через API под
+// администратором seed.
 
 const SCALE = ['--scale', '0.1']
 const SLOW = 180_000
@@ -33,6 +42,7 @@ describe('pnpm seed', () => {
       serviceDb: h.owner,
       // Тот же сервер, что у служебного подключения: локальный адрес.
       databaseUrl: h.appUrl,
+      appDatabaseUrl: h.appUrl,
       auth: h.auth,
       authUrl: ORIGIN,
       env: { NODE_ENV: 'test' },
@@ -62,7 +72,18 @@ describe('pnpm seed', () => {
     'field_group',
     'field_definition',
     'field_option',
+    'intake_source',
+    'registration',
+    'intake_event',
+    'inbound_request',
+    'merge_record',
+    'merge_moved_item',
+    'duplicate_pair',
+    'not_duplicate',
   ] as const
+
+  /** Вывод первого запуска seed: команды и консоли процесса (журнал сервера). */
+  const firstRunOutput: string[] = []
 
   async function counts() {
     const result: Record<string, number> = {}
@@ -84,6 +105,36 @@ describe('pnpm seed', () => {
     return row?.id
   }
 
+  /** id записей `table` проекта, созданных по плану людей и сделок (ключи `contact-…`, `deal-…`). */
+  async function plannedIds(table: 'contact' | 'deal', project: string) {
+    const rows = await h.owner
+      .selectFrom('external_link')
+      .select('entity_id')
+      .where('project_id', '=', project)
+      .where('source', '=', SEED_SOURCE)
+      .where('entity_type', '=', table)
+      .where('external_id', 'like', `${table}-%`)
+      .execute()
+    return new Set(rows.map((r) => r.entity_id))
+  }
+
+  /** Вход пользователем seed роли `role` паролем и кодом 2FA из файла учётных данных. */
+  async function signInSeed(role: 'admin' | 'manager') {
+    const credential = (await readCredentials(credentialsFile)).find((c) => c.role === role)
+    if (!credential) throw new Error(`нет пользователя ${role}`)
+    const browser = h.browser()
+    const signIn = await browser.api('POST', '/auth/sign-in/email', {
+      body: { email: credential.email, password: credential.password },
+    })
+    expect(signIn.status).toBe(200)
+    expect(await signIn.json()).toMatchObject({ twoFactorRedirect: true })
+    const verified = await browser.api('POST', '/auth/two-factor/verify-totp', {
+      body: { code: totp(credential.totpSecret) },
+    })
+    expect(verified.status).toBe(200)
+    return { browser, email: credential.email }
+  }
+
   it('план детерминирован: то же зерно — те же люди и сделки', () => {
     const now = new Date('2026-11-23T12:00:00Z')
     const a = buildSeedPlan({ scale: 0.05, now })
@@ -91,6 +142,11 @@ describe('pnpm seed', () => {
     expect(b).toEqual(a)
     expect(buildSeedPlan({ scale: 0.05, now, seed: 1 }).projects[0]?.contacts).not.toEqual(
       a.projects[0]?.contacts,
+    )
+    // Данные приёма — тоже от зерна: другое зерно — другие регистрации.
+    expect(a.projects[0]?.intake.registrations.length).toBeGreaterThan(0)
+    expect(buildSeedPlan({ scale: 0.05, now, seed: 1 }).projects[0]?.intake).not.toEqual(
+      a.projects[0]?.intake,
     )
   })
 
@@ -129,10 +185,29 @@ describe('pnpm seed', () => {
   it(
     'ALPI: 3 воронки, 10 менеджеров в 2 командах, 400 контактов и 500 сделок; «Франч»: сделки с организациями',
     async () => {
-      expect(await runSeed(deps, SCALE)).toBe(0)
+      // Вывод команды и консоль процесса — для проверки, что ключи источников туда не попали.
+      const out = {
+        log: (m: string) => firstRunOutput.push(m),
+        error: (m: string) => firstRunOutput.push(m),
+      }
+      const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((level) =>
+        vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+          firstRunOutput.push(args.map((a) => (a instanceof Error ? a.stack : String(a))).join(' '))
+        }),
+      )
+      try {
+        expect(await runSeed({ ...deps, out }, SCALE)).toBe(0)
+      } finally {
+        for (const spy of spies) spy.mockRestore()
+      }
       const alpi = await projectId('alpi')
       const franch = await projectId('franch')
       if (!alpi || !franch) throw new Error('проекты не созданы')
+      // Люди и сделки плана; готовые дубли и журнал входящих добавляют своих — они ниже.
+      const planned = new Set([
+        ...(await plannedIds('deal', alpi)),
+        ...(await plannedIds('deal', franch)),
+      ])
 
       const pipelines = await h.owner
         .selectFrom('pipeline')
@@ -185,14 +260,9 @@ describe('pnpm seed', () => {
         ])
         .where('d.project_id', 'in', [alpi, franch])
         .execute()
+        .then((rows) => rows.filter((d) => planned.has(d.id)))
       const alpiDeals = deals.filter((d) => d.pipeline !== 'franch')
-      expect(
-        await h.owner
-          .selectFrom('contact')
-          .select((eb) => eb.fn.countAll<string>().as('n'))
-          .where('project_id', '=', alpi)
-          .executeTakeFirstOrThrow(),
-      ).toEqual({ n: '400' })
+      expect((await plannedIds('contact', alpi)).size).toBe(400)
       expect(alpiDeals).toHaveLength(500)
 
       // Похоже на настоящее: большинство сделок воронки ALPI — на «Новий лід» с нулевой суммой,
@@ -349,6 +419,7 @@ describe('pnpm seed', () => {
       select count(*)::int as n from (
         select 1 from deal
         where status = 'open' and archived_at is null and deleted_at is null
+          and merged_into_id is null
         group by project_id, pipeline_id, primary_contact_id
         having count(*) > 1
       ) t
@@ -366,17 +437,298 @@ describe('pnpm seed', () => {
     expect(userEmails).toHaveLength(11)
     expect(userEmails.every((u) => u.email.endsWith('@example.com'))).toBe(true)
 
+    // Тестовые номера: +380 70 (код абонентам не выдан) и для правила «имя и последние 9 цифр» —
+    // польский +48 70x (платные услуги, не абонентский).
     const phones = await h.owner.selectFrom('contact_phone').select('phone').execute()
-    expect(phones.filter((p) => !/^\+38070\d{7}$/.test(p.phone))).toEqual([])
+    expect(phones.filter((p) => !/^\+(38070\d{7}|4870\d{7})$/.test(p.phone))).toEqual([])
     expect(phones.filter((p) => normalizePhone(p.phone) !== p.phone)).toEqual([])
+  })
+
+  it(
+    'источники, регистрации, журнал входящих, дубли каждого правила и слияния всех видов — в каждом проекте',
+    async () => {
+      const keys = await readSourceKeys(credentialsFile)
+      const now = Date.now()
+      for (const code of ['alpi', 'franch']) {
+        const pid = await projectId(code)
+        if (!pid) throw new Error('нет проекта')
+
+        // Источники: «Вебінар», «Консультація», «Лендінг курсу» и один отключённый, у каждого —
+        // воронка своего проекта; ключ — в файле учётных данных, в базе — его отпечаток.
+        const { rows: sources } = await sql<{
+          id: string
+          name: string
+          disabled_at: Date | null
+          key_hash: string
+          pipeline_project: string
+        }>`
+          select s.id, s.name, s.disabled_at, s.key_hash, p.project_id as pipeline_project
+          from intake_source s join pipeline p on p.id = s.pipeline_id
+          where s.project_id = ${pid}
+        `.execute(h.owner)
+        expect(sources).toHaveLength(4)
+        expect(sources.map((s) => s.name)).toEqual(
+          expect.arrayContaining(['Вебінар', 'Консультація', 'Лендінг курсу']),
+        )
+        expect(sources.filter((s) => s.disabled_at !== null)).toHaveLength(1)
+        expect(sources.every((s) => s.pipeline_project === pid)).toBe(true)
+        for (const source of sources) {
+          const known = keys.find((k) => k.sourceId === source.id)
+          expect(known && hashIntakeKey(known.key)).toBe(source.key_hash)
+        }
+
+        // Регистрации: на каждую сделку плана — хотя бы одна, у части сделок — несколько; сделки
+        // первого этапа и дальше; метки, идентификаторы рекламы, браузер, extra и просмотры.
+        const { rows: regs } = await sql<{
+          deal_id: string | null
+          stage: number
+          form: string | null
+          webinar: string | null
+          plan_name: string | null
+          page_url: string | null
+          utm_source: string | null
+          utm_campaign: string | null
+          fbclid: string | null
+          gclid: string | null
+          fbp: string | null
+          fbc: string | null
+          user_agent: string | null
+          extra: Record<string, unknown>
+          view_minutes: number | null
+        }>`
+          select r.deal_id, s.position as stage, r.form, r.webinar, r.plan_name, r.page_url,
+            r.utm_source, r.utm_campaign, r.fbclid, r.gclid, r.fbp, r.fbc, r.user_agent, r.extra,
+            r.view_minutes
+          from registration r
+          join deal d on d.id = r.deal_id
+          join stage s on s.id = d.stage_id
+          where r.project_id = ${pid}
+        `.execute(h.owner)
+        const planned = await plannedIds('deal', pid)
+        expect(regs.length).toBeGreaterThan(planned.size)
+        expect(new Set(regs.map((r) => r.stage)).size).toBeGreaterThan(1)
+        const perDeal = new Map<string, number>()
+        for (const r of regs) perDeal.set(r.deal_id ?? '', (perDeal.get(r.deal_id ?? '') ?? 0) + 1)
+        expect([...perDeal.values()].some((n) => n >= 2)).toBe(true)
+        for (const column of [
+          'form',
+          'webinar',
+          'plan_name',
+          'page_url',
+          'utm_source',
+          'utm_campaign',
+          'fbclid',
+          'gclid',
+          'fbp',
+          'fbc',
+          'user_agent',
+          'view_minutes',
+        ] as const) {
+          expect(
+            regs.some((r) => r[column] !== null),
+            column,
+          ).toBe(true)
+        }
+        expect(regs.some((r) => Object.keys(r.extra).length > 0)).toBe(true)
+
+        // Журнал входящих за последние 30 дней: принятые, повторы, ошибки 400 без телефона и
+        // email, просмотры без регистрации.
+        const { rows: inbound } = await sql<{
+          channel: string
+          outcome: string
+          status_code: number
+          error_code: string | null
+          received_at: Date
+        }>`
+          select channel, outcome, status_code, error_code, received_at
+          from inbound_request where project_id = ${pid}
+        `.execute(h.owner)
+        const outcomes = (outcome: string) => inbound.filter((r) => r.outcome === outcome)
+        expect(outcomes('accepted').length).toBeGreaterThan(0)
+        expect(outcomes('repeat').length).toBeGreaterThan(0)
+        expect(outcomes('error').length).toBeGreaterThan(0)
+        expect(
+          outcomes('error').every(
+            (r) => r.status_code === 400 && r.error_code === 'CONTACT_KEYS_REQUIRED',
+          ),
+        ).toBe(true)
+        expect(outcomes('unmatched').length).toBeGreaterThan(0)
+        expect(outcomes('unmatched').every((r) => r.channel === 'intake.webinar_view')).toBe(true)
+        const times = inbound.map((r) => new Date(r.received_at).getTime())
+        expect(Math.min(...times)).toBeGreaterThan(now - 30 * 86_400_000)
+        expect(Math.max(...times)).toBeLessThanOrEqual(Date.now())
+        expect(Math.max(...times) - Math.min(...times)).toBeGreaterThan(7 * 86_400_000)
+
+        // Дубли: пары каждого правила тикета crm-intake/05 и одна пара с отметкой «не дубль».
+        const pairs = await h.owner
+          .selectFrom('duplicate_pair')
+          .select('reason')
+          .distinct()
+          .where('project_id', '=', pid)
+          .execute()
+        expect(pairs.map((p) => p.reason).sort()).toEqual([...DUPLICATE_REASONS].sort())
+        const marks = await h.owner
+          .selectFrom('not_duplicate')
+          .select('entity_type')
+          .where('project_id', '=', pid)
+          .execute()
+        expect(marks).toEqual([{ entity_type: 'contact' }])
+
+        // Слияния контактов: свежие (откат доступен) и старше 30 дней (недоступен); в одно
+        // вложено слияние сделок.
+        const merges = await h.owner
+          .selectFrom('merge_record')
+          .select(['id', 'entity_type', 'parent_id', 'merged_at', 'undo_until', 'undone_at'])
+          .where('project_id', '=', pid)
+          .execute()
+        const top = merges.filter((m) => m.entity_type === 'contact' && m.parent_id === null)
+        const fresh = top.filter((m) => new Date(m.undo_until).getTime() > now)
+        const old = top.filter(
+          (m) =>
+            new Date(m.undo_until).getTime() < now &&
+            new Date(m.merged_at).getTime() < now - 30 * 86_400_000,
+        )
+        expect(fresh.length).toBeGreaterThanOrEqual(2)
+        expect(old.length).toBeGreaterThanOrEqual(1)
+        expect(top.every((m) => m.undone_at === null)).toBe(true)
+        const nested = merges.filter((m) => m.entity_type === 'deal' && m.parent_id !== null)
+        expect(nested.length).toBeGreaterThanOrEqual(1)
+        expect(nested.every((m) => fresh.some((f) => f.id === m.parent_id))).toBe(true)
+      }
+    },
+    SLOW,
+  )
+
+  it('изоляция: источники, регистрации, журнал, дубли и слияния ссылаются только на свой проект', async () => {
+    const { rows } = await sql<{ name: string; n: number }>`
+      select 'регистрация - сделка' as name, count(*)::int as n
+        from registration r join deal d on d.id = r.deal_id where d.project_id <> r.project_id
+      union all select 'регистрация - контакт', count(*)::int
+        from registration r join contact c on c.id = r.contact_id where c.project_id <> r.project_id
+      union all select 'регистрация - источник', count(*)::int
+        from registration r join intake_source s on s.id = r.intake_source_id
+        where s.project_id <> r.project_id
+      union all select 'источник - воронка', count(*)::int
+        from intake_source s join pipeline p on p.id = s.pipeline_id where p.project_id <> s.project_id
+      union all select 'событие приёма - источник', count(*)::int
+        from intake_event e join intake_source s on s.id = e.intake_source_id
+        where s.project_id <> e.project_id
+      union all select 'журнал - источник', count(*)::int
+        from inbound_request i join intake_source s on s.id = i.intake_source_id
+        where s.project_id <> i.project_id
+      union all select 'журнал - регистрация', count(*)::int
+        from inbound_request i join registration r on r.id::text = i.result->>'registration_id'
+        where r.project_id <> i.project_id
+      union all select 'пара контактов', count(*)::int
+        from duplicate_pair p join contact c on c.id in (p.a_id, p.b_id)
+        where p.entity_type = 'contact' and c.project_id <> p.project_id
+      union all select 'пара сделок', count(*)::int
+        from duplicate_pair p join deal d on d.id in (p.a_id, p.b_id)
+        where p.entity_type = 'deal' and d.project_id <> p.project_id
+      union all select 'не дубль', count(*)::int
+        from not_duplicate p join contact c on c.id in (p.a_id, p.b_id) where c.project_id <> p.project_id
+      union all select 'слияние контактов', count(*)::int
+        from merge_record m join contact c on c.id in (m.survivor_id, m.merged_id)
+        where m.entity_type = 'contact' and c.project_id <> m.project_id
+      union all select 'слияние сделок', count(*)::int
+        from merge_record m join deal d on d.id in (m.survivor_id, m.merged_id)
+        where m.entity_type = 'deal' and d.project_id <> m.project_id
+    `.execute(h.owner)
+    expect(rows).toHaveLength(12)
+    expect(rows.filter((r) => r.n !== 0)).toEqual([])
+    // Сравнение выше не пустое: пары, слияния и регистрации нашли свои записи.
+    const { rows: found } = await sql<{ pairs: number; merges: number; regs: number }>`
+      select
+        (select count(*)::int from duplicate_pair p join contact c on c.id = p.a_id) as pairs,
+        (select count(*)::int from merge_record m join contact c on c.id = m.merged_id) as merges,
+        (select count(*)::int from registration r join deal d on d.id = r.deal_id) as regs
+    `.execute(h.owner)
+    expect(found[0]?.pairs).toBeGreaterThan(0)
+    expect(found[0]?.merges).toBeGreaterThan(0)
+    expect(found[0]?.regs).toBeGreaterThan(0)
+  })
+
+  it('ключи источников — только в файле учётных данных: не в выводе команды и не в консоли процесса', async () => {
+    const keys = await readSourceKeys(credentialsFile)
+    expect(keys).toHaveLength(8)
+    const output = firstRunOutput.join('\n')
+    expect(output).toContain('Ключи источников регистраций')
+    expect(output).not.toContain(INTAKE_KEY_PREFIX)
+    for (const { key } of keys) expect(output).not.toContain(key.slice(INTAKE_KEY_PREFIX.length))
   })
 
   it(
     'повторный запуск не меняет числа записей',
     async () => {
       const before = await counts()
+      const keys = await readSourceKeys(credentialsFile)
       expect(await runSeed(deps, SCALE)).toBe(0)
       expect(await counts()).toEqual(before)
+      expect(await readSourceKeys(credentialsFile)).toEqual(keys)
+    },
+    SLOW,
+  )
+
+  it(
+    'экран «Дублі» на данных seed показывает группы каждого правила; свежее слияние откатывается, старое — нет',
+    async () => {
+      const alpi = await projectId('alpi')
+      if (!alpi) throw new Error('нет проекта')
+      const { browser } = await signInSeed('admin')
+      type Group = { reasons: string[]; recordIds: string[] }
+      const groups = async (type: 'contact' | 'deal') => {
+        const all: Group[] = []
+        let cursor: string | null = null
+        do {
+          const query: string = cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`
+          const res = await browser.api('GET', `/v1/duplicates?type=${type}&limit=200${query}`, {
+            project: alpi,
+          })
+          expect(res.status).toBe(200)
+          const body = (await res.json()) as { data: Group[]; next_cursor: string | null }
+          all.push(...body.data)
+          cursor = body.next_cursor
+        } while (cursor !== null)
+        return all
+      }
+      const contactGroups = await groups('contact')
+      const reasons = new Set(contactGroups.flatMap((g) => g.reasons))
+      for (const reason of ['phone', 'email', 'mark', 'name_phone']) {
+        expect([...reasons]).toContain(reason)
+      }
+      expect(contactGroups.some((g) => g.recordIds.length === 3)).toBe(true)
+      const dealGroups = await groups('deal')
+      expect(dealGroups.length).toBeGreaterThan(0)
+      expect(dealGroups.every((g) => g.reasons.includes('open_deals'))).toBe(true)
+      // Пара с отметкой «не дубль» на экране не предлагается.
+      const marked = await h.owner
+        .selectFrom('not_duplicate')
+        .select(['a_id', 'b_id'])
+        .where('project_id', '=', alpi)
+        .executeTakeFirstOrThrow()
+      expect(
+        contactGroups.some(
+          (g) => g.recordIds.includes(marked.a_id) && g.recordIds.includes(marked.b_id),
+        ),
+      ).toBe(false)
+
+      const merges = await h.owner
+        .selectFrom('merge_record')
+        .select(['id', 'undo_until'])
+        .where('project_id', '=', alpi)
+        .where('entity_type', '=', 'contact')
+        .where('parent_id', 'is', null)
+        .orderBy('merged_at')
+        .execute()
+      const old = merges.find((m) => new Date(m.undo_until).getTime() < Date.now())
+      const fresh = merges.find((m) => new Date(m.undo_until).getTime() > Date.now())
+      if (!old || !fresh) throw new Error('нет свежего или старого слияния')
+      const undo = (id: string) => browser.api('POST', `/v1/merges/${id}/undo`, { project: alpi })
+      const refused = await undo(old.id)
+      expect(refused.status).toBe(409)
+      expect(await refused.json()).toMatchObject({ code: 'MERGE_UNDO_EXPIRED' })
+      const undone = await undo(fresh.id)
+      expect(undone.status).toBe(200)
     },
     SLOW,
   )
@@ -666,6 +1018,7 @@ describe('pnpm seed', () => {
       const { rows: seededNow } = await sql<{ n: number }>`
         select count(*)::int as n from external_link
         where project_id = ${alpi} and source = 'seed' and entity_type = 'deal'
+          and external_id like 'deal-%'
       `.execute(h.owner)
       expect(seededNow).toEqual([{ n: 499 }])
 
@@ -727,13 +1080,7 @@ describe('pnpm seed', () => {
 
       // После --reset seed создаёт всё заново.
       expect(await runSeed(deps, SCALE)).toBe(0)
-      expect(
-        await h.owner
-          .selectFrom('deal')
-          .select((eb) => eb.fn.countAll<string>().as('n'))
-          .where('project_id', '=', (await projectId('alpi')) ?? '')
-          .executeTakeFirstOrThrow(),
-      ).toEqual({ n: '500' })
+      expect((await plannedIds('deal', (await projectId('alpi')) ?? '')).size).toBe(500)
     },
     SLOW,
   )

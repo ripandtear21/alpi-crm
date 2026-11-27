@@ -307,6 +307,7 @@ describe('приёмка crm-api: приёмник событий двигает
         {
           serviceDb: h.owner,
           databaseUrl: h.appUrl,
+          appDatabaseUrl: h.appUrl,
           auth: h.auth,
           authUrl: ORIGIN,
           env: { NODE_ENV: 'test' },
