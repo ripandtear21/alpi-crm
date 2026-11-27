@@ -130,7 +130,7 @@ describe('ход и итог «провести заново»', () => {
     expect(finished?.since).toBe(since)
     expect(finished?.finishedAt).not.toBeNull()
     expect(finished?.failed).toBe(false)
-    expect(finished?.counts).toEqual({ accepted: 0, repeats: 1, errors: 0 })
+    expect(finished?.counts).toEqual({ accepted: 0, repeats: 1, errors: 0, unmatched: 0 })
   })
 
   it('задача упала окончательно — итог «не завершилось», а не «идёт» вечно', async () => {
