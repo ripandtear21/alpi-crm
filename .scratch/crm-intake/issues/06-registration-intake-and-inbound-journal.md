@@ -66,6 +66,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts apps/api/src/intake/journal.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест приёма: новый человек — 201, новый контакт и сделка «<имя> · <форма>» на первом этапе воронки источника без ответственного, регистрация со всеми полями пункта 12, неизвестные ключи — в `extra`.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/intake/registration.test.ts apps/api/src/intake apps/api/src/contacts` exit 0 · windows - · 43f30c6
 - [ ] Тест повтора: тот же `event_id` — 200 с теми же id, ничего не создано; два одновременных одинаковых запроса — одна регистрация; тот же `event_id` у другого источника — новая регистрация.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
@@ -75,6 +76,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест проверки тела: без `event_id` — 400; без верного телефона и email — 400; неверный телефон при верном email — 201 с `PHONE_INVALID` и исходным телефоном в регистрации; 601-й запрос в минуту — 429.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/intake/registration.test.ts apps/api/src/intake apps/api/src/contacts` exit 0 · windows - · 43f30c6
 - [ ] Тест ADR 0003: приём не меняет этап, статус и ответственного существующей сделки и не создаёт задач.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест событий: новый человек — `registration.created`, `contact.created`, `deal.created` с автором-источником; повтор — ни одного события; тела проходят схему каталога и не содержат имён, телефонов и email.
@@ -83,6 +85,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/journal.test.ts apps/api/src/jobs/jobs.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест «провести заново»: базу откатили (удалили регистрации после T в тесте), провели заново с T — регистрации вернулись с теми же `event_id`, а то, что не удалялось, не задвоилось; T старше 30 дней — 422.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/journal.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm vitest run packages/shared/src/intake/registration.test.ts apps/api/src/intake apps/api/src/contacts` exit 0 · windows - · 43f30c6
 - [ ] Тест слияния: при слиянии контактов и сделок регистрации переходят и при откате возвращаются.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
@@ -90,6 +93,8 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · fad8759
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
   - evidence: gate pass · `gate fast` exit 0 · windows - · 7b288db
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 43f30c6
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 43f30c6
 
 ## Результат
 

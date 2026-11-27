@@ -134,7 +134,7 @@ Code: `apps/api/src/intake/process.ts:283-315` · key lines: 284, 298, 308
 
 ## 6. Ошибка обработки: данных нет, строка журнала есть
 
-Code: `apps/api/src/intake/journal.ts:143-169` · key lines: 148, 165, 168
+Code: `apps/api/src/intake/journal.ts:136-162` · key lines: 141, 158, 161
 ```ts
   const parsed = parseRegistration(body)
   if (!parsed.ok) return failed(400, parsed.code)
@@ -228,13 +228,80 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
 - Требование: [Результат](../issues/06-registration-intake-and-inbound-journal.md#результат)
 - Риски и пробелы test-ов: тест `восстановление контакта из корзины берёт блокировки его ключей до строки …` держит ключ и проверяет, что строка свободна (`for update nowait`); мутант без `lockStoredKeys` — красный.
 
-## 10. Что сознательно не меняли
+## 10. Время регистрации: только годы 1–9999 по UTC
+
+Code: `packages/shared/src/intake/registration.ts:190-200` · key lines: 194, 199
+```ts
+/**
+ * Время регистрации в ISO 8601, если год по UTC 1–9999; иначе null. `timestamptz` не примет
+ * запись toISOString с годом 0, отрицательным или пятизначным — вставка упала бы.
+ */
+function registeredAtOf(raw: string | null): string | null {
+  const time = raw === null ? Number.NaN : Date.parse(raw)
+  if (Number.isNaN(time)) return null
+  const date = new Date(time)
+  const year = date.getUTCFullYear()
+  return year >= 1 && year <= 9999 ? date.toISOString() : null
+}
+```
+- Что делает: дата с годом вне 1–9999 по UTC считается нераспознанной: столбец `registered_at` пустой, присланное значение — в `extra.registered_at`.
+- Почему здесь: расширенная проверка PR нашла, что `Date.parse` принимает годы 0000, -000001 и +010000, а вставка в `timestamptz` их отвергает; тело отклоняется только без `event_id` или без ключей контакта (пункты 4 и 19).
+- Без него: ответ 500, регистрации нет, и проведение строки журнала заново падает так же.
+- Требование: [Что сделать](../issues/06-registration-intake-and-inbound-journal.md#что-сделать)
+- Риски и пробелы test-ов: тест API `registered_at с годом вне 1–9999 …` проверяет три плохих года и границы 0001 и 9999; тест разбора — ещё сдвиг часового пояса в год 0. Мутант `year >= 0` — красный.
+
+## 11. Строки и ключи extra, которые PostgreSQL сохранит
+
+Code: `packages/shared/src/intake/registration.ts:146-163` · key lines: 147, 158, 159
+```ts
+function storableText(value: string): string {
+  return value.replaceAll(NUL, '').replace(LONE_SURROGATE, REPLACEMENT)
+}
+
+/**
+ * Значение JSON для `extra`: строки и ключи — storableText. Объекты — без прототипа: ключ
+ * `__proto__` из тела остаётся обычным ключом, и JSON.stringify его выводит.
+ */
+function storableJson(value: unknown): unknown {
+  if (typeof value === 'string') return storableText(value)
+  if (Array.isArray(value)) return value.map(storableJson)
+  if (isObject(value)) {
+    const result: Record<string, unknown> = Object.create(null)
+    for (const [key, item] of Object.entries(value)) result[storableText(key)] = storableJson(item)
+    return result
+  }
+  return value
+}
+```
+- Что делает: убирает NUL и заменяет одиночную половинку суррогатной пары (обрезанный эмодзи, `"abc\ud83d"`) на U+FFFD в строках и ключах `extra` и в строковых полях; объекты `extra` собираются без прототипа.
+- Почему здесь: расширенная проверка PR: jsonb отвергает такую половинку (22P02), а ключ `__proto__` при записи в обычный объект менял прототип и пропадал. `toWellFormed` нет в lib ES2023 — замена регулярным выражением; почему lib ES2023 — not recorded.
+- Без него: обрезанный эмодзи в неизвестном ключе — ответ 500 и потеря регистрации; ключ `__proto__` молча терялся (сырое тело оставалось только в журнале).
+- Требование: [Что сделать](../issues/06-registration-intake-and-inbound-journal.md#что-сделать)
+- Риски и пробелы test-ов: тест API с половинкой читает U+FFFD из базы только в базе UTF8: встроенная база на Windows в WIN1251 этот символ не хранит, и там тест пропускается; замену проверяет тест разбора в `packages/shared` (мутанты: ключи без `storableText`, объект с прототипом — красные).
+
+## 12. Один `event_id` у журнала и у регистрации
+
+Code: `packages/shared/src/intake/registration.ts:184-188` · key lines: 186, 187
+```ts
+export function registrationEventId(body: unknown): string | null {
+  if (!isObject(body)) return null
+  const eventId = scalarText(body.event_id)
+  return typeof eventId === 'string' && eventId.length <= MAX_EVENT_ID_LENGTH ? eventId : null
+}
+```
+- Что делает: одна функция даёт `event_id` и разбору тела, и строке журнала входящих (`apps/api/src/intake/journal.ts`, поле `eventId`).
+- Почему здесь: расширенная проверка PR: журнал считал `event_id` своей копией правила — `"event_id": true` журнал писал как null, а длину проверял до удаления NUL.
+- Без него: строка журнала и регистрация расходятся по `event_id`, по журналу не найти регистрацию.
+- Требование: [Done when](../issues/06-registration-intake-and-inbound-journal.md#done-when)
+- Риски и пробелы test-ов: тест журнала `event_id не строкой и с NUL …` сравнивает `event_id` строки журнала и регистрации и проводит строку заново: 200 с теми же id.
+
+## 13. Что сознательно не меняли
 
 `purge_from_trash` (0027) — регистрации уходят каскадом внешнего ключа контакта, у сделки обнуляется `deal_id`. Порядок блокировок слияния сделок — тикет 12: само слияние сделок и его откат блокируют сделку, потом контакт, а приём — контакт, потом сделку; возможна взаимоблокировка. Предпросмотр слияния регистрации не считает — тикет 09. Обязательные поля «всегда» при приёме не проверяются.
 
-## 11. Как проверено
+## 14. Как проверено
 
-`pnpm vitest run apps/api/src/intake` — exit 0 (48 тестов на настоящем PostgreSQL); три мутанта гонок — exit 1. Доработка: `pnpm vitest run apps/api/src/intake/registrations.test.ts` — exit 0 (27 тестов), три мутанта (cascade у `deal_id`, предупреждение без `deal_id`, восстановление без `lockStoredKeys`) — exit 1. `pnpm vitest run packages/db/src/project-isolation.test.ts` — exit 0. `pnpm verify` и `gate fast` — exit 0.
+`pnpm vitest run apps/api/src/intake` — exit 0 (48 тестов на настоящем PostgreSQL); три мутанта гонок — exit 1. Доработка: `pnpm vitest run apps/api/src/intake/registrations.test.ts` — exit 0 (27 тестов), три мутанта (cascade у `deal_id`, предупреждение без `deal_id`, восстановление без `lockStoredKeys`) — exit 1. `pnpm vitest run packages/db/src/project-isolation.test.ts` — exit 0. `pnpm verify` и `gate fast` — exit 0. Второй круг доработки (годы, суррогаты, `event_id`, `__proto__`, `findEmailContact` через `findContactMatch`): новые тесты красные до исправления; `pnpm vitest run packages/shared/src/intake/registration.test.ts apps/api/src/intake apps/api/src/contacts` — exit 0, три мутанта разбора — exit 1; `pnpm verify` и `gate fast` — exit 0.
 
 ## Проверить себя
 
@@ -243,7 +310,7 @@ async function restoreContact(ctx: ContactContext, id: string): Promise<Result<C
    - Строки: `apps/api/src/intake/process.ts:328-340`
 2. Почему строка журнала с ошибкой пишется отдельной транзакцией?
    - Ответ: транзакция обработки откатывается целиком, чтобы не оставить данных; строка в ней откатилась бы тоже.
-   - Строки: `apps/api/src/intake/journal.ts:143-169`
+   - Строки: `apps/api/src/intake/journal.ts:136-162`
 3. Почему «провести заново» не берёт строки с `replay_of`?
    - Ответ: это строки прошлых проведений того же запроса; провести их — значит провести исходный запрос ещё раз и задвоить журнал.
    - Строки: `apps/api/src/intake/replay.ts:110-125`
