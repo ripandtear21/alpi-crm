@@ -1,7 +1,8 @@
 # Приём регистраций и журнал входящих
 
 Type: task
-Status: claimed 2026-11-27T09:23Z
+Status: done 2026-11-27T11:20Z
+PR: #41
 Branch: crm-intake/06
 Risk: high
 Blocked by: 01, 02, 03
