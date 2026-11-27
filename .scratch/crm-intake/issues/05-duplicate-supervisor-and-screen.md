@@ -1,7 +1,8 @@
 # Надсмотрщик за дублями и экран «Дублі»
 
 Type: task
-Status: open
+Status: done 2026-11-27T13:57Z
+PR: #43
 Blocked by: 01, 02
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 15, 26, 32, 33, 34, 35); docs/adr/0005-sliyanie-s-otkatom.md; docs/adr/0003-crm-ne-menyaet-sdelki-sama.md; GLOSSARY.md («Дубль», «Возможный дубль», «Архив»); .scratch/crm-intake/spec.md
 
