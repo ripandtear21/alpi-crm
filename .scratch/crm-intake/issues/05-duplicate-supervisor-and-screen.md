@@ -43,13 +43,24 @@ packages/db/migrations/**, packages/db/src/schema.ts, apps/api/src/duplicates/**
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Тест изоляции: пары и отметки «не дубль» проекта A не видны в контексте B без фильтра в коде; одинаковый телефон в двух проектах — не дубль.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/duplicates.test.ts` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Тест прав: без «контакты: изменять» групп контактов нет и счётчик их не считает; группа с одной записью вне охвата не показывается; запрос «не дубль» без права — 403; ключом API — 403 `API_KEY_NOT_ALLOWED`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/duplicates.test.ts` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Тест правил: находятся пары по одинаковому телефону в разной записи (`067 123 45 67` и `+380671234567`), по email в разном регистре, по пометке «возможный дубль», по имени и последним 9 цифрам; две открытые сделки контакта в воронке (одна архивная) — пара сделок; закрытая сделка — не пара.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/duplicates.test.ts` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Тест «сам ничего не меняет»: прогон задачи и ночного прохода не меняет ни одной строки контактов и сделок (сравнение до и после) и не создаёт событий.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/duplicates.test.ts` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Тест задачи: изменение телефона контакта ставит задачу той же транзакцией; откаченное изменение задачи не оставляет; после слияния пара исчезает при следующем проходе.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/duplicates.test.ts` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Тест «не дубль»: пара больше не предлагается ни по одной причине; пометка «возможный дубль» снята.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/duplicates.test.ts` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Тест объединения группы из трёх контактов: два слияния, каждое откатывается отдельно.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/duplicates.test.ts` and `pnpm --filter @alpi/web exec vitest run src/routes/duplicates` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Ночной проход на 100 тыс. сгенерированных контактов укладывается в 5 минут; время в отчёте (порог — решено без владельца — подтвердить; тикет 10 повторяет замер на данных `pnpm seed`).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/duplicates/nightly.test.ts` exit 0, 100k contacts: 1934 ms first pass, 1632 ms repeat · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] Экран: группы с причиной и предпросмотром, «Об'єднати», «Не дубль», счётчик в шапке; тексты uk и ru; работает на 375 px.
+  - evidence: test-run pass · `pnpm --filter @alpi/web exec vitest run src/routes/duplicates` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
 - [ ] `pnpm verify` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 841fc4360bf04b8dceb2fa5e25b31c51b3a4b013
