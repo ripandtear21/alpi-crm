@@ -1,4 +1,4 @@
-import { formatPhone } from '@alpi/shared'
+import { can, formatPhone } from '@alpi/shared'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -28,6 +28,7 @@ import { Badge } from '../../../ui/badge.tsx'
 import { Button } from '../../../ui/button.tsx'
 import { Dialog } from '../../../ui/dialog.tsx'
 import { Skeleton } from '../../../ui/feedback.tsx'
+import { Registrations } from '../../deals/$dealId/registrations/registrations.tsx'
 import type { DealsApi } from '../../deals/deals-api.ts'
 import { NewDealDialog } from '../../deals/new-deal-dialog.tsx'
 import { MergeContactDialog } from '../merge/merge-dialog.tsx'
@@ -99,6 +100,7 @@ function ContactCardScreen({
   user: CardUser
 }) {
   const { t } = useTranslation('contact-card')
+  const { t: tDeal } = useTranslation('deal-card')
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const code = useProjectCode()
@@ -266,6 +268,16 @@ function ContactCardScreen({
               failed={contactDeals.isError}
             />
           </section>
+          {/* Регистрации по всем сделкам контакта (тикет crm-intake/09): видны тому, кто видит
+              сделки. */}
+          {can(access.data.permissions, 'deals', 'view') && (
+            <section className="record-card__block" aria-labelledby="contact-registrations">
+              <h2 id="contact-registrations" className="record-card__block-head">
+                {tDeal('registrations.title')}
+              </h2>
+              <Registrations projectId={projectId} owner={{ kind: 'contact', id: record.id }} />
+            </section>
+          )}
           <ContactMerges
             projectId={projectId}
             contactId={record.id}

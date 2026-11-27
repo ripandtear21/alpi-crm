@@ -18,12 +18,13 @@ import {
 import type { DealCardModel } from './deal-card-page.tsx'
 import { ActionError, useCardErrorText } from './deal-errors.tsx'
 import { DealMerges } from './merge/undo-deal-merge.tsx'
+import { Registrations } from './registrations/registrations.tsx'
 
 // Левая колонка карточки: поиск по полям, затем сворачиваемые блоки — «Заповніть» (важные
 // пустые поля), «Підсумок», «Деталі», «Об'єднані угоди» (слияния за 30 дней с откатом, тикет
 // crm-intake/02; без слияний блока нет), группы пользовательских полей (тикет crm-fields/06),
-// «Контакт», «Організація», «Учасники», «Товари» и заглушки «Платежі» и «Реєстрації» до их
-// эпиков.
+// «Контакт», «Організація», «Учасники», «Товари», заглушка «Платежі» до своего эпика и
+// «Реєстрації» (тикет crm-intake/09, registrations/registrations.tsx).
 
 export const contactName = (contact: ContactCard) =>
   [contact.firstName, contact.lastName].filter(Boolean).join(' ')
@@ -123,7 +124,7 @@ export function DealSidebar({ card }: { card: DealCardModel }) {
         <p className="deal-card__stub">{t('payments.stub')}</p>
       </Block>
       <Block title={t('registrations.title')}>
-        <p className="deal-card__stub">{t('registrations.stub')}</p>
+        <Registrations projectId={projectId} owner={{ kind: 'deal', id: deal.id }} />
       </Block>
     </aside>
   )
