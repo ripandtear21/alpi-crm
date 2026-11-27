@@ -26,6 +26,12 @@ import { fakeTimelineApi } from '../../../components/timeline/fake-timeline-api.
 import { createI18n } from '../../../i18n/index.ts'
 import { createAppRouter } from '../../../router.tsx'
 import { fakeAuthApi } from '../../auth/fake-auth-api.ts'
+import {
+  type FakeRegistrationsApi,
+  fakeRegistrationsApi,
+  sampleRegistration,
+} from '../../deals/$dealId/registrations/fake-registrations-api.ts'
+import { RegistrationsApiProvider } from '../../deals/$dealId/registrations/registrations-api.tsx'
 import { type FakeDealsApi, fakeDealsApi } from '../../deals/fake-deals-api.ts'
 import { type FakeMergesApi, fakeMergesApi, sampleMerge } from '../merge/fake-merges-api.ts'
 import { MergesApiError, MergesApiProvider } from '../merge/merges-api.tsx'
@@ -39,6 +45,7 @@ async function renderCard({
   contactId = CONTACT_ID,
   fields = fakeCustomFieldsApi(),
   merges = fakeMergesApi({ contacts: () => api.contacts }),
+  registrations = fakeRegistrationsApi(),
 }: {
   api?: FakeContactsApi
   kanban?: FakeDealsApi
@@ -47,6 +54,8 @@ async function renderCard({
   fields?: FakeCustomFieldsApi
   /** Слияние (тикет crm-intake/01): по умолчанию — подставной клиент без слияний. */
   merges?: FakeMergesApi
+  /** Регистрации (тикет crm-intake/09); по умолчанию — ни одной. */
+  registrations?: FakeRegistrationsApi
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -63,7 +72,9 @@ async function renderCard({
       <QueryClientProvider client={queryClient}>
         <CustomFieldsApiProvider api={fields}>
           <MergesApiProvider api={merges}>
-            <RouterProvider router={router} />
+            <RegistrationsApiProvider api={registrations}>
+              <RouterProvider router={router} />
+            </RegistrationsApiProvider>
           </MergesApiProvider>
         </CustomFieldsApiProvider>
       </QueryClientProvider>
@@ -506,6 +517,35 @@ describe('карточка контакта: слияние (тикет crm-inta
     expect(merges.calls).toContain(`undo ${merges.merges[0]?.id}`)
   })
 
+  it('после отката слияния регистрации контакта перечитываются (тикет crm-intake/09)', async () => {
+    const api = fakeContactsApi({ contacts: [sampleContact(), other()] })
+    const merges = fakeMergesApi({ contacts: () => api.contacts })
+    merges.merges.push(
+      sampleMerge({
+        survivorId: CONTACT_ID,
+        mergedId: OTHER_CONTACT_ID,
+        mergedContact: { id: OTHER_CONTACT_ID, firstName: 'Олег', lastName: 'Коваль' },
+      }),
+    )
+    const own = sampleRegistration({ contactId: CONTACT_ID, sourceName: 'Своя' })
+    const moved = sampleRegistration({ contactId: CONTACT_ID, sourceName: 'Перенесена' })
+    const registrations = fakeRegistrationsApi({ [`contact:${CONTACT_ID}`]: [moved, own] })
+    await renderCard({ api, merges, registrations })
+    const sources = async () =>
+      within(await screen.findByRole('list', { name: 'Реєстрації' }))
+        .getAllByText(/^(Своя|Перенесена)$/)
+        .map((node) => node.textContent)
+    expect(await sources()).toEqual(['Перенесена', 'Своя'])
+
+    registrations.byOwner.set(`contact:${CONTACT_ID}`, [own])
+    const block = await screen.findByRole('region', { name: "Об'єднання" })
+    fireEvent.click(within(block).getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    await waitFor(async () => expect(await sources()).toEqual(['Своя']))
+  })
+
   it("прямая ссылка на слитый контакт: «Контакт об'єднано» со ссылкой на оставшийся и откатом", async () => {
     const api = fakeContactsApi({ contacts: [sampleContact()] })
     const merges = fakeMergesApi({ contacts: () => api.contacts })
@@ -534,5 +574,61 @@ describe('карточка контакта: слияние (тикет crm-inta
     await screen.findByRole('region', { name: "Об'єднання" })
     expect(screen.queryByRole('button', { name: "Об'єднати з…" })).toBeNull()
     expect(screen.queryByRole('button', { name: "Скасувати об'єднання" })).toBeNull()
+  })
+})
+
+describe('карточка контакта: регистрации (тикет crm-intake/09)', () => {
+  const DEAL_A = '00000000-0000-4000-9400-0000000000e1'
+  const DEAL_B = '00000000-0000-4000-9400-0000000000e2'
+  const rowValue = (scope: HTMLElement, label: string) =>
+    within(scope).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+
+  it('регистрации по всем сделкам контакта, со ссылкой на сделку; extra и просмотр в раскрытии', async () => {
+    const registrations = fakeRegistrationsApi({
+      [`contact:${CONTACT_ID}`]: [
+        sampleRegistration({
+          contactId: CONTACT_ID,
+          dealId: DEAL_B,
+          dealTitle: 'Курс англійської',
+          webinar: 'Вебінар 12 листопада',
+          extra: { misto: 'Львів' },
+          view: {
+            startedAt: '2026-11-20T18:00:00.000Z',
+            finishedAt: null,
+            minutes: 12,
+            extra: null,
+            updatedAt: '2026-11-20T18:20:00.000Z',
+          },
+        }),
+        sampleRegistration({ contactId: CONTACT_ID, dealId: DEAL_A, dealTitle: 'Курс німецької' }),
+        sampleRegistration({ contactId: CONTACT_ID, dealId: null, dealTitle: null }),
+      ],
+    })
+    await renderCard({ registrations })
+
+    const list = await screen.findByRole('list', { name: 'Реєстрації' })
+    const [first, second, third] = within(list).getAllByRole('listitem')
+    if (!first || !second || !third) throw new Error('нет трёх регистраций')
+    expect(within(first).getByRole('link', { name: 'Курс англійської' }).getAttribute('href')).toBe(
+      `/p/alpi/deals/${DEAL_B}`,
+    )
+    expect(within(second).getByRole('link', { name: 'Курс німецької' }).getAttribute('href')).toBe(
+      `/p/alpi/deals/${DEAL_A}`,
+    )
+    expect(rowValue(third, 'Угода')).toBe('Угоду видалено')
+    expect(rowValue(first, 'Вебінар')).toBe('Вебінар 12 листопада')
+    expect(rowValue(first, 'misto')).toBe('Львів')
+    expect(rowValue(first, 'Хвилин переглянуто')).toBe('12')
+    expect(within(first).queryByText('Вийшов', { selector: 'dt' })).toBeNull()
+    expect(registrations.calls).toEqual([`contact:${CONTACT_ID}@0`])
+  })
+
+  it('без права «угоди: дивитися» блока нет и запроса нет', async () => {
+    const api = fakeContactsApi()
+    api.me.permissions.actions.deals = []
+    const registrations = fakeRegistrationsApi()
+    await renderCard({ api, registrations })
+    expect(screen.queryByRole('heading', { name: 'Реєстрації' })).toBeNull()
+    expect(registrations.calls).toEqual([])
   })
 })

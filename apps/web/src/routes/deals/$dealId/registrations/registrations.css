@@ -1,0 +1,82 @@
+/* Блок «Реєстрації» (тикет crm-intake/09) в карточках сделки и контакта. Подпись слева,
+   значение справа; на узком экране (375 px) длинные адреса, user_agent и значения `extra`
+   переносятся в любом месте, а не раздвигают колонку. */
+
+.registrations {
+  display: grid;
+  gap: var(--s-3);
+  justify-items: start;
+}
+
+.registrations__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-3);
+  width: 100%;
+}
+
+.registrations__item {
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  min-width: 0;
+}
+
+.registrations__rows {
+  margin: 0;
+}
+
+.registrations__row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: var(--s-3);
+  min-height: 28px;
+  align-items: baseline;
+}
+
+.registrations__row dt {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.registrations__row dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.registrations__more {
+  margin-top: var(--s-2);
+}
+
+.registrations__more > summary {
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-2);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.registrations__subhead {
+  margin: var(--s-3) 0 var(--s-1);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.registrations__muted {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 18px;
+  margin: 0;
+}

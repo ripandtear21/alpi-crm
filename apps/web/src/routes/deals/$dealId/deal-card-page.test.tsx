@@ -16,8 +16,9 @@ import {
   fakeTimelineApi,
 } from '../../../components/timeline/fake-timeline-api.ts'
 import type { TimelineItem } from '../../../components/timeline/timeline-api.ts'
-import { createI18n } from '../../../i18n/index.ts'
+import { createI18n, type Language } from '../../../i18n/index.ts'
 import { createAppRouter } from '../../../router.tsx'
+import { setViewportWidth } from '../../../test/viewport.ts'
 import { fakeAuthApi } from '../../auth/fake-auth-api.ts'
 import { type FakeDealsApi, fakeDeal, fakeDealsApi } from '../fake-deals-api.ts'
 import {
@@ -38,6 +39,15 @@ import {
   fakeDealMergesApi,
   sampleDealMerge,
 } from './merge/fake-deal-merges-api.ts'
+import {
+  type FakeRegistrationsApi,
+  fakeRegistrationsApi,
+  sampleRegistration,
+} from './registrations/fake-registrations-api.ts'
+import {
+  RegistrationsApiError,
+  RegistrationsApiProvider,
+} from './registrations/registrations-api.tsx'
 
 // Карточка сделки в настоящем дереве маршрутов: вошедший пользователь user-1 «Власник»,
 // подставные API сделки и ленты.
@@ -90,6 +100,8 @@ async function renderCard({
   path = `/p/alpi/deals/${dealId}`,
   fields = fakeCustomFieldsApi(),
   merges = fakeDealMergesApi({ cards: api }),
+  registrations = fakeRegistrationsApi(),
+  language = 'uk',
 }: {
   api?: FakeDealCardApi
   timeline?: FakeTimelineApi
@@ -101,6 +113,9 @@ async function renderCard({
   fields?: FakeCustomFieldsApi
   /** Слияние сделок (тикет crm-intake/02); по умолчанию — над сделками `api`. */
   merges?: FakeDealMergesApi
+  /** Регистрации (тикет crm-intake/09); по умолчанию — ни одной. */
+  registrations?: FakeRegistrationsApi
+  language?: Language
 } = {}) {
   const queryClient = new QueryClient()
   const router = createAppRouter({
@@ -113,18 +128,20 @@ async function renderCard({
     queryClient,
   })
   render(
-    <I18nextProvider i18n={createI18n('uk')}>
+    <I18nextProvider i18n={createI18n(language)}>
       <QueryClientProvider client={queryClient}>
         <CustomFieldsApiProvider api={fields}>
           <DealMergesApiProvider api={merges}>
-            <RouterProvider router={router} />
+            <RegistrationsApiProvider api={registrations}>
+              <RouterProvider router={router} />
+            </RegistrationsApiProvider>
           </DealMergesApiProvider>
         </CustomFieldsApiProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )
   await screen.findByRole('heading', { level: 1 })
-  return { api, timeline, router, merges }
+  return { api, timeline, router, merges, registrations }
 }
 
 const historyList = () => screen.findByRole('list', { name: 'Історія' })
@@ -826,6 +843,35 @@ describe('карточка сделки: слияние (тикет crm-intake/0
     await screen.findByRole('heading', { level: 1, name: SECOND })
   })
 
+  it('регистрации перечитываются после слияния и после отката (тикет crm-intake/09)', async () => {
+    const api = twoDeals()
+    const own = sampleRegistration({ dealId: DEAL_ID, sourceName: 'Своя' })
+    const moved = sampleRegistration({ dealId: DEAL_ID, sourceName: 'Перенесена' })
+    const registrations = fakeRegistrationsApi({ [`deal:${DEAL_ID}`]: [own] })
+    await renderCard({ api, registrations })
+    const sources = async () =>
+      within(await screen.findByRole('list', { name: 'Реєстрації' }))
+        .getAllByText(/^(Своя|Перенесена)$/)
+        .map((node) => node.textContent)
+    expect(await sources()).toEqual(['Своя'])
+
+    // Слияние переносит регистрации второй сделки к этой.
+    const dialog = await openMergeDialog()
+    await within(dialog).findByRole('region', { name: 'Що перейде' })
+    registrations.byOwner.set(`deal:${DEAL_ID}`, [moved, own])
+    fireEvent.click(within(dialog).getByRole('button', { name: "Об'єднати" }))
+    await waitFor(async () => expect(await sources()).toEqual(['Перенесена', 'Своя']))
+
+    // Откат возвращает их второй сделке.
+    registrations.byOwner.set(`deal:${DEAL_ID}`, [own])
+    const list = await screen.findByRole('region', { name: "Об'єднані угоди" })
+    fireEvent.click(within(list).getByRole('button', { name: "Скасувати об'єднання" }))
+    const confirm = await screen.findByRole('dialog', { name: "Скасувати об'єднання?" })
+    fireEvent.click(within(confirm).getByRole('button', { name: "Скасувати об'єднання" }))
+    await screen.findByRole('dialog', { name: "Об'єднання скасовано" })
+    await waitFor(async () => expect(await sources()).toEqual(['Своя']))
+  })
+
   it('срок отката прошёл — на странице слитой сделки кнопки отката нет', async () => {
     const api = twoDeals()
     api.mergedInto[SECOND_ID] = {
@@ -858,5 +904,129 @@ describe('карточка сделки: слияние (тикет crm-intake/0
     const marks = within(all).getAllByText('(зі злитої угоди)')
     expect(marks).toHaveLength(1)
     expect(marks[0]?.parentElement?.textContent).toContain('Назва: Стара → Нова (зі злитої угоди)')
+  })
+})
+
+describe('карточка сделки: регистрации (тикет crm-intake/09)', () => {
+  /** Значение строки «подпись — значение» блока регистраций. */
+  const rowValue = (scope: HTMLElement, label: string) =>
+    within(scope).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
+
+  const detailed = () =>
+    sampleRegistration({
+      contactId: CONTACT_ID,
+      dealId: DEAL_ID,
+      dealTitle: TITLE,
+      createdAt: '2026-11-20T10:00:00.000Z',
+      form: 'Форма на головній',
+      webinar: 'Вебінар 12 листопада',
+      planName: 'Базовий',
+      pageUrl: 'https://example.test/kurs?utm_source=facebook',
+      referrer: 'https://www.google.com/',
+      userAgent: 'Mozilla/5.0 (test)',
+      utmSource: 'facebook',
+      gclid: 'g-1',
+      extra: { misto: 'Київ', vik: 30 },
+      view: {
+        startedAt: '2026-11-20T18:00:00.000Z',
+        finishedAt: '2026-11-20T19:05:00.000Z',
+        minutes: 65,
+        extra: { vidsotok: 90 },
+        updatedAt: '2026-11-20T19:06:00.000Z',
+      },
+    })
+
+  it('блок вместо заглушки: новые сверху; раскрытие — метки, extra строками «ключ: значение», просмотр', async () => {
+    const older = sampleRegistration({
+      contactId: CONTACT_ID,
+      dealId: DEAL_ID,
+      sourceName: 'Старий лендінг',
+      createdAt: '2026-11-19T10:00:00.000Z',
+    })
+    const registrations = fakeRegistrationsApi({ [`deal:${DEAL_ID}`]: [detailed(), older] })
+    await renderCard({ registrations })
+
+    const list = await screen.findByRole('list', { name: 'Реєстрації' })
+    const [first, second] = within(list).getAllByRole('listitem')
+    if (!first || !second) throw new Error('нет двух регистраций')
+    expect(rowValue(first, 'Джерело')).toBe('Лендінг курсу')
+    expect(rowValue(second, 'Джерело')).toBe('Старий лендінг')
+    expect(rowValue(first, 'Форма')).toBe('Форма на головній')
+    expect(rowValue(first, 'Вебінар')).toBe('Вебінар 12 листопада')
+    expect(rowValue(first, 'Тариф')).toBe('Базовий')
+    expect(within(first).getByText(rowValue(first, 'Час') ?? '', { selector: 'time' })).toBeTruthy()
+    // В карточке сделки ссылки на сделку нет — она и так открыта.
+    expect(within(first).queryByText('Угода', { selector: 'dt' })).toBeNull()
+
+    const more = within(first).getByText('Усі дані').closest('details')
+    if (!more) throw new Error('нет раскрытия')
+    expect(more.open).toBe(false)
+    expect(rowValue(more, 'Сторінка')).toBe('https://example.test/kurs?utm_source=facebook')
+    expect(rowValue(more, 'referrer')).toBe('https://www.google.com/')
+    expect(rowValue(more, 'user_agent')).toBe('Mozilla/5.0 (test)')
+    expect(rowValue(more, 'utm_source')).toBe('facebook')
+    expect(rowValue(more, 'gclid')).toBe('g-1')
+    expect(within(more).queryByText('fbclid', { selector: 'dt' })).toBeNull()
+    expect(rowValue(more, 'misto')).toBe('Київ')
+    expect(rowValue(more, 'vik')).toBe('30')
+    expect(within(more).getByText('Перегляд вебінару')).toBeTruthy()
+    expect(rowValue(more, 'Почав дивитися')).toBeTruthy()
+    expect(rowValue(more, 'Вийшов')).toBeTruthy()
+    expect(rowValue(more, 'Хвилин переглянуто')).toBe('65')
+    expect(rowValue(more, 'vidsotok')).toBe('90')
+    // У старой регистрации просмотра нет.
+    expect(within(second).getByText('Даних про перегляд немає.')).toBeTruthy()
+    expect(screen.queryByText('Реєстрації з’являться разом із прийомом заявок.')).toBeNull()
+  })
+
+  it('много регистраций — «Показати ще» подгружает следующую страницу по курсору', async () => {
+    const rows = [1, 2, 3].map((n) =>
+      sampleRegistration({ contactId: CONTACT_ID, dealId: DEAL_ID, sourceName: `Джерело ${n}` }),
+    )
+    const registrations = fakeRegistrationsApi({ [`deal:${DEAL_ID}`]: rows }, 2)
+    await renderCard({ registrations })
+
+    const list = await screen.findByRole('list', { name: 'Реєстрації' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Показати ще' }))
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(3))
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((item) => rowValue(item, 'Джерело')),
+    ).toEqual(['Джерело 1', 'Джерело 2', 'Джерело 3'])
+    expect(screen.queryByRole('button', { name: 'Показати ще' })).toBeNull()
+    expect(registrations.calls).toEqual([`deal:${DEAL_ID}@0`, `deal:${DEAL_ID}@2`])
+  })
+
+  it('без регистраций — «Реєстрацій немає.»', async () => {
+    await renderCard()
+    expect(await screen.findByText('Реєстрацій немає.')).toBeTruthy()
+  })
+
+  it('отказ API — текст ошибки, а не пустой список', async () => {
+    const registrations = fakeRegistrationsApi()
+    registrations.fail = new RegistrationsApiError(500, 'INTERNAL')
+    await renderCard({ registrations })
+    expect(await screen.findByText('Не вдалося завантажити реєстрації.')).toBeTruthy()
+    expect(screen.queryByText('Реєстрацій немає.')).toBeNull()
+  })
+
+  it('тексты ru и экран 375 px', async () => {
+    setViewportWidth(375)
+    const registrations = fakeRegistrationsApi({ [`deal:${DEAL_ID}`]: [detailed()] })
+    await renderCard({ registrations, language: 'ru' })
+
+    const list = await screen.findByRole('list', { name: 'Регистрации' })
+    const [item] = within(list).getAllByRole('listitem')
+    if (!item) throw new Error('нет регистрации')
+    expect(rowValue(item, 'Источник')).toBe('Лендінг курсу')
+    expect(rowValue(item, 'Вебинар')).toBe('Вебінар 12 листопада')
+    expect(within(item).getByText('Все данные')).toBeTruthy()
+    expect(within(item).getByText('Другие поля')).toBeTruthy()
+    expect(within(item).getByText('Просмотр вебинара')).toBeTruthy()
+    expect(rowValue(item, 'Начал смотреть')).toBeTruthy()
+    expect(rowValue(item, 'Вышел')).toBeTruthy()
+    expect(rowValue(item, 'Минут просмотрено')).toBe('65')
   })
 })
