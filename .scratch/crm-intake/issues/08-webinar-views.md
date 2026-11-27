@@ -32,11 +32,20 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/intake
 ## Done when
 
 - [ ] Миграция применяется на чистую базу и откатывается.
+  - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 (миграции применены на чистую базу, откат до пустой схемы и обратно, 0030 в списке) · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] Тест изоляции: просмотр с ключом проекта A не находит контакт и регистрацию проекта B с тем же телефоном.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/webinar-views.test.ts` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] Тест прав: неизвестный и отключённый ключ — 401; ключ API — 401.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/webinar-views.test.ts` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] Тест: просмотр по телефону дописался в последнюю регистрацию контакта на этот вебинар, а не в регистрацию на другой вебинар; второй просмотр заменил значения.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/webinar-views.test.ts` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] Тест: просмотр по email находит контакт, у которого нет телефона.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/webinar-views.test.ts` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] Тест: без регистрации — `matched: false`, строка журнала «без регистрации», контакт не создан.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/webinar-views.test.ts` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] Тест повтора: тот же `event_id` ничего не меняет; «провести заново» с момента до двух просмотров оставляет значения второго.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/webinar-views.test.ts` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] Тест проверки тела: без `event_id`, без телефона и email, без `webinar` — 400; лишние ключи — в `view_extra`.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/webinar-views.test.ts` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 57180945712c414e2d323c62656747ba424157c8
