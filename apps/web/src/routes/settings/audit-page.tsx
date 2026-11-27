@@ -275,6 +275,8 @@ function useSummary() {
           accepted: count(entry.details.accepted),
           repeats: count(entry.details.repeats),
           errors: count(entry.details.errors),
+          // Тикет crm-intake/08: просмотры вебинара без регистрации; в записях до 08 поля нет — 0.
+          unmatched: count(entry.details.unmatched ?? 0),
         })
     }
   }
