@@ -59,6 +59,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
 
 - [ ] Миграция применяется на чистую базу и откатывается.
   - evidence: test-run pass · `pnpm vitest run packages/db/src/project-isolation.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
 - [ ] Тест изоляции: регистрации и журнал проекта A не видны в контексте B без фильтра в коде; ключ источника проекта A создаёт данные только в проекте A и воронке источника.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест прав: неизвестный, отключённый и старый после смены ключ — одинаковый 401; ключ API на `/api/intake` — 401; ключ источника на `/api/v1` — 401; «провести заново» не администратором — 403, ключом API — 403; журнал без «интеграции: смотреть» — 403.
@@ -67,6 +68,7 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест повтора: тот же `event_id` — 200 с теми же id, ничего не создано; два одновременных одинаковых запроса — одна регистрация; тот же `event_id` у другого источника — новая регистрация.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
 - [ ] Тест поиска контакта: все пять случаев шага 2, включая пометку «возможный дубль» со ссылкой; пустые поля найденного заполнены, заполненные не тронуты; чужой телефон не добавлен.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест сделки: открытая сделка получает регистрацию; только архивная или закрытая — новая сделка; ответственный по `owner_email` ставится только в новую сделку; неизвестный email — сделка без ответственного и `OWNER_NOT_FOUND`.
@@ -83,8 +85,11 @@ packages/db/migrations/**, packages/db/src/schema.ts, packages/shared/src/events
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/journal.test.ts` exit 0 · windows - · fad8759
 - [ ] Тест слияния: при слиянии контактов и сделок регистрации переходят и при откате возвращаются.
   - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/registrations.test.ts` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
 - [ ] `pnpm verify` зелёный.
   - evidence: test-run pass · `pnpm verify` exit 0 · windows - · fad8759
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7b288db
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 7b288db
 
 ## Результат
 

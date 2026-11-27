@@ -9,7 +9,7 @@ Kind: pr · Epic: crm-intake · Ticket: 06 · PR: - · Language: ru
 
 ## 2. Пара «источник, event_id» — отдельно и навсегда
 
-Code: `packages/db/migrations/0028_registration_intake.ts:94-105` · key lines: 101, 103, 104
+Code: `packages/db/migrations/0028_registration_intake.ts:97-108` · key lines: 104, 106, 107
 ```ts
     create table intake_event (
       project_id uuid not null references project (id) on delete cascade,
@@ -24,7 +24,7 @@ Code: `packages/db/migrations/0028_registration_intake.ts:94-105` · key lines: 
         on delete set null (registration_id)
     )
 ```
-- Что делает: первичный ключ хранит каждый `event_id` источника; ссылка на регистрацию обнуляется, когда регистрацию удаляют вместе с контактом или сделкой из корзины, а сама пара остаётся.
+- Что делает: первичный ключ хранит каждый `event_id` источника; ссылка на регистрацию обнуляется, когда регистрацию удаляют вместе с контактом из корзины, а сама пара остаётся.
 - Почему здесь: тикет требует хранить `event_id` вечно (пункт 4), а регистрация несёт персональные данные и уходит при окончательном удалении; отдельная таблица без персональных данных — решение без владельца, записано в разделе «Результат» тикета.
 - Без него: после удаления из корзины повтор того же события создал бы человека заново.
 - Требование: [Результат](../issues/06-registration-intake-and-inbound-journal.md#результат)
@@ -32,7 +32,7 @@ Code: `packages/db/migrations/0028_registration_intake.ts:94-105` · key lines: 
 
 ## 3. Повтор: захват события вставкой, а не проверкой
 
-Code: `apps/api/src/intake/process.ts:319-331` · key lines: 328, 331
+Code: `apps/api/src/intake/process.ts:328-340` · key lines: 337, 340
 ```ts
   }
   const claimed = await trx
@@ -56,7 +56,7 @@ Code: `apps/api/src/intake/process.ts:319-331` · key lines: 328, 331
 
 ## 4. Блокировка ключей человека и перепроверка найденного контакта
 
-Code: `apps/api/src/intake/process.ts:190-212` · key lines: 192, 203, 204
+Code: `apps/api/src/intake/process.ts:199-221` · key lines: 201, 212, 213
 ```ts
   for (let attempt = 0; attempt < MATCH_ATTEMPTS; attempt++) {
     const match = await findContactMatch(author.db, { phones, emails })
@@ -90,7 +90,7 @@ Code: `apps/api/src/intake/process.ts:190-212` · key lines: 192, 203, 204
 
 ## 5. Существующая сделка не меняется, новая — только если открытой нет
 
-Code: `apps/api/src/intake/process.ts:274-306` · key lines: 275, 289, 299
+Code: `apps/api/src/intake/process.ts:283-315` · key lines: 284, 298, 308
 ```ts
   const open = await lockOpenDeal(trx, contact.id, source.pipelineId)
   if (open) return { ok: true, id: open.id, created: false }
@@ -197,19 +197,50 @@ Code: `apps/api/src/intake/replay.ts:110-125` · key lines: 115, 116, 117, 118
 - Требование: [Done when](../issues/06-registration-intake-and-inbound-journal.md#done-when)
 - Риски и пробелы test-ов: T старше 30 дней — 422 `REPLAY_TOO_OLD` (`apps/api/src/intake/replay.ts:69-72`); T передаётся с точностью до миллисекунды.
 
-## 8. Что сознательно не меняли
+## 8. Удаление одной сделки оставляет регистрацию у контакта
 
-`purge_from_trash` (0027) — регистрации уходят каскадом внешнего ключа. Порядок блокировок слияния сделок — тикет 12. Предпросмотр слияния регистрации не считает — тикет 09. Обязательные поля «всегда» при приёме не проверяются.
+Code: `packages/db/migrations/0028_registration_intake.ts:82-84` · key lines: 82, 84
+```ts
+      foreign key (project_id, contact_id) references contact (project_id, id) on delete cascade,
+      foreign key (project_id, deal_id) references deal (project_id, id)
+        on delete set null (deal_id)
+```
+- Что делает: окончательное удаление контакта удаляет его регистрации; окончательное удаление одной сделки (вручную или ночной очисткой корзины) обнуляет у регистрации только `deal_id`, `project_id` составного ключа остаётся. Повтор такого события отвечает 200 с id регистрации и контакта, `deal_id` null и предупреждением `RECORDS_DELETED` (`apps/api/src/intake/process.ts:97`).
+- Почему здесь: уточнение оркестратора после проверки PR #41, записано в разделе «Результат» тикета; решено без владельца.
+- Без него: при `on delete cascade` удаление одной сделки стирало регистрации контакта, который остаётся, — мутант с cascade красный на двух тестах.
+- Требование: [Результат](../issues/06-registration-intake-and-inbound-journal.md#результат)
+- Риски и пробелы test-ов: тесты `удалена навсегда только сделка …` и `ночная очистка корзины удаляет сделку …` на настоящем PostgreSQL; мутант без `deal_id === null` в условии предупреждения — красный.
 
-## 9. Как проверено
+## 9. Восстановление контакта: ключи до строки
 
-`pnpm vitest run apps/api/src/intake` — exit 0 (48 тестов на настоящем PostgreSQL); три мутанта гонок — exit 1. `pnpm vitest run packages/db/src/project-isolation.test.ts` — exit 0. `pnpm verify` и `gate fast` — exit 0.
+Code: `apps/api/src/contacts/contacts.ts:764-769` · key lines: 768, 769
+```ts
+async function restoreContact(ctx: ContactContext, id: string): Promise<Result<ContactView>> {
+  // Ключи — до строки контакта, как у updateContact и приёма регистраций: иначе одновременные
+  // восстановление и правка ждали бы друг друга (40P01). Ключи контакта в корзине не меняются;
+  // checkKeys ниже берёт те же блокировки повторно (в той же транзакции — сразу).
+  if (UUID.test(id)) await lockStoredKeys(ctx, id)
+  const found = await writableContact(ctx, id)
+```
+- Что делает: восстановление сначала блокирует записанные телефоны и email контакта (`lockStoredKeys`), потом строку контакта.
+- Почему здесь: `updateContact` в этом PR стал брать ключи до строки; восстановление брало строку, потом ключи — встречный порядок.
+- Без него: одновременные восстановление и правка того же контакта — взаимоблокировка 40P01.
+- Требование: [Результат](../issues/06-registration-intake-and-inbound-journal.md#результат)
+- Риски и пробелы test-ов: тест `восстановление контакта из корзины берёт блокировки его ключей до строки …` держит ключ и проверяет, что строка свободна (`for update nowait`); мутант без `lockStoredKeys` — красный.
+
+## 10. Что сознательно не меняли
+
+`purge_from_trash` (0027) — регистрации уходят каскадом внешнего ключа контакта, у сделки обнуляется `deal_id`. Порядок блокировок слияния сделок — тикет 12: само слияние сделок и его откат блокируют сделку, потом контакт, а приём — контакт, потом сделку; возможна взаимоблокировка. Предпросмотр слияния регистрации не считает — тикет 09. Обязательные поля «всегда» при приёме не проверяются.
+
+## 11. Как проверено
+
+`pnpm vitest run apps/api/src/intake` — exit 0 (48 тестов на настоящем PostgreSQL); три мутанта гонок — exit 1. Доработка: `pnpm vitest run apps/api/src/intake/registrations.test.ts` — exit 0 (27 тестов), три мутанта (cascade у `deal_id`, предупреждение без `deal_id`, восстановление без `lockStoredKeys`) — exit 1. `pnpm vitest run packages/db/src/project-isolation.test.ts` — exit 0. `pnpm verify` и `gate fast` — exit 0.
 
 ## Проверить себя
 
 1. Почему повтор захватывает событие вставкой с `onConflict`, а не проверкой «есть ли уже»?
    - Ответ: вторая транзакция ждёт первую на первичном ключе и видит её итог; проверка без блокировки пропускает обе и даёт 500 на уникальности.
-   - Строки: `apps/api/src/intake/process.ts:319-331`
+   - Строки: `apps/api/src/intake/process.ts:328-340`
 2. Почему строка журнала с ошибкой пишется отдельной транзакцией?
    - Ответ: транзакция обработки откатывается целиком, чтобы не оставить данных; строка в ней откатилась бы тоже.
    - Строки: `apps/api/src/intake/journal.ts:143-169`
