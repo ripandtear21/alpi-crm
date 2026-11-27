@@ -52,6 +52,11 @@ import {
   type FieldsSettingsApi,
 } from './routes/settings/fields/fields-api.ts'
 import { FieldsPage } from './routes/settings/fields/fields-page.tsx'
+import {
+  createIntakeSourcesApi,
+  type IntakeSourcesApi,
+} from './routes/settings/intake-sources/intake-sources-api.ts'
+import { IntakeSourcesPage } from './routes/settings/intake-sources/intake-sources-page.tsx'
 import { LostReasonsPage } from './routes/settings/lost-reasons-page.tsx'
 import { createMembersApi, type MembersApi } from './routes/settings/members-api.ts'
 import { MembersPage } from './routes/settings/members-page.tsx'
@@ -88,6 +93,8 @@ export interface RouterContext {
   apiKeys: ApiKeysApi
   /** Вебхуки проекта в настройках (тикет crm-api/07). */
   webhooks: WebhooksApi
+  /** Источники регистраций и журнал входящих в настройках (тикет crm-intake/07). */
+  intakeSources: IntakeSourcesApi
   /**
    * Предупреждение в шапке об отключённых адресах событий (тикет crm-api/06). Нет — нет и
    * предупреждения: тестам маршрутов оно не нужно, браузеру его передаёт main.tsx.
@@ -444,6 +451,16 @@ const webhooksRoute = createRoute({
   },
 })
 
+// Налаштування → Джерела (тикет crm-intake/07).
+const intakeSourcesRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: 'settings/intake-sources',
+  component: function IntakeSourcesRoute() {
+    const { intakeSources } = intakeSourcesRoute.useRouteContext()
+    return <IntakeSourcesPage api={intakeSources} />
+  },
+})
+
 // Налаштування → Поля (тикет crm-fields/05).
 const fieldsSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
@@ -538,6 +555,7 @@ const routeTree = rootRoute.addChildren([
       fieldsSettingsRoute,
       apiKeysRoute,
       webhooksRoute,
+      intakeSourcesRoute,
       trashRoute,
       dealCardRoute,
       contactCardRoute,
@@ -581,6 +599,8 @@ export interface AppRouterOptions {
   apiKeys?: ApiKeysApi
   /** Только в тестах: подставной клиент вебхуков. В браузере — запросы к API. */
   webhooks?: WebhooksApi
+  /** Только в тестах: подставной клиент экрана «Джерела». В браузере — запросы к API. */
+  intakeSources?: IntakeSourcesApi
   /** Предупреждение об отключённых адресах событий; в тестах маршрутов — нет. */
   webhookAlerts?: WebhookAlertsApi
   /** Только в тестах: подставной клиент экрана «Дублі». В браузере — запросы к API. */
@@ -609,6 +629,7 @@ export function createAppRouter({
   fields = createFieldsSettingsApi(),
   apiKeys = createApiKeysApi(),
   webhooks = createWebhooksApi(),
+  intakeSources = createIntakeSourcesApi(),
   webhookAlerts,
   duplicates = createDuplicatesApi(),
   duplicatesCounter,
@@ -631,6 +652,7 @@ export function createAppRouter({
     fields,
     apiKeys,
     webhooks,
+    intakeSources,
     webhookAlerts,
     duplicates,
     duplicatesCounter,

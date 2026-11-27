@@ -1,7 +1,9 @@
 # Экран «Налаштування → Джерела» и журнал входящих источника
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T16:31Z
+PR: #47
+Branch: crm-intake/07
 Blocked by: 03, 06
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 1, 18, 35, 38); docs/adr/0006-zashchita-ot-poteri-dannykh.md; GLOSSARY.md («Источник регистраций», «Ключ источника», «Журнал входящих»); .scratch/crm-api/issues/07-events-settings-screen.md (образец экрана); .scratch/crm-intake/spec.md
 
@@ -28,9 +30,19 @@ apps/web/src/routes/settings/** (источники, журнал), apps/web/src
 ## Done when
 
 - [ ] Тест компонента или e2e: без права «інтеграції» пункта меню нет, прямая ссылка — «немає доступу».
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] Тест: создание источника показывает ключ один раз; после закрытия окна ключ больше нигде не виден; смена ключа показывает новый ключ.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 (key also gone from mutation cache) · windows - · 2d4ade24d0353b456964ea917c00a0a3c18b018d
 - [ ] Тест: отключение и включение источника с подтверждением меняют его состояние в списке.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] Тест журнала: принятый запрос, повтор и ошибка видны с итогом; фильтр по итогу работает; раскрытая строка показывает сырое тело.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] Тест: кнопка «Провести заново» видна только администратору проекта; дата старше 30 дней не принимается; после запуска виден итог.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources apps/api/src/intake/replay-status.test.ts` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/intake/replay-status.test.ts apps/web/src/routes/settings/intake-sources` exit 0 (failed replay, status error) · windows - · 2d4ade24d0353b456964ea917c00a0a3c18b018d
 - [ ] Все тексты есть в uk и ru (проверка ключей переводов); экран работает на 375 px (снимок в отчёте).
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/settings/intake-sources apps/web/src/i18n` exit 0; 375 px Playwright snapshots uk/ru, scrollWidth <= 375 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
 - [ ] `pnpm verify` зелёный.
+  - evidence: gate pass · `gate fast` exit 0; `pnpm verify` exit 0 · windows - · 3935c242bc25f790b1593b597de2606bf0221014
+  - evidence: gate pass · `gate fast` exit 0; `pnpm verify` exit 0 · windows - · 2d4ade24d0353b456964ea917c00a0a3c18b018d

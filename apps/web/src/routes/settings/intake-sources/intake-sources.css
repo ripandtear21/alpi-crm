@@ -1,0 +1,160 @@
+/* Экран «Джерела»: карточки источников, журнал входящих внутри карточки, «провести заново».
+   На телефоне (375 px) ключ, event_id, пример запроса и сырое тело переносятся или
+   прокручиваются внутри своего блока, страница вбок не прокручивается. */
+.intake-sources__name {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.intake-sources__name > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.intake-sources__card--disabled > .intake-sources__name > span {
+  color: var(--ink-2);
+}
+
+.intake-sources__facts {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--s-1) var(--s-3);
+  margin: 0;
+}
+
+.intake-sources__facts dt {
+  color: var(--ink-2);
+}
+
+.intake-sources__facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* На телефоне подпись над значением. */
+@media (max-width: 40rem) {
+  .intake-sources__facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .intake-sources__facts dd + dt {
+    margin-top: var(--s-2);
+  }
+}
+
+.intake-sources code {
+  overflow-wrap: anywhere;
+}
+
+.intake-sources__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+/* Ключ целиком виден и выделяется одним нажатием; моноширинный, чтобы не путать l и I. */
+.intake-sources__key {
+  width: 100%;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.intake-sources__subtitle {
+  margin: 0 0 var(--s-1);
+  font-size: 1em;
+}
+
+/* Пример запроса и сырое тело: длинные строки прокручиваются внутри блока. */
+.intake-sources__code {
+  max-width: 100%;
+  max-height: 20rem;
+  margin: 0;
+  padding: var(--s-2);
+  overflow: auto;
+  background: var(--raised);
+  border-radius: var(--r-inner);
+  font-size: 0.85em;
+  white-space: pre;
+}
+
+.intake-sources__replay > h2 {
+  margin: 0;
+}
+
+.intake-sources__log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line);
+}
+
+.intake-sources__log > h3,
+.intake-sources__log > p {
+  margin: 0;
+}
+
+.intake-sources__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.intake-sources__filters > * {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.intake-sources__filters > button {
+  flex: 0 1 auto;
+}
+
+.intake-sources__requests {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.intake-sources__request {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.intake-sources__request:target {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.intake-sources__request-head,
+.intake-sources__request-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  align-items: center;
+  min-width: 0;
+}
+
+.intake-sources__request-time {
+  font-weight: 600;
+}
+
+.intake-sources__request-meta {
+  color: var(--ink-2);
+  font-size: 0.9em;
+}

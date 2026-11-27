@@ -26,6 +26,7 @@ import {
 import { FIELD_PURGE_BATCH_SIZE, type FieldPurgeMessage, purgeField } from '../fields/purge.ts'
 import { FIELD_RETYPE_BATCH_SIZE, type FieldRetypeMessage, retypeField } from '../fields/retype.ts'
 import { type InboundReplayMessage, replayInbound } from '../intake/replay.ts'
+import { failInboundReplay } from '../intake/replay-status.ts'
 import { purgeTrash, type TrashRegistry } from '../trash/purge.ts'
 import {
   buildFieldIndex,
@@ -67,7 +68,9 @@ import { purgeWebhookLog } from './webhook-purge.ts'
 // - inbound-purge — ежедневно: строки журнала входящих старше 30 дней (inbound-purge.ts, тикет
 //   crm-intake/06);
 // - inbound-replay — «провести заново входящие с момента T» по запросу администратора
-//   (intake/replay.ts): каждая строка журнала проводится той же функцией, что запрос источника.
+//   (intake/replay.ts): каждая строка журнала проводится той же функцией, что запрос источника;
+//   inbound-replay-dead пишет итог «не завершилось» задаче, исчерпавшей повторы (тикет
+//   crm-intake/07, intake/replay-status.ts).
 // - duplicate-scan — пары дублей одной записи (duplicates/finder.ts, тикет crm-intake/05):
 //   задачу ставит изменение записи той же транзакцией (duplicates/queue.ts);
 // - duplicate-nightly — ежедневно: все пары дублей каждого проекта заново (duplicates/finder.ts).
@@ -96,6 +99,12 @@ export const QUEUES = {
   fieldIndex: 'field-index',
   inboundPurge: 'inbound-purge',
   inboundReplay: 'inbound-replay',
+  /**
+   * Очередь мёртвых задач inbound-replay (тикет crm-intake/07): копия задачи, провалившей все
+   * попытки (сбой или истёк срок). Обработчик пишет итог с признаком сбоя, чтобы запуск не
+   * выглядел идущим вечно.
+   */
+  inboundReplayDead: 'inbound-replay-dead',
   duplicateNightly: 'duplicate-nightly',
 } as const
 
@@ -113,6 +122,9 @@ const DUPLICATE_NIGHTLY_CRON = '30 4 * * *'
  * остальные.
  */
 const WEBHOOK_DELIVER_CONCURRENCY = 5
+
+/** Повторов «провести заново» после сбоя: повтор проводит строки снова, безопасно по event_id. */
+const INBOUND_REPLAY_RETRY_LIMIT = 3
 
 /** Повторов массовой операции после сбоя: каждая продолжает с первой необработанной записи. */
 const BULK_RETRY_LIMIT = 5
@@ -135,6 +147,8 @@ export interface JobsOptions {
   fieldIndexBatchSize?: number
   /** Повторов массовой операции; по умолчанию BULK_RETRY_LIMIT. Тесты ставят 0. */
   bulkRetryLimit?: number
+  /** Повторов «провести заново»; по умолчанию INBOUND_REPLAY_RETRY_LIMIT. Тесты ставят 0. */
+  inboundReplayRetryLimit?: number
   /** Как часто опрашивать очередь, с; по умолчанию — как у pg-boss. Тесты ставят 0.5. */
   pollingIntervalSeconds?: number
   /** Ставить расписание и выполнять задачи по нему; по умолчанию да. */
@@ -207,12 +221,17 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   await boss.createQueue(QUEUES.webhookPurge, { retryLimit: 3, retryDelay: 15 * 60 })
   await boss.createQueue(QUEUES.inboundPurge, { retryLimit: 3, retryDelay: 15 * 60 })
   // Повтор после сбоя проводит строки снова: безопасно по event_id. Час на задачу — как у
-  // массовой операции.
-  await boss.createQueue(QUEUES.inboundReplay, {
-    retryLimit: 3,
+  // массовой операции. Очередь уже есть у баз до тикета crm-intake/07 — createQueue её не
+  // меняет, поэтому updateQueue приводит настройки (и очередь мёртвых задач) к нужным.
+  await boss.createQueue(QUEUES.inboundReplayDead, { retryLimit: 5, retryDelay: 60 })
+  const inboundReplayQueue = {
+    retryLimit: options.inboundReplayRetryLimit ?? INBOUND_REPLAY_RETRY_LIMIT,
     retryDelay: 60,
     expireInSeconds: 60 * 60,
-  })
+    deadLetter: QUEUES.inboundReplayDead,
+  }
+  await boss.createQueue(QUEUES.inboundReplay, inboundReplayQueue)
+  await boss.updateQueue(QUEUES.inboundReplay, inboundReplayQueue)
   // Ночной проход по 100 тыс. контактов — секунды (duplicates/nightly.test.ts); час — с запасом.
   await boss.createQueue(QUEUES.duplicateNightly, {
     retryLimit: 3,
@@ -306,6 +325,11 @@ export async function startJobs(options: JobsOptions): Promise<Jobs> {
   await boss.work<InboundReplayMessage>(QUEUES.inboundReplay, polling, async (batch) => {
     for (const job of batch) {
       await replayInbound(options.db, job.data)
+    }
+  })
+  await boss.work<InboundReplayMessage>(QUEUES.inboundReplayDead, polling, async (batch) => {
+    for (const job of batch) {
+      await failInboundReplay(options.db, job.data)
     }
   })
   await boss.work<DuplicateScanMessage>(DUPLICATE_SCAN_QUEUE, polling, async (batch) => {

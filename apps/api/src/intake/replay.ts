@@ -4,6 +4,7 @@ import {
   type InboundErrorCode,
   type InboundOutcome,
   type InboundReplayQueued,
+  type InboundReplayStatus,
 } from '@alpi/shared'
 import { Hono } from 'hono'
 import { type Kysely, sql, type Transaction } from 'kysely'
@@ -11,6 +12,7 @@ import { audit, recordInRequest } from '../audit/record.ts'
 import { fail, readBody, refuse } from '../contacts/http.ts'
 import { type PermissionsEnv, requestAccess } from '../middleware/permissions.ts'
 import { handleRegistration, REGISTRATION_CHANNEL } from './journal.ts'
+import { latestReplay } from './replay-status.ts'
 import { handleWebinarView, WEBINAR_VIEW_CHANNEL } from './webinar.ts'
 
 // «Провести заново входящие с момента T» (тикет crm-intake/06; пункт 38, ADR 0006): после
@@ -29,6 +31,8 @@ import { handleWebinarView, WEBINAR_VIEW_CHANNEL } from './webinar.ts'
 //   `replay_of`. Источник берётся по id: отключённый после приёма запроса не мешает (решено
 //   без владельца — подтвердить). Итог (принято, повторов, ошибок) — в журнал проекта
 //   (`inbound.replay_finished`), автор — запустивший.
+// - `GET /v1/inbound/replay` (тикет crm-intake/07) — последний запуск, ход и итог
+//   (intake/replay-status.ts); тоже только администратору проекта и только по сессии.
 
 /** Задача «провести заново». */
 export interface InboundReplayMessage {
@@ -58,33 +62,40 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 /** Маршруты журнала входящих проекта: `/v1/inbound`. */
 export function inboundRoutes(deps: InboundDeps) {
-  return new Hono<PermissionsEnv>().post('/replay', async (c) => {
-    const access = await requestAccess(c)
-    if (!access?.isAdmin) return fail(c, refuse(403, 'PERMISSION_DENIED' as InboundErrorCode))
-    const body = await readBody(c)
-    const raw = body?.since
-    const time = typeof raw === 'string' ? Date.parse(raw) : Number.NaN
-    if (!body || Object.keys(body).length !== 1 || Number.isNaN(time)) {
-      return fail(c, refuse(400, 'INVALID_REPLAY' as InboundErrorCode, { path: 'since' }))
-    }
-    const db = c.get('db')
-    // Время базы: по нему пишется время прихода строк журнала.
-    const { rows } = await sql<{ now: Date }>`select clock_timestamp() as now`.execute(db)
-    const now = rows[0]?.now ?? new Date()
-    if (time < now.getTime() - INBOUND_RETENTION_DAYS * DAY_MS) {
-      return fail(c, refuse(422, 'REPLAY_TOO_OLD' as InboundErrorCode))
-    }
-    const since = new Date(time).toISOString()
-    const until = new Date(now).toISOString()
-    await deps.enqueueReplay(db, {
-      projectId: c.get('projectId'),
-      initiatorId: c.get('session').user.id,
-      since,
-      until,
+  return new Hono<PermissionsEnv>()
+    .get('/replay', async (c) => {
+      // Ход и итог последнего запуска (тикет crm-intake/07): тоже только администратору.
+      const access = await requestAccess(c)
+      if (!access?.isAdmin) return fail(c, refuse(403, 'PERMISSION_DENIED' as InboundErrorCode))
+      return c.json<InboundReplayStatus>(await latestReplay(c.get('db'), c.get('projectId')))
     })
-    await recordInRequest(c, { action: 'inbound.replay_started', details: { since, until } })
-    return c.json<InboundReplayQueued>({ since, until }, 202)
-  })
+    .post('/replay', async (c) => {
+      const access = await requestAccess(c)
+      if (!access?.isAdmin) return fail(c, refuse(403, 'PERMISSION_DENIED' as InboundErrorCode))
+      const body = await readBody(c)
+      const raw = body?.since
+      const time = typeof raw === 'string' ? Date.parse(raw) : Number.NaN
+      if (!body || Object.keys(body).length !== 1 || Number.isNaN(time)) {
+        return fail(c, refuse(400, 'INVALID_REPLAY' as InboundErrorCode, { path: 'since' }))
+      }
+      const db = c.get('db')
+      // Время базы: по нему пишется время прихода строк журнала.
+      const { rows } = await sql<{ now: Date }>`select clock_timestamp() as now`.execute(db)
+      const now = rows[0]?.now ?? new Date()
+      if (time < now.getTime() - INBOUND_RETENTION_DAYS * DAY_MS) {
+        return fail(c, refuse(422, 'REPLAY_TOO_OLD' as InboundErrorCode))
+      }
+      const since = new Date(time).toISOString()
+      const until = new Date(now).toISOString()
+      await deps.enqueueReplay(db, {
+        projectId: c.get('projectId'),
+        initiatorId: c.get('session').user.id,
+        since,
+        until,
+      })
+      await recordInRequest(c, { action: 'inbound.replay_started', details: { since, until } })
+      return c.json<InboundReplayQueued>({ since, until }, 202)
+    })
 }
 
 /** Строк журнала в порции задачи. */
