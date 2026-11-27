@@ -4,6 +4,7 @@ import {
   type Page,
   type RegistrationAccepted,
   type RolePermissions,
+  type WebinarViewAccepted,
 } from '@alpi/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ApiHarness, type SignedInUser, startApiHarness } from '../testing/api-harness.ts'
@@ -531,6 +532,64 @@ describe('регистрации в API', () => {
   })
 
   describe('ответ и описание API', () => {
+    it('просмотр вебинара (тикет 08) приходит в регистрации; вне охвата контактов его extra скрыт', async () => {
+      const email = `view-${++counter}@example.test`
+      const webinar = 'Вебінар 26 листопада'
+      const accepted = await json<RegistrationAccepted>(
+        await keyRequest(h.app, sourceA.key, 'POST', '/intake/registrations', {
+          body: { event_id: `evt-reg-${counter}`, email, webinar },
+        }),
+        201,
+      )
+      const id = accepted.registration_id ?? ''
+      // До просмотра — null.
+      expect(
+        (await json<RegistrationView>(await full.api('GET', `/v1/registrations/${id}`))).view,
+      ).toBeNull()
+
+      const watched = await json<WebinarViewAccepted>(
+        await keyRequest(h.app, sourceA.key, 'POST', '/intake/webinar-views', {
+          body: {
+            event_id: `evt-view-${counter}`,
+            email,
+            webinar,
+            started_at: '2026-11-26T18:00:00.000Z',
+            finished_at: '2026-11-26T19:05:00.000Z',
+            minutes: 65,
+            vidsotok: 90,
+          },
+        }),
+      )
+      expect(watched).toMatchObject({ matched: true, registration_id: id })
+
+      const raw = await json<Record<string, unknown>>(
+        await full.api('GET', `/v1/registrations/${id}`),
+      )
+      const view = RegistrationSchema.parse(raw)
+      expect(view.view).toEqual({
+        startedAt: '2026-11-26T18:00:00.000Z',
+        finishedAt: '2026-11-26T19:05:00.000Z',
+        minutes: 65,
+        extra: { vidsotok: 90 },
+        updatedAt: expect.any(String),
+      })
+      const listed = await json<Page<RegistrationView>>(
+        await full.api('GET', `/v1/deals/${accepted.deal_id}/registrations`),
+      )
+      expect(listed.data[0]?.view).toEqual(view.view)
+
+      // Контакт вне охвата «свои»: время и минуты видны, лишние ключи платформы — нет.
+      await h.owner
+        .updateTable('deal')
+        .set({ owner_id: admin.id })
+        .where('id', '=', accepted.deal_id ?? '')
+        .execute()
+      const hidden = await json<RegistrationView>(
+        await ownContacts.api('GET', `/v1/registrations/${id}`),
+      )
+      expect(hidden.view).toEqual({ ...view.view, extra: null })
+    })
+
     it('все поля пункта 12, extra и просмотр приходят и совпадают со схемой описания', async () => {
       const deal = await createDeal()
       const fields = {

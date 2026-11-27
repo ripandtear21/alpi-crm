@@ -31,7 +31,8 @@ export const RegistrationViewSchema = z
     finishedAt: IsoTimeSchema.nullable().openapi({ description: 'Вышел' }),
     minutes: z.number().int().nullable().openapi({ description: 'Минут просмотрено' }),
     extra: z.record(z.string(), z.unknown()).nullable().openapi({
-      description: 'Остальные ключи просмотра, как прислала платформа',
+      description:
+        'Остальные ключи просмотра, как прислала платформа; null и у контакта вне охвата чтения контактов',
     }),
     updatedAt: IsoTimeSchema.openapi({ description: 'Когда просмотр обновлён последний раз' }),
   })

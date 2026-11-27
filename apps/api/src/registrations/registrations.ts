@@ -40,7 +40,8 @@ import {
 //   нет права «контакты: смотреть»: так же карточки сделок не показывают имя контакта вне
 //   охвата (deals/board.ts; решено без владельца — подтвердить). Кроме имени, телефона и email
 //   это адрес страницы и referrer (в строке запроса бывают email и телефон) и `extra` — пустой
-//   объект: туда попадают неизвестные ключи и поля не той формы (телефон массивом).
+//   объект: туда попадают неизвестные ключи и поля не той формы (телефон массивом); так же
+//   скрыты лишние ключи просмотра вебинара (`view.extra` — null).
 // - Чужой проект: запросы идут в транзакции проекта, RLS отдаёт только его строки.
 
 export type RegistrationView = z.infer<typeof RegistrationSchema>
@@ -139,11 +140,18 @@ function toView(row: Row, contactVisible: boolean): RegistrationView {
     fbc: row.fbc,
     userAgent: row.user_agent,
     extra: contactVisible ? row.extra : {},
-    // shortcut: просмотр вебинара всегда null — столбцы view_* добавляет миграция 0030 тикета
-    // crm-intake/08, её ещё нет в main; подключить (view_started_at, view_finished_at,
-    // view_minutes, view_extra, view_updated_at; null view_updated_at — просмотра не было),
-    // когда тикет 08 сольётся.
-    view: null,
+    // Просмотр вебинара (тикет crm-intake/08, миграция 0030): null view_updated_at — просмотра не
+    // было. Лишние ключи платформы (view_extra) скрыты вне охвата контактов, как `extra`.
+    view:
+      row.view_updated_at === null
+        ? null
+        : {
+            startedAt: iso(row.view_started_at),
+            finishedAt: iso(row.view_finished_at),
+            minutes: row.view_minutes,
+            extra: contactVisible ? row.view_extra : null,
+            updatedAt: new Date(row.view_updated_at).toISOString(),
+          },
   }
 }
 
