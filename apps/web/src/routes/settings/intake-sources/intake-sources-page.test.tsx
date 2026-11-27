@@ -17,6 +17,9 @@ import { type FakeIntakeSourcesApi, fakeIntakeSourcesApi } from './fake-intake-s
 // включение, журнал входящих с фильтром и сырым телом, «провести заново» только администратору,
 // тексты uk и ru.
 
+/** Кэш TanStack Query последнего renderAt: проверка, что ключа нет и в кэше мутаций. */
+let lastQueryClient: QueryClient
+
 async function renderAt(
   path: '/settings' | '/settings/intake-sources',
   {
@@ -26,6 +29,7 @@ async function renderAt(
   }: { language?: Language; permissions?: RolePermissions; api?: FakeIntakeSourcesApi } = {},
 ) {
   const queryClient = new QueryClient()
+  lastQueryClient = queryClient
   const router = createAppRouter({
     history: createMemoryHistory({ initialEntries: [path] }),
     auth: fakeAuthApi(),
@@ -77,6 +81,14 @@ function localMinute(time: number): string {
 }
 
 const DAY = 24 * 60 * 60 * 1000
+
+/** Сколько мутаций в кэше TanStack Query ещё держат `text` в ответе. */
+function cachedMutationsWith(text: string): number {
+  return lastQueryClient
+    .getMutationCache()
+    .getAll()
+    .filter((mutation) => JSON.stringify(mutation.state.data ?? null).includes(text)).length
+}
 
 async function openJournal(name = 'Лендинг вебінару') {
   const card = await screen.findByRole('article', { name })
@@ -178,6 +190,7 @@ describe('экран источников: ключ', () => {
     const card = await screen.findByRole('article', { name: 'n8n: Tilda' })
     expect(card.textContent).toContain(`${key.slice(0, 12)}…`)
     expect(document.body.innerHTML).not.toContain(key)
+    await waitFor(() => expect(cachedMutationsWith(key)).toBe(0))
     expect(api.calls.filter((c) => c.method === 'create')).toHaveLength(1)
   })
 
@@ -219,6 +232,7 @@ describe('экран источников: ключ', () => {
     await waitFor(() => expect(card.textContent).toContain(`${key.slice(0, 12)}…`))
     expect(key.slice(0, 12)).not.toBe(before)
     expect(document.body.innerHTML).not.toContain(key)
+    await waitFor(() => expect(cachedMutationsWith(key)).toBe(0))
   })
 })
 
@@ -249,10 +263,11 @@ describe('экран источников: отключение и включе�
     expect(await screen.findByText('Джерело «Лендинг вебінару» увімкнено.')).toBeTruthy()
     const enabled = await screen.findByRole('article', { name: 'Лендинг вебінару' })
     await waitFor(() => expect(enabled.textContent).toContain('увімкнене'))
-    expect(api.calls.filter((c) => c.method !== 'requests').map((c) => c.method)).toEqual([
-      'disable',
-      'enable',
-    ])
+    expect(
+      api.calls
+        .filter((c) => !['requests', 'replayStatus'].includes(c.method))
+        .map((c) => c.method),
+    ).toEqual(['disable', 'enable'])
   })
 })
 
@@ -376,10 +391,12 @@ describe('экран источников: провести заново', () =>
     )
     fireEvent.click(within(confirm).getByRole('button', { name: 'Провести заново' }))
     expect(await within(section).findByText(/^Виконується: вхідні з /)).toBeTruthy()
-    expect(api.calls.at(-1)).toEqual({
-      method: 'replay',
-      input: new Date(since).toISOString(),
-    })
+    expect(api.calls.filter((c) => c.method === 'replay')).toEqual([
+      {
+        method: 'replay',
+        input: new Date(since).toISOString(),
+      },
+    ])
     // Ход перечитывается сам, пока не придёт итог.
     expect(
       await within(section).findByText(
@@ -388,6 +405,38 @@ describe('экран источников: провести заново', () =>
         { timeout: 5000 },
       ),
     ).toBeTruthy()
+  })
+})
+
+describe('экран источников: провести заново — сбои', () => {
+  const region = () => screen.findByRole('region', { name: 'Провести заново вхідні' })
+
+  it('задача не завершилась — «Не завершилося», ход больше не перечитывается', async () => {
+    const api = fakeIntakeSourcesApi({ replayFails: true })
+    await renderAt('/settings/intake-sources', { api })
+    const section = await region()
+    fireEvent.change(within(section).getByLabelText('З моменту'), {
+      target: { value: localMinute(Date.now() - DAY) },
+    })
+    fireEvent.click(
+      within(section).getByRole('button', { name: 'Провести заново вхідні з моменту…' }),
+    )
+    const confirm = await screen.findByRole('dialog', { name: /^Провести заново вхідні з / })
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Провести заново' }))
+    expect(await within(section).findByText(/^Не завершилося: вхідні з /)).toBeTruthy()
+    expect(within(section).queryByText(/^Виконується/)).toBeNull()
+    const polls = api.calls.filter((c) => c.method === 'replayStatus').length
+    await new Promise((resolve) => setTimeout(resolve, 3500))
+    expect(api.calls.filter((c) => c.method === 'replayStatus').length).toBe(polls)
+  }, 10_000)
+
+  it('сбой запроса хода (не 403) — раздел с сообщением, а не пропавшая кнопка', async () => {
+    await renderAt('/settings/intake-sources', {
+      api: fakeIntakeSourcesApi({ replayStatusError: 500 }),
+    })
+    const section = await region()
+    expect(await within(section).findByRole('alert')).toBeTruthy()
+    expect(section.textContent).toContain('Не вдалося дізнатися стан повторного проведення.')
   })
 })
 

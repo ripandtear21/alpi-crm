@@ -14,8 +14,13 @@ export interface InboundReplayRun {
   /** null — задача ещё идёт. */
   finishedAt: string | null
   /**
+   * Задача провалила все попытки (сбой или истёк срок) и не дошла до итога: входящие проведены
+   * не все или не проведены вовсе. Тогда `counts` — null.
+   */
+  failed: boolean
+  /**
    * Итог: сколько строк журнала проведено с каким итогом (`accepted`, `repeats`, `errors`, …);
-   * null — задача ещё идёт.
+   * null — задача ещё идёт или не завершилась.
    */
   counts: Record<string, number> | null
 }

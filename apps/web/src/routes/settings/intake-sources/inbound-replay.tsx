@@ -13,8 +13,10 @@ import { useDateFormat, useErrorText } from './intake-sources-format.ts'
 // «Провести заново вхідні з моменту…» (тикет crm-intake/07 на API тикета 06): только
 // администратору проекта. Кто администратор, экран узнаёт по запросу хода (`GET
 // /v1/inbound/replay`): остальным API отвечает 403, и раздела нет (решено без владельца —
-// подтвердить). Момент — дата и время по местному времени, не старше 30 дней; после
-// подтверждения задача уходит в очередь, экран перечитывает её ход, пока не придёт итог.
+// подтвердить); другой сбой этого запроса — сообщение в разделе. Момент — дата и время по
+// местному времени, не старше 30 дней; после подтверждения задача уходит в очередь, экран
+// перечитывает её ход, пока не придёт итог: числа или «не завершилось» (задача провалила все
+// попытки, apps/api/src/intake/replay-status.ts).
 
 /** Как часто перечитывать ход, пока задача идёт, мс. */
 const RUNNING_REFRESH_MS = 3000
@@ -64,8 +66,20 @@ export function InboundReplay({ api, projectId }: { api: IntakeSourcesApi; proje
   const [notice, setNotice] = useState<Notice>(null)
   const titleId = useId()
 
-  // Не администратор (403), ещё не ответили или не смогли ответить — раздела нет.
-  if (!status.data) return null
+  // Не администратор (403) или ещё не ответили — раздела нет. Другой сбой запроса хода —
+  // сообщение: кнопка не должна пропадать у администратора молча.
+  if (status.data === null) return null
+  if (status.data === undefined) {
+    if (!status.isError) return null
+    return (
+      <section className="directory__card intake-sources__replay" aria-labelledby={titleId}>
+        <h2 id={titleId}>{t('replay.title')}</h2>
+        <p className="ui-notice" role="alert">
+          {t('replay.statusFailed')}
+        </p>
+      </section>
+    )
+  }
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -138,10 +152,17 @@ export function InboundReplay({ api, projectId }: { api: IntakeSourcesApi; proje
 function ReplayRun({ run, date }: { run: InboundReplayRun; date: (value: string) => string }) {
   const { t } = useTranslation('intake-sources')
   const period = { since: date(run.since), until: date(run.until) }
-  if (run.counts === null) {
+  if (run.finishedAt === null) {
     return (
       <p className="ui-notice" role="status">
         {t('replay.running', period)}
+      </p>
+    )
+  }
+  if (run.failed || run.counts === null) {
+    return (
+      <p className="ui-notice" role="alert">
+        {t('replay.failed', period)}
       </p>
     )
   }

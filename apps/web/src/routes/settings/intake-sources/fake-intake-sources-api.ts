@@ -12,8 +12,9 @@ import type { IntakeSourcesApi } from './intake-sources-api.ts'
 // Подставной клиент экрана «Джерела» для тестов и снимков экрана: источники, журнал входящих и
 // «провести заново» в памяти; ключи, имена, телефоны и email выдуманные. `permissions` — права
 // пользователя; `isAdmin` — администратор ли он (иначе ход «провести заново» отвечает 403, как
-// API); `replayRunningPolls` — сколько запросов хода после запуска задача ещё «идёт»; `calls` —
-// что вызывали.
+// API); `replayRunningPolls` — сколько запросов хода после запуска задача ещё «идёт»;
+// `replayFails` — задача кончается сбоем («не завершилось»); `replayStatusError` — запрос хода
+// отвечает этим кодом (не 403); `calls` — что вызывали.
 
 export interface FakeIntakeSourcesApi extends IntakeSourcesApi {
   sources: IntakeSourceSummary[]
@@ -136,10 +137,14 @@ export function fakeIntakeSourcesApi({
   permissions = fullPermissions(),
   isAdmin = true,
   replayRunningPolls = 0,
+  replayFails = false,
+  replayStatusError = null,
 }: {
   permissions?: RolePermissions
   isAdmin?: boolean
   replayRunningPolls?: number
+  replayFails?: boolean
+  replayStatusError?: number | null
 } = {}): FakeIntakeSourcesApi {
   const sales = pipeline('Продажі')
   const archived = pipeline('Стара воронка', ago(DAY_MS))
@@ -217,9 +222,11 @@ export function fakeIntakeSourcesApi({
       return { data: rows, next_cursor: null }
     },
     replayStatus: async () => {
+      calls.push({ method: 'replayStatus' })
+      if (replayStatusError !== null) throw new RolesApiError(replayStatusError, '')
       if (!isAdmin) return null
       const latest = replay.latest
-      if (latest && latest.counts === null) {
+      if (latest && latest.finishedAt === null) {
         if (runningPolls > 0) {
           runningPolls -= 1
         } else {
@@ -227,7 +234,8 @@ export function fakeIntakeSourcesApi({
             latest: {
               ...latest,
               finishedAt: new Date().toISOString(),
-              counts: { accepted: 1, repeats: 3, errors: 1 },
+              failed: replayFails,
+              counts: replayFails ? null : { accepted: 1, repeats: 3, errors: 1 },
             },
           }
         }
@@ -249,6 +257,7 @@ export function fakeIntakeSourcesApi({
           startedAt: until,
           startedBy: AUTHOR,
           finishedAt: null,
+          failed: false,
           counts: null,
         },
       }

@@ -103,10 +103,13 @@ function IntakeSourcesEditor({
     edit: can(permissions, 'integrations', 'edit'),
   }
 
-  // Журналы источников лежат под тем же ключом: после изменения перечитываются и они.
+  // Журналы источников лежат под тем же ключом: после изменения перечитываются и они. Ответ с
+  // ключом не должен жить в состоянии мутации и её кэше: после показа ключа — reset(), и без
+  // наблюдателя мутация сразу уходит из кэша (gcTime 0).
   const change = useMutation({
     mutationFn: (action: () => Promise<unknown>) => action(),
     onSettled: () => queryClient.invalidateQueries({ queryKey: listKey }),
+    gcTime: 0,
   })
 
   if (list.isPending) {
@@ -139,6 +142,7 @@ function IntakeSourcesEditor({
           api.reissueKey(projectId, source.id),
         )) as IntakeSourceWithKey
         setIssued({ ...result, rotated: true })
+        change.reset()
         return
       }
       await change.mutateAsync(() =>
@@ -189,6 +193,7 @@ function IntakeSourcesEditor({
             )) as IntakeSourceWithKey
             setCreating(false)
             setIssued({ ...result, rotated: false })
+            change.reset()
           }}
         />
       )}
