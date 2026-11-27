@@ -27,8 +27,15 @@ apps/api/src/seed/**, apps/api/src/cli/** (команда `pnpm seed`), при �
 ## Done when
 
 - [ ] Тест: `pnpm seed` на чистой базе создаёт источники, регистрации, журнал, дубли и слияния всех видов из списка; второй запуск с тем же зерном даёт те же данные.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli apps/api/src/acceptance` exit 0 · windows - · 7ab4004cf57c6daae1860c0caaeb6bb850699544
 - [ ] Тест изоляции: данные каждого проекта — только в своём проекте; регистрация не ссылается на сделку другого проекта.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli apps/api/src/acceptance` exit 0 · windows - · 7ab4004cf57c6daae1860c0caaeb6bb850699544
 - [ ] Тест: экран «Дублі» на данных `pnpm seed` показывает группы каждого правила; одно свежее слияние откатывается, старое — нет.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli apps/api/src/acceptance` exit 0 · windows - · 7ab4004cf57c6daae1860c0caaeb6bb850699544
 - [ ] Ночной проход надсмотрщика на данных `pnpm seed` полного объёма — время в отчёте (порог тикета 05).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli/seed-nightly.test.ts --silent=false` exit 0, full seed volume (4513 contacts, 5423 deals, 7046 registrations): nightly pass 19160 ms, limit 300000 ms · windows - · 7ab4004cf57c6daae1860c0caaeb6bb850699544
 - [ ] Ключи источников не попадают в вывод команды и в журнал сервера.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/cli apps/api/src/acceptance` exit 0 · windows - · 7ab4004cf57c6daae1860c0caaeb6bb850699544
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · 7ab4004cf57c6daae1860c0caaeb6bb850699544
+  - evidence: gate pass · `gate fast` exit 0 · windows - · 7ab4004cf57c6daae1860c0caaeb6bb850699544
