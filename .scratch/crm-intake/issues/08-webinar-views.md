@@ -1,7 +1,8 @@
 # Просмотры вебинара
 
 Type: task
-Status: open
+Status: done 2026-11-27T17:16Z
+PR: #46
 Blocked by: 06
 Source: .scratch/crm-build/issues/07-intake-epic-scope.md (Ответы владельца, пункты 7, 17, 35, 38); docs/research/pipedrive-intake-flows.md, поток 1.2; GLOSSARY.md («Просмотр вебинара», «Регистрация», «Журнал входящих»); .scratch/crm-mvp/spec.md, раздел 6.1 («Данные просмотра вебинара» — частично заменён пунктом 17); .scratch/crm-intake/spec.md
 
