@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto'
 import { withProject } from '@alpi/db'
 import { type RawBuilder, sql } from 'kysely'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { ContactView } from '../contacts/contacts.ts'
 import type { DealView } from '../deals/store.ts'
 import {
@@ -33,6 +33,14 @@ describe('порядок блокировок слияния', () => {
     h = await startApiHarness('alpi_test_merge_locks')
     admin = await h.signIn('owner')
     project = (await h.createProject(admin, 'Злиття блокування')).id
+  })
+
+  // Упавшая проверка не должна оставить служебную транзакцию открытой: иначе ждущие её запросы
+  // API и остановка базы в afterAll висят до таймаута хука, а процессы PostgreSQL остаются.
+  const heldLocks: Array<{ release(): Promise<void> }> = []
+
+  afterEach(async () => {
+    await Promise.all(heldLocks.splice(0).map((held) => held.release()))
   })
 
   afterAll(async () => {
@@ -120,12 +128,14 @@ describe('порядок блокировок слияния', () => {
       await released
     })
     await isLocked
-    return {
+    const held = {
       async release() {
         release()
         await done
       },
     }
+    heldLocks.push(held)
+    return held
   }
 
   it('слияние контактов одновременно с правкой заметки, добавлением участника и откатом слияния сделок того же человека — без 500', async () => {
@@ -276,6 +286,12 @@ describe('порядок блокировок слияния', () => {
       locked()
       await resumed
       await sql`select id from contact where id = ${survivor.id} for share`.execute(trx)
+    })
+    heldLocks.push({
+      async release() {
+        resume()
+        await service.catch(() => {})
+      },
     })
     await dealLocked
     const merging = call('POST', `/v1/contacts/${survivor.id}/merge`, {
