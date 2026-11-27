@@ -27,7 +27,7 @@ Code: `apps/web/src/routes/settings/settings-page.tsx:93-99` · key lines: 93, 9
 
 ## 3. Ключ живёт только в состоянии окна
 
-Code: `apps/web/src/routes/settings/intake-sources/intake-sources-page.tsx:131-151` · key lines: 138, 141, 145
+Code: `apps/web/src/routes/settings/intake-sources/intake-sources-page.tsx:134-155` · key lines: 141, 144, 149
 ```tsx
   const confirmAction = async () => {
     if (!confirm) return
@@ -40,6 +40,7 @@ Code: `apps/web/src/routes/settings/intake-sources/intake-sources-page.tsx:131-1
           api.reissueKey(projectId, source.id),
         )) as IntakeSourceWithKey
         setIssued({ ...result, rotated: true })
+        change.reset()
         return
       }
       await change.mutateAsync(() =>
@@ -51,11 +52,11 @@ Code: `apps/web/src/routes/settings/intake-sources/intake-sources-page.tsx:131-1
     }
   }
 ```
-- Что делает: смена ключа уходит в API только после подтверждения («старий ключ перестане працювати одразу»). Новый ключ кладётся в состояние `issued`, его показывает окно ключа. Когда окно закрыли, `issued` сбрасывается, и ключа на странице больше нет: в списке остаются только первые 12 символов из ответа API. Отключение и включение идут тем же подтверждением, а список перечитывается.
+- Что делает: смена ключа уходит в API только после подтверждения («старий ключ перестане працювати одразу»). Новый ключ кладётся в состояние `issued`, его показывает окно ключа. Сразу после этого `change.reset()` убирает ответ из состояния мутации, а `gcTime: 0` удаляет мутацию из кэша TanStack Query. Когда окно закрыли, `issued` сбрасывается, и ключа на странице больше нет: в списке остаются только первые 12 символов из ответа API. Отключение и включение идут тем же подтверждением, а список перечитывается.
 - Почему здесь: тикет требует окно с ключом, кнопкой «скопіювати» и текстом «більше не буде показано», а смену ключа и отключение — с подтверждением. Где держать ключ, тикет не записывает; так же устроен экран вебхуков (тикет crm-api/07).
-- Без него: ключ остался бы в кэше списка или на странице после закрытия окна.
+- Без него: ключ остался бы на странице после закрытия окна или в кэше мутаций, где его видно, например, в React DevTools (замечание проверки PR #47).
 - Требование: [Что сделать](../issues/07-sources-settings-screen.md#что-сделать)
-- Риски и пробелы test-ов: тесты проверяют `document.body.innerHTML` без ключа после закрытия окна, при создании и при смене ключа. Результат мутации TanStack Query держит ответ в кэше мутаций до следующего изменения или до сборки мусора, как у экрана вебхуков; это не проверялось.
+- Риски и пробелы test-ов: тесты проверяют `document.body.innerHTML` без ключа после закрытия окна, при создании и при смене ключа. Тесты проверяют и кэш мутаций (`cachedMutationsWith`); мутант без `reset()` — exit 1.
 
 ## 4. Кто администратор: запрос хода отвечает 403 всем остальным
 
@@ -76,7 +77,7 @@ Code: `apps/api/src/intake/replay.ts:63-68` · key lines: 65, 66, 67
 
 ## 5. Ход и итог — из журнала проекта, по паре since и until
 
-Code: `apps/api/src/intake/replay-status.ts:28-42` · key lines: 30, 35, 36, 40
+Code: `apps/api/src/intake/replay-status.ts:33-47` · key lines: 35, 40, 41, 45
 ```ts
     from audit_log s
     left join "user" u on u.id = s.actor_id
@@ -98,33 +99,54 @@ Code: `apps/api/src/intake/replay-status.ts:28-42` · key lines: 30, 35, 36, 40
 - Почему здесь: тикет 06 пишет запуск и итог в журнал проекта (`intake/replay.ts`), и других следов задачи нет. Отдельная таблица состояния задач — решение больше, чем нужно этому экрану.
 - Без него: пришлось бы заводить таблицу или читать внутренние таблицы pg-boss.
 - Требование: [Что сделать](../issues/07-sources-settings-screen.md#что-сделать)
-- Риски и пробелы test-ов: если задача упала и pg-boss её не повторил, итога не будет, и экран всё время показывает «Виконується»; срок, после которого запуск считать упавшим, не задан.
+- Риски и пробелы test-ов: итог с `failed: true` пишет очередь мёртвых задач (следующий шаг); тогда `counts` — null, `failed` — true.
 
-## 6. Экран: 403 — раздела нет; дата проверяется до запроса
+## 6. Задача упала окончательно — итог «не завершилось», а не «идёт» вечно
 
-Code: `apps/web/src/routes/settings/intake-sources/inbound-replay.tsx:67-79` · key lines: 68, 75, 78
+Code: `apps/api/src/jobs/jobs.ts:226-234` · key lines: 226, 231, 234
+```ts
+  await boss.createQueue(QUEUES.inboundReplayDead, { retryLimit: 5, retryDelay: 60 })
+  const inboundReplayQueue = {
+    retryLimit: options.inboundReplayRetryLimit ?? INBOUND_REPLAY_RETRY_LIMIT,
+    retryDelay: 60,
+    expireInSeconds: 60 * 60,
+    deadLetter: QUEUES.inboundReplayDead,
+  }
+  await boss.createQueue(QUEUES.inboundReplay, inboundReplayQueue)
+  await boss.updateQueue(QUEUES.inboundReplay, inboundReplayQueue)
+```
+- Что делает: задача `inbound-replay`, провалившая все попытки (сбой или истёк срок), попадает в очередь `inbound-replay-dead`. Её обработчик `failInboundReplay` (`replay-status.ts`) пишет `inbound.replay_finished` с `failed: true`, если итога ещё нет. `updateQueue` нужен базам, где очередь уже создана тикетом 06: `createQueue` существующую очередь не меняет.
+- Почему здесь: проверка PR #47 (REJECTED) нашла, что упавший запуск выглядел идущим вечно. Образец — очередь мёртвых задач `bulk-job-dead` в том же файле.
+- Без него: экран раз в 3 с опрашивал бы сервер и показывал «Виконується» без конца, а администратор не узнал бы, что входящие не проведены.
+- Требование: [Что сделать](../issues/07-sources-settings-screen.md#что-сделать)
+- Риски и пробелы test-ов: тест `задача упала окончательно — итог «не завершилось», а не «идёт» вечно` идёт с настоящим pg-boss: у роли приложения на время теста отнято чтение журнала входящих. Мутант без `deadLetter` — exit 1. Если попытка с истёкшим сроком всё же допишет итог после записи о сбое, `latestReplay` покажет последний итог.
+
+## 7. Экран: только 403 прячет раздел; дата проверяется до запроса
+
+Code: `apps/web/src/routes/settings/intake-sources/inbound-replay.tsx:69-82` · key lines: 71, 73, 77
 ```tsx
-  // Не администратор (403), ещё не ответили или не смогли ответить — раздела нет.
-  if (!status.data) return null
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    setNotice(null)
-    const time = since === '' ? Number.NaN : new Date(since).getTime()
-    if (Number.isNaN(time)) return setFieldError(t('replay.required'))
-    if (time < earliest()) return setFieldError(t('replay.tooOld'))
-    if (time > Date.now()) return setFieldError(t('replay.inFuture'))
-    setFieldError(null)
-    setConfirming(new Date(time).toISOString())
+  // Не администратор (403) или ещё не ответили — раздела нет. Другой сбой запроса хода —
+  // сообщение: кнопка не должна пропадать у администратора молча.
+  if (status.data === null) return null
+  if (status.data === undefined) {
+    if (!status.isError) return null
+    return (
+      <section className="directory__card intake-sources__replay" aria-labelledby={titleId}>
+        <h2 id={titleId}>{t('replay.title')}</h2>
+        <p className="ui-notice" role="alert">
+          {t('replay.statusFailed')}
+        </p>
+      </section>
+    )
   }
 ```
-- Что делает: ответ 403 на запрос хода клиент превращает в null (`intake-sources-api.ts`, replayStatus), и раздела «Провести заново» нет. Пустой момент, момент старше 30 дней (с минутой запаса) и момент в будущем отклоняются у поля, без запроса к API. Иначе открывается подтверждение «Повтор безпечний: вже прийняті реєстрації не задвояться». Пока итога нет, ход перечитывается раз в 3 с.
+- Что делает: ответ 403 на запрос хода клиент превращает в null (`intake-sources-api.ts`, replayStatus), и раздела «Провести заново» нет. Другой сбой запроса (500, сеть) показывает в разделе сообщение, чтобы кнопка не пропала у администратора молча. Итог с `failed` показывается как «Не завершилося», и ход больше не перечитывается. Пустой момент, момент старше 30 дней (с минутой запаса) и момент в будущем отклоняются у поля, без запроса к API. Иначе открывается подтверждение «Повтор безпечний: вже прийняті реєстрації не задвояться». Пока итога нет, ход перечитывается раз в 3 с.
 - Почему здесь: тикет требует кнопку только для администратора, дату не старше 30 дней, подтверждение с пояснением, ход и итог.
 - Без него: дата старше 30 дней дошла бы до API и вернулась бы ответом 422.
 - Требование: [Что сделать](../issues/07-sources-settings-screen.md#что-сделать)
-- Риски и пробелы test-ов: тесты `не администратору проекта раздела и кнопки нет`, `дата старше 30 дней не принимается: запрос не уходит`, `подтверждение с пояснением, ход, затем итог`. Ход «идёт» в тесте даёт подставной API. Настоящая задача проверена временным сценарием Playwright: итог «прийнято: 0, повторів: 2, помилок: 1».
+- Риски и пробелы test-ов: тесты `не администратору проекта раздела и кнопки нет`, `дата старше 30 дней не принимается: запрос не уходит`, `подтверждение с пояснением, ход, затем итог`, `задача не завершилась — «Не завершилося», ход больше не перечитывается`, `сбой запроса хода (не 403) — раздел с сообщением`. Ход «идёт» в тесте даёт подставной API. Настоящая задача проверена временным сценарием Playwright: итог «прийнято: 0, повторів: 2, помилок: 1».
 
-## 7. Строка «проведено заново» ссылается на исходную
+## 8. Строка «проведено заново» ссылается на исходную
 
 Code: `apps/web/src/routes/settings/intake-sources/inbound-journal.tsx:135-140` · key lines: 135, 138
 ```tsx
@@ -141,13 +163,13 @@ Code: `apps/web/src/routes/settings/intake-sources/inbound-journal.tsx:135-140` 
 - Требование: [Что сделать](../issues/07-sources-settings-screen.md#что-сделать)
 - Риски и пробелы test-ов: исходная строка старше, и при подгрузке курсором её может ещё не быть на странице; тогда ссылка никуда не ведёт, пока не нажать «Показати ще». Тест проверяет только `href`.
 
-## 8. Что сознательно не меняли
+## 9. Что сознательно не меняли
 
 Регистрация в строке журнала показана началом id без ссылки: страницы регистрации нет, регистрации в карточках делает тикет 09. Подпись канала показывается только для каналов кроме регистраций. Подписи итога «без реєстрації» (`unmatched`) и канала «Перегляд вебінару» добавлены заранее под тикет 08. `app-nav.tsx` не менялся.
 
-## 9. Как проверено
+## 10. Как проверено
 
-`pnpm vitest run apps/web/src/routes/settings/intake-sources` — exit 0 (18 тестов). `pnpm vitest run apps/api/src/intake/replay-status.test.ts` — exit 0 (2 теста на настоящем PostgreSQL). `pnpm verify` — exit 0. `gate fast` — exit 0; в первом прогоне упал только известный нестабильный `webhook-endpoints/catch-up.test.ts`, повтор зелёный. Снимки на 375 px (uk и ru) сделал временный сценарий Playwright на стенде e2e/global-setup.ts: создание, окно ключа, подтверждение «провести заново», журнал после настоящего проведения заново; `scrollWidth` не больше 375. В PR этот сценарий не входит.
+`pnpm vitest run apps/web/src/routes/settings/intake-sources` — exit 0 (20 тестов). `pnpm vitest run apps/api/src/intake/replay-status.test.ts` — exit 0 (3 теста на настоящем PostgreSQL, один с настоящим pg-boss). Мутанты доработки (без `deadLetter`, без `reset()`, раздел прячется при любой ошибке, «идёт» по `counts === null`) — exit 1. `pnpm verify` — exit 0. `gate fast` — exit 0; в первом прогоне упал только известный нестабильный `webhook-endpoints/catch-up.test.ts`, повтор зелёный. Снимки на 375 px (uk и ru) сделал временный сценарий Playwright на стенде e2e/global-setup.ts: создание, окно ключа, подтверждение «провести заново», журнал после настоящего проведения заново; `scrollWidth` не больше 375. В PR этот сценарий не входит.
 
 ## Проверить себя
 
@@ -156,7 +178,7 @@ Code: `apps/web/src/routes/settings/intake-sources/inbound-journal.tsx:135-140` 
    - Строки: `apps/api/src/intake/replay.ts:63-68`
 2. Почему экран показывает «Виконується», пока итога нет, и как он понимает, что задача закончилась?
    - Ответ: запуск и итог пишутся в журнал проекта отдельными записями; итог ищется по тем же since и until, и пока записи итога нет, задача считается идущей.
-   - Строки: `apps/api/src/intake/replay-status.ts:28-42`
+   - Строки: `apps/api/src/intake/replay-status.ts:33-47`
 3. Почему после закрытия окна ключа его нет на странице?
-   - Ответ: ключ лежит только в состоянии `issued` окна; закрытие сбрасывает его, а список показывает только `keyPrefix` из ответа API.
-   - Строки: `apps/web/src/routes/settings/intake-sources/intake-sources-page.tsx:131-151`
+   - Ответ: ключ лежит только в состоянии `issued` окна; ответ мутации сбрасывается `reset()` сразу после показа, закрытие окна сбрасывает `issued`, а список показывает только `keyPrefix` из ответа API.
+   - Строки: `apps/web/src/routes/settings/intake-sources/intake-sources-page.tsx:134-155`
