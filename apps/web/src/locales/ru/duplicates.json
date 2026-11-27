@@ -21,7 +21,8 @@
   "record": {
     "noKeys": "без телефона и email",
     "archived": "Архив",
-    "noOwner": "без ответственного"
+    "noOwner": "без ответственного",
+    "contactHidden": "контакт вне вашего охвата"
   },
   "group": {
     "label": "Группа похожих записей: {{count}}",
@@ -49,7 +50,6 @@
     "phones": "телефоны: {{count}}",
     "emails": "email: {{count}}",
     "deals": "сделки: {{count}}",
-    "dealPairs": "конфликтующие сделки, которые объединятся: {{count}}",
     "participations": "участие в сделках: {{count}}",
     "products": "товары: {{count}}",
     "participants": "участники: {{count}}",

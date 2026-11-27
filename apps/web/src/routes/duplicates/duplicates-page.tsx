@@ -1,4 +1,9 @@
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseQueryResult,
+  useInfiniteQuery,
+  useQueries,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -10,6 +15,8 @@ import { Button } from '../../ui/button.tsx'
 import { Dialog } from '../../ui/dialog.tsx'
 import { EmptyState, Notice, Skeleton } from '../../ui/feedback.tsx'
 import { Tabs } from '../../ui/tabs.tsx'
+import { DealPairs, swapDealPair } from '../contacts/merge/merge-dialog.tsx'
+import type { DealPairPreview } from '../contacts/merge/merges-api.tsx'
 import {
   type DuplicateContact,
   type DuplicateDeal,
@@ -26,8 +33,10 @@ import './duplicates.css'
 // нашёл надсмотрщик. У группы — причины, записи и пары. «Об'єднати»: выбор остающейся записи,
 // предпросмотр каждого слияния (`…/merge/preview`) и подтверждение; группа из нескольких
 // записей — последовательные слияния в выбранную, каждое со своим откатом (решено без
-// владельца — подтвердить). Отказ сервера в предпросмотре или слиянии (в том числе про
-// конфликтующие сделки, тикет crm-intake/04) показывается как пришёл. «Не дубль» — на паре.
+// владельца — подтвердить). Конфликтующие сделки контактов (тикет crm-intake/04) — блоком окна
+// слияния карточки контакта: какая сделка остаётся, «Поміняти» (`keep_deal_ids`); пара без права
+// на сделки — объяснение, и «Об'єднати» недоступна. Отказ сервера в предпросмотре или слиянии
+// показывается как пришёл. «Не дубль» — на паре.
 // Вкладки — только разделы, на которые у пользователя есть «змінювати» (счётчик в шапке).
 
 type GroupRecord = DuplicateContact | DuplicateDeal
@@ -183,7 +192,7 @@ function RecordLine({ record, code }: { record: GroupRecord; code: string }) {
       <span className="duplicates__meta">
         {[
           `${record.pipelineName} · ${record.stageName}`,
-          record.contactName,
+          record.contactName ?? t('record.contactHidden'),
           `${record.amount} ${record.currency}`,
           record.ownerName ?? t('record.noOwner'),
         ].join(' · ')}
@@ -285,7 +294,6 @@ const PREVIEW_ITEMS = [
   'phones',
   'emails',
   'deals',
-  'dealPairs',
   'participations',
   'products',
   'participants',
@@ -299,40 +307,40 @@ function previewCount(preview: MergePreview, key: string): number {
   return typeof value === 'number' ? value : 0
 }
 
+/** Пары конфликтующих сделок в предпросмотре слияния контактов; у сделок их нет. */
+function dealPairsOf(preview: MergePreview | undefined): DealPairPreview[] {
+  return Array.isArray(preview?.dealPairs) ? (preview.dealPairs as DealPairPreview[]) : []
+}
+
 function PreviewOf({
-  api,
-  projectId,
-  type,
-  survivorId,
   merged,
+  preview,
+  onSwap,
 }: {
-  api: DuplicatesApi
-  projectId: string
-  type: DuplicateType
-  survivorId: string
   merged: GroupRecord
+  preview: UseQueryResult<MergePreview>
+  /** «Поміняти» на паре конфликтующих сделок. */
+  onSwap: (pair: DealPairPreview) => void
 }) {
   const { t } = useTranslation('duplicates')
   const errorText = useErrorText()
-  const preview = useQuery({
-    queryKey: [...duplicatesQueryKey(projectId), 'preview', type, survivorId, merged.id],
-    queryFn: () => api.preview(projectId, type, survivorId, merged.id),
-    retry: false,
-  })
   return (
     <li>
       <strong>{t('merge.from', { name: recordName(merged) })}</strong>
       {preview.isPending && <Skeleton lines={1} />}
       {preview.isError && <Notice kind="alert">{errorText(preview.error)}</Notice>}
       {preview.data && (
-        <ul className="duplicates__preview">
-          {PREVIEW_ITEMS.filter((key) => previewCount(preview.data, key) > 0).map((key) => (
-            <li key={key}>{t(`preview.${key}`, { count: previewCount(preview.data, key) })}</li>
-          ))}
-          {PREVIEW_ITEMS.every((key) => previewCount(preview.data, key) === 0) && (
-            <li>{t('preview.nothing')}</li>
-          )}
-        </ul>
+        <>
+          <DealPairs pairs={dealPairsOf(preview.data)} onSwap={onSwap} />
+          <ul className="duplicates__preview">
+            {PREVIEW_ITEMS.filter((key) => previewCount(preview.data, key) > 0).map((key) => (
+              <li key={key}>{t(`preview.${key}`, { count: previewCount(preview.data, key) })}</li>
+            ))}
+            {PREVIEW_ITEMS.every((key) => previewCount(preview.data, key) === 0) && (
+              <li>{t('preview.nothing')}</li>
+            )}
+          </ul>
+        </>
       )}
     </li>
   )
@@ -362,10 +370,31 @@ function MergeDialog({
   // По умолчанию остаётся самая старая запись: у неё обычно история и сделки.
   const oldest = [...group.records].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))[0]
   const [survivorId, setSurvivorId] = useState(oldest?.id ?? '')
+  /** Для каждой сливаемой записи — сделки пар, которые остаются вместо сделки оставшегося. */
+  const [keep, setKeep] = useState<Record<string, string[]>>({})
   const [done, setDone] = useState<DoneMerge[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const others = group.records.filter((record) => record.id !== survivorId)
+  const keepOf = (id: string) => keep[id] ?? []
+  const previews = useQueries({
+    queries: others.map((record) => ({
+      queryKey: [
+        ...duplicatesQueryKey(projectId),
+        'preview',
+        group.type,
+        survivorId,
+        record.id,
+        keepOf(record.id),
+      ],
+      queryFn: () => api.preview(projectId, group.type, survivorId, record.id, keepOf(record.id)),
+      retry: false,
+    })),
+  })
+  // Пара конфликтующих сделок без права на них: слияние ответило бы 403 MERGE_DEAL_FORBIDDEN.
+  const forbidden = previews.some((preview) =>
+    dealPairsOf(preview.data).some((pair) => pair.forbidden),
+  )
   const name = (id: string) => {
     const record = group.records.find((r) => r.id === id)
     return record ? recordName(record) : id
@@ -379,7 +408,13 @@ function MergeDialog({
       // По одному: каждое слияние — своё действие со своим откатом.
       for (const record of others) {
         if (done.some((merge) => merge.mergedId === record.id && !merge.undone)) continue
-        const { mergeId } = await api.merge(projectId, group.type, survivorId, record.id)
+        const { mergeId } = await api.merge(
+          projectId,
+          group.type,
+          survivorId,
+          record.id,
+          keepOf(record.id),
+        )
         setDone((list) => [...list, { mergedId: record.id, mergeId, undone: false }])
       }
     } catch (failure) {
@@ -419,7 +454,7 @@ function MergeDialog({
         ) : (
           <>
             <Button onClick={onClose}>{t('merge.cancel')}</Button>
-            <Button variant="primary" busy={busy} onClick={confirm}>
+            <Button variant="primary" busy={busy} disabled={forbidden} onClick={confirm}>
               {t('merge.confirm', { count: others.length })}
             </Button>
           </>
@@ -436,7 +471,10 @@ function MergeDialog({
                   type="radio"
                   name={`survivor-${group.id}`}
                   checked={record.id === survivorId}
-                  onChange={() => setSurvivorId(record.id)}
+                  onChange={() => {
+                    setSurvivorId(record.id)
+                    setKeep({})
+                  }}
                 />
                 <span>
                   {recordName(record)}{' '}
@@ -453,14 +491,17 @@ function MergeDialog({
           </fieldset>
           <p>{t('merge.hint', { name: name(survivorId) })}</p>
           <ul className="duplicates__previews">
-            {others.map((record) => (
+            {others.map((record, index) => (
               <PreviewOf
                 key={`${survivorId}:${record.id}`}
-                api={api}
-                projectId={projectId}
-                type={group.type}
-                survivorId={survivorId}
                 merged={record}
+                preview={previews[index] as UseQueryResult<MergePreview>}
+                onSwap={(pair) =>
+                  setKeep((value) => ({
+                    ...value,
+                    [record.id]: swapDealPair(value[record.id] ?? [], pair),
+                  }))
+                }
               />
             ))}
           </ul>

@@ -1,3 +1,4 @@
+import type { DealPairPreview } from '../contacts/merge/merges-api.tsx'
 import {
   type DuplicateCounts,
   type DuplicateGroup,
@@ -9,6 +10,8 @@ import {
 
 // Только для тестов: экран «Дублі» без сервера. Группы задаёт тест; «не дубль» убирает пару
 // (и группу, если пар не осталось), слияние убирает слитую запись из групп и записывает вызов.
+// Пары конфликтующих сделок задаёт тест (`dealPairs` по id сливаемого контакта): остаётся сделка
+// оставшегося контакта, если её пары нет в `keep_deal_ids`.
 
 export interface FakeDuplicatesApi extends DuplicatesApi {
   calls: string[]
@@ -22,6 +25,7 @@ export function createFakeDuplicatesApi(
     contact: initial.filter((g) => g.type === 'contact').length,
     deal: initial.filter((g) => g.type === 'deal').length,
   },
+  dealPairs: Record<string, DealPairPreview[]> = {},
 ): FakeDuplicatesApi {
   let groups = structuredClone(initial)
   const calls: string[] = []
@@ -32,6 +36,7 @@ export function createFakeDuplicatesApi(
     failure = null
     if (error) throw error
   }
+  const keepText = (keep: readonly string[]) => (keep.length > 0 ? ` keep ${keep.join(',')}` : '')
   const of = (type: DuplicateType) => groups.filter((group) => group.type === type)
   return {
     calls,
@@ -60,15 +65,22 @@ export function createFakeDuplicatesApi(
         }))
         .filter((group) => group.pairs.length > 0)
     },
-    async preview(_projectId, type, survivorId, mergedId): Promise<MergePreview> {
-      calls.push(`preview ${type} ${survivorId} ${mergedId}`)
+    async preview(_projectId, type, survivorId, mergedId, keep = []): Promise<MergePreview> {
+      calls.push(`preview ${type} ${survivorId} ${mergedId}${keepText(keep)}`)
       takeFailure()
+      const pairs = (dealPairs[mergedId] ?? []).map((pair) => ({
+        ...pair,
+        keepDealId:
+          pair.mergedDeal && keep.includes(pair.mergedDeal.id)
+            ? pair.mergedDeal.id
+            : (pair.survivorDeal?.id ?? null),
+      }))
       return type === 'contact'
-        ? { phones: ['+380671234567'], emails: [], deals: 2, notes: 1, files: 0, dealPairs: [] }
+        ? { phones: ['+380671234567'], emails: [], deals: 2, notes: 1, files: 0, dealPairs: pairs }
         : { products: 1, participants: 0, notes: 3, files: 0, fields: [] }
     },
-    async merge(_projectId, type, survivorId, mergedId) {
-      calls.push(`merge ${type} ${survivorId} ${mergedId}`)
+    async merge(_projectId, type, survivorId, mergedId, keep = []) {
+      calls.push(`merge ${type} ${survivorId} ${mergedId}${keepText(keep)}`)
       takeFailure()
       groups = groups
         .map((group) => ({

@@ -133,6 +133,19 @@ describe('экран «Дублі»', () => {
     expect(within(deals).getByText('Архів')).toBeTruthy()
   })
 
+  it('контакт сделки вне охвата — без имени, как на доске', async () => {
+    const hidden: DuplicateGroup = {
+      ...DEALS,
+      records: DEALS.records.map((record) => ({ ...record, contactName: null })),
+    }
+    await renderAt('/duplicates', {
+      api: createFakeDuplicatesApi([hidden], { contact: null, deal: 1 }),
+    })
+    const group = await screen.findByRole('article', { name: 'Група схожих записів: 2' })
+    expect(within(group).getAllByText(/контакт поза вашим охопленням/)).toHaveLength(2)
+    expect(within(group).queryByText(/Олена Коваленко/)).toBeNull()
+  })
+
   it("«Об'єднати» группу из трёх: предпросмотр, два слияния в выбранную, откат каждого", async () => {
     const api = await renderAt('/duplicates')
     const group = await screen.findByRole('article', { name: 'Група схожих записів: 3' })
@@ -164,6 +177,69 @@ describe('экран «Дублі»', () => {
         1,
       ),
     )
+  })
+
+  it('конфликтующие сделки: блок пар, «Поміняти» — keep_deal_ids в предпросмотре и слиянии', async () => {
+    const dealOf = (id: string, title: string) => ({ id, title, amount: 100, currency: 'UAH' })
+    // Остаётся контакт 2 (самый старый); у контактов 1 и 2 открытые сделки в одной воронке.
+    const api = createFakeDuplicatesApi([THREE], undefined, {
+      [ID(1)]: [
+        {
+          pipeline: { id: 'pipeline-1', name: 'Продажі' },
+          forbidden: false,
+          survivorDeal: dealOf('deal-of-2', 'Угода Олени'),
+          mergedDeal: dealOf('deal-of-1', 'Угода Олени (дубль)'),
+          keepDealId: 'deal-of-2',
+        },
+      ],
+    })
+    await renderAt('/duplicates', { api })
+    const group = await screen.findByRole('article', { name: 'Група схожих записів: 3' })
+    fireEvent.click(within(group).getByRole('button', { name: "Об'єднати" }))
+    const dialog = await screen.findByRole('dialog', { name: "Об'єднати записи" })
+    const pairs = await within(dialog).findByRole('region', {
+      name: "Угоди, які теж буде об'єднано",
+    })
+    expect(within(pairs).getByText('Воронка «Продажі»')).toBeTruthy()
+    fireEvent.click(
+      within(pairs).getByRole('button', { name: 'Поміняти угоди у воронці «Продажі»' }),
+    )
+    await waitFor(() =>
+      expect(api.calls).toContain(`preview contact ${ID(2)} ${ID(1)} keep deal-of-1`),
+    )
+
+    fireEvent.click(within(dialog).getByRole('button', { name: "Об'єднати (2)" }))
+    await waitFor(() =>
+      expect(api.calls.filter((call) => call.startsWith('merge'))).toEqual([
+        `merge contact ${ID(2)} ${ID(1)} keep deal-of-1`,
+        `merge contact ${ID(2)} ${ID(3)}`,
+      ]),
+    )
+  })
+
+  it("пара сделок без права на них — объяснение, «Об'єднати» недоступна", async () => {
+    const api = createFakeDuplicatesApi([THREE], undefined, {
+      [ID(3)]: [
+        {
+          pipeline: { id: 'pipeline-1', name: 'Продажі' },
+          forbidden: true,
+          survivorDeal: null,
+          mergedDeal: null,
+          keepDealId: null,
+        },
+      ],
+    })
+    await renderAt('/duplicates', { api })
+    const group = await screen.findByRole('article', { name: 'Група схожих записів: 3' })
+    fireEvent.click(within(group).getByRole('button', { name: "Об'єднати" }))
+    const dialog = await screen.findByRole('dialog', { name: "Об'єднати записи" })
+    expect(
+      await within(dialog).findByText(/Немає права змінювати обидві угоди в цій воронці/),
+    ).toBeTruthy()
+    const confirm = within(dialog).getByRole('button', {
+      name: "Об'єднати (2)",
+    }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
   })
 
   it('отказ сервера в предпросмотре и слиянии показывается как пришёл', async () => {

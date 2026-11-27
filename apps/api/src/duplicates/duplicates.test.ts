@@ -17,8 +17,8 @@ import { createApiKey, createRole } from '../testing/api-key.ts'
 import { problemOf } from '../testing/problem.ts'
 import { NO_TRASH_PURGERS } from '../trash/purge.ts'
 import { scanAllDuplicates, scanDuplicates, syncDuplicatePairs } from './finder.ts'
-import { DUPLICATE_SCAN_QUEUE, type DuplicateScanMessage } from './queue.ts'
-import type { DuplicateGroupView } from './routes.ts'
+import { DUPLICATE_SCAN_QUEUE, type DuplicateScanMessage, enqueueDuplicateScan } from './queue.ts'
+import type { DuplicateDealRecord, DuplicateGroupView } from './routes.ts'
 
 // Надсмотрщик за дублями и запросы экрана «Дублі» (тикет crm-intake/05) на настоящем PostgreSQL:
 // API и надсмотрщик ходят ролью приложения, данные готовятся и проверяются служебным
@@ -47,6 +47,8 @@ describe('надсмотрщик за дублями', () => {
   let dealsOnly: SignedInUser
   /** Контакты: читать все, изменять свои (созданные им). */
   let writeOwn: SignedInUser
+  /** Сделки: изменять все; контакты: только свои (созданные им). */
+  let dealsContactsOwn: SignedInUser
   let pipelineCounter = 0
 
   beforeAll(async () => {
@@ -56,6 +58,7 @@ describe('надсмотрщик за дублями', () => {
     projectB = (await h.createProject(admin, 'Дублі Б')).id
     dealsOnly = await h.signIn()
     writeOwn = await h.signIn()
+    dealsContactsOwn = await h.signIn()
     const member = async (user: SignedInUser, permissions: unknown) => {
       const role = await createRole(h, projectA, permissions as never)
       await h.owner
@@ -70,6 +73,10 @@ describe('надсмотрщик за дублями', () => {
     await member(writeOwn, {
       actions: { contacts: ['view', 'create', 'edit'], deals: ['view'] },
       scopes: { contacts: { read: 'all', write: 'own' } },
+    })
+    await member(dealsContactsOwn, {
+      actions: { contacts: ['view'], deals: ['view', 'create', 'edit'] },
+      scopes: { contacts: { read: 'own', write: 'own' }, deals: { read: 'all', write: 'all' } },
     })
   })
 
@@ -473,6 +480,46 @@ describe('надсмотрщик за дублями', () => {
       expect(await scanJobs()).toEqual([])
     })
 
+    it('правка, зафиксированная после того, как ждущую задачу записи взяли, ставит свою задачу', async () => {
+      const contact = await ok<{ id: string }>(
+        await call(admin, 'POST', '/v1/contacts', { firstName: uniqueName('Ліна') }),
+        201,
+      )
+      await drain()
+      const author = { projectId: projectA, actorId: admin.id }
+      const edit = (trx: Parameters<typeof replaceContactKeys>[0]['db']) =>
+        replaceContactKeys({ ...author, db: trx }, contact.id, { phones: [fakePhone()] })
+      // Задача первой правки ждёт в очереди.
+      await withProject(h.appDb, projectA, edit)
+      expect((await scanJobs()).map((job) => job.data.id)).toEqual([contact.id])
+      await withProject(h.appDb, projectA, async (trx) => {
+        await edit(trx)
+        // Вторая правка ещё не зафиксирована, а фоновая задача уже взяла первую задачу и прочтёт
+        // состояние без второй правки.
+        await sql`
+          update pgboss.job set state = 'active', started_on = now()
+          where name = ${DUPLICATE_SCAN_QUEUE} and state = 'created'
+        `.execute(h.owner)
+      })
+      expect((await scanJobs()).map((job) => job.data.id)).toEqual([contact.id])
+    })
+
+    it('несколько постановок одной записи в одной транзакции — одна задача', async () => {
+      const contact = await ok<{ id: string }>(
+        await call(admin, 'POST', '/v1/contacts', { firstName: uniqueName('Іра') }),
+        201,
+      )
+      await drain()
+      await withProject(h.appDb, projectA, async (trx) => {
+        await enqueueDuplicateScan(trx, projectA, [{ entity: 'contact', id: contact.id }])
+        await enqueueDuplicateScan(trx, projectA, [
+          { entity: 'contact', id: contact.id },
+          { entity: 'contact', id: contact.id },
+        ])
+      })
+      expect((await scanJobs()).map((job) => job.data.id)).toEqual([contact.id])
+    })
+
     it('регистрация ставит задачу контакта; вторая открытая сделка в воронке — пара сделок', async () => {
       const p = await pipeline()
       const source = await ok<IntakeSourceWithKey>(
@@ -678,6 +725,64 @@ describe('надсмотрщик за дублями', () => {
       })
       expect(notDuplicate.status).toBe(403)
       expect((await problemOf(notDuplicate)).code).toBe('PERMISSION_DENIED')
+    })
+
+    /** Архивная и открытая сделки контакта в одной воронке — пара сделок. */
+    async function dealPair(contact: string, p: { id: string; stageId: string }) {
+      const archived = await createDeal(contact, p)
+      await h.owner
+        .updateTable('deal')
+        .set({ archived_at: sql`now()` })
+        .where('id', '=', archived)
+        .execute()
+      return { archived, open: await createDeal(contact, p) }
+    }
+
+    it('сделки: имя контакта вне охвата чтения контактов не отдаётся (как на доске)', async () => {
+      const hidden = await insertContact({ firstName: 'Чужий', phones: [fakePhone()] })
+      const own = await insertContact({
+        firstName: 'Свій',
+        lastName: 'Контакт',
+        phones: [fakePhone()],
+        createdBy: dealsContactsOwn.id,
+      })
+      const hiddenDeals = await dealPair(hidden, await pipeline())
+      const ownDeals = await dealPair(own, await pipeline())
+      await scanProject()
+
+      const names = async (user: SignedInUser) =>
+        new Map(
+          (await groupsOf(user, 'deal')).data
+            .flatMap((group) => group.records as DuplicateDealRecord[])
+            .map((record) => [record.id, record.contactName]),
+        )
+      const limited = await names(dealsContactsOwn)
+      expect(limited.get(hiddenDeals.open)).toBeNull()
+      expect(limited.get(hiddenDeals.archived)).toBeNull()
+      expect(limited.get(ownDeals.open)).toBe('Свій Контакт')
+      expect((await names(admin)).get(hiddenDeals.open)).toBe('Чужий')
+    })
+
+    it('пара сделок с другой воронкой или другим основным контактом не показывается сразу', async () => {
+      const contact = await insertContact({ phones: [fakePhone()] })
+      const other = await insertContact({ phones: [fakePhone()] })
+      const p = await pipeline()
+      const { archived } = await dealPair(contact, p)
+      await scanContact(contact)
+      expect((await groupsOf(admin, 'deal')).data).toHaveLength(1)
+
+      // Изменения мимо задачи поиска: строка пары остаётся до ночного прохода, экран её не показывает.
+      const moved = await pipeline()
+      const move = (values: Record<string, string>) =>
+        h.owner.updateTable('deal').set(values).where('id', '=', archived).execute()
+      await move({ pipeline_id: moved.id, stage_id: moved.stageId })
+      expect((await groupsOf(admin, 'deal')).data).toEqual([])
+      expect(await ok(await call(admin, 'GET', '/v1/duplicates/count'))).toMatchObject({ deal: 0 })
+      await move({ pipeline_id: p.id, stage_id: p.stageId })
+      expect((await groupsOf(admin, 'deal')).data).toHaveLength(1)
+      await move({ primary_contact_id: other })
+      expect((await groupsOf(admin, 'deal')).data).toEqual([])
+      expect((await pairs()).filter((row) => row.entity_type === 'deal')).toHaveLength(1)
     })
 
     it('ключ API — 403 API_KEY_NOT_ALLOWED', async () => {

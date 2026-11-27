@@ -29,7 +29,8 @@ export interface DuplicateDeal {
   amount: string
   currency: string
   ownerName: string | null
-  contactName: string
+  /** null — основной контакт вне охвата чтения контактов пользователя. */
+  contactName: string | null
   createdAt: string
 }
 
@@ -72,11 +73,16 @@ export interface DuplicatesApi {
     cursor?: string | null,
   ): Promise<DuplicateGroupsPage>
   notDuplicate(projectId: string, type: DuplicateType, aId: string, bId: string): Promise<void>
+  /**
+   * `keepDealIds` (только контакты) — сделки пар конфликтующих сделок, которые остаются вместо
+   * сделки оставшегося контакта (`keep_deal_ids`, тикет crm-intake/04).
+   */
   preview(
     projectId: string,
     type: DuplicateType,
     survivorId: string,
     mergedId: string,
+    keepDealIds?: string[],
   ): Promise<MergePreview>
   /** Слияние `mergedId` в `survivorId`; ответ — id слияния для отката. */
   merge(
@@ -84,6 +90,7 @@ export interface DuplicatesApi {
     type: DuplicateType,
     survivorId: string,
     mergedId: string,
+    keepDealIds?: string[],
   ): Promise<{ mergeId: string }>
   undo(projectId: string, mergeId: string): Promise<void>
 }
@@ -104,6 +111,14 @@ const SECTION: Record<DuplicateType, string> = { contact: 'contacts', deal: 'dea
 const MERGED_FIELD: Record<DuplicateType, string> = {
   contact: 'merge_contact_id',
   deal: 'merge_deal_id',
+}
+
+/** Тело слияния и предпросмотра; `keep_deal_ids` — только у контактов и только непустой. */
+function mergeBody(type: DuplicateType, mergedId: string, keepDealIds: readonly string[]) {
+  return {
+    [MERGED_FIELD[type]]: mergedId,
+    ...(type === 'contact' && keepDealIds.length > 0 ? { keep_deal_ids: keepDealIds } : {}),
+  }
 }
 
 export function createDuplicatesApi(
@@ -144,17 +159,20 @@ export function createDuplicatesApi(
     async notDuplicate(projectId, type, aId, bId) {
       await send(projectId, 'POST', '/v1/duplicates/not-duplicate', { type, a_id: aId, b_id: bId })
     },
-    preview(projectId, type, survivorId, mergedId) {
-      return send(projectId, 'POST', `/v1/${SECTION[type]}/${survivorId}/merge/preview`, {
-        [MERGED_FIELD[type]]: mergedId,
-      })
+    preview(projectId, type, survivorId, mergedId, keepDealIds = []) {
+      return send(
+        projectId,
+        'POST',
+        `/v1/${SECTION[type]}/${survivorId}/merge/preview`,
+        mergeBody(type, mergedId, keepDealIds),
+      )
     },
-    async merge(projectId, type, survivorId, mergedId) {
+    async merge(projectId, type, survivorId, mergedId, keepDealIds = []) {
       const result = await send<{ merge: { id: string } }>(
         projectId,
         'POST',
         `/v1/${SECTION[type]}/${survivorId}/merge`,
-        { [MERGED_FIELD[type]]: mergedId },
+        mergeBody(type, mergedId, keepDealIds),
       )
       return { mergeId: result.merge.id }
     },

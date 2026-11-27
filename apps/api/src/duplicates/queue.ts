@@ -1,5 +1,5 @@
 import type { Database } from '@alpi/db'
-import type { Kysely } from 'kysely'
+import { type Kysely, sql } from 'kysely'
 import { fromKysely, type PgBoss } from 'pg-boss'
 
 // Очередь поиска дублей одной записи (тикет crm-intake/05; пункт 34): задачу ставит каждое
@@ -19,8 +19,11 @@ import { fromKysely, type PgBoss } from 'pg-boss'
 // её startJobs и startEventQueue (jobs/jobs.ts). Не подключена — изменение падает и
 // откатывается: изменение без задачи оставило бы пары устаревшими до ночи без следа.
 //
-// Политика очереди `short` с ключом записи: в очереди не больше одной ждущей задачи на запись —
-// серия правок одного контакта даёт одну задачу; задача читает состояние на момент выполнения.
+// Ключ задачи — запись и транзакция (`txid_current()`), политика очереди `short`: постановки одной
+// записи в одной транзакции (правка контакта, затем его регистрация) дают одну задачу, а каждая
+// зафиксированная транзакция — свою. Ключ по одной записи терял бы правку: задачу первой правки
+// фоновая задача берёт, пока вторая ещё не зафиксирована, а постановка второй пропущена — ждущая
+// задача той же записи уже была. Цена: серия правок одного контакта — по задаче на правку.
 
 export const DUPLICATE_SCAN_QUEUE = 'duplicate-scan'
 
@@ -54,7 +57,7 @@ export function detachDuplicateQueue(boss: PgBoss): void {
 
 /**
  * Ставит поиск дублей записей `records` транзакцией `trx` — той же, что их изменила. Повтор
- * записи в списке и уже ждущая задача той же записи новой задачи не дают.
+ * записи в списке и задача той же записи, уже поставленная этой транзакцией, новой задачи не дают.
  */
 export async function enqueueDuplicateScan(
   trx: Kysely<Database>,
@@ -67,12 +70,17 @@ export async function enqueueDuplicateScan(
       'очередь поиска дублей не подключена: attachDuplicateQueue (duplicates/queue.ts)',
     )
   }
+  const { rows } = await sql<{ txid: string }>`select txid_current()::text as txid`.execute(trx)
+  const txid = rows[0]?.txid ?? ''
   const seen = new Set<string>()
   for (const { entity, id } of records) {
     const key = `${entity}:${id}`
     if (seen.has(key)) continue
     seen.add(key)
     const message: DuplicateScanMessage = { projectId, entity, id }
-    await boss.send(DUPLICATE_SCAN_QUEUE, message, { db: fromKysely(trx), singletonKey: key })
+    await boss.send(DUPLICATE_SCAN_QUEUE, message, {
+      db: fromKysely(trx),
+      singletonKey: `${key}:${txid}`,
+    })
   }
 }

@@ -35,8 +35,11 @@ import { buildGroups, type DuplicateGroup, type PairRow } from './groups.ts'
 //   API_KEY_NOT_ALLOWED (middleware/api-key.ts).
 //
 // shortcut: группы считаются в коде из не больше MAX_PAIRS самых новых пар проекта на запрос;
-// при большем числе пар старые не видны, пока не разобраны новые. Перенести в SQL (рекурсивный
-// запрос по парам), если пар в проекте станет больше.
+// при большем числе пар старые не видны, пока не разобраны новые. Лимит срезает пары до
+// построения групп и до проверки охвата, поэтому за ним: группа может распасться на части;
+// группа, у которой запись вне охвата связана только отрезанной парой, покажется урезанной —
+// без этой записи и её данных, но вопреки правилу «все записи группы в охвате»; счётчик в шапке
+// занижен. Перенести в SQL (рекурсивный запрос по парам), если пар в проекте станет больше.
 
 export const MAX_PAIRS = 20_000
 
@@ -71,7 +74,8 @@ export interface DuplicateDealRecord {
   amount: string
   currency: string
   ownerName: string | null
-  contactName: string
+  /** Имя основного контакта; null — контакт вне охвата чтения контактов пользователя. */
+  contactName: string | null
   createdAt: string
 }
 
@@ -90,20 +94,31 @@ const iso = (value: Date | string) => new Date(value).toISOString()
 
 /**
  * Пары типа `type` между живыми записями — не больше MAX_PAIRS самых новых. Пара сделок — только
- * между открытыми: закрытие сделки задачи поиска не ставит, пару уберёт ночной проход.
+ * между открытыми сделками одного основного контакта в одной воронке: закрытие, перенос в другую
+ * воронку и смена основного контакта задачи поиска не ставят, строку пары уберёт ночной проход,
+ * а экран не показывает её уже сейчас.
  */
 async function livePairs(db: Kysely<Database>, type: DuplicateEntity): Promise<PairRow[]> {
   const live =
     type === 'contact'
-      ? sql`r.merged_into_id is null and r.deleted_at is null`
-      : sql`r.merged_into_id is null and r.deleted_at is null and r.status = 'open'`
-  const table = sql.table(type)
+      ? sql`
+          exists (select 1 from contact r where r.id = p.a_id
+                  and r.merged_into_id is null and r.deleted_at is null)
+          and exists (select 1 from contact r where r.id = p.b_id
+                      and r.merged_into_id is null and r.deleted_at is null)`
+      : sql`
+          exists (
+            select 1 from deal x join deal y on y.id = p.b_id
+            where x.id = p.a_id
+              and x.merged_into_id is null and x.deleted_at is null and x.status = 'open'
+              and y.merged_into_id is null and y.deleted_at is null and y.status = 'open'
+              and x.primary_contact_id = y.primary_contact_id
+              and x.pipeline_id = y.pipeline_id
+          )`
   const { rows } = await sql<PairRow>`
     select p.a_id, p.b_id, p.reason, p.found_at
     from duplicate_pair p
-    where p.entity_type = ${type}
-      and exists (select 1 from ${table} r where r.id = p.a_id and ${live})
-      and exists (select 1 from ${table} r where r.id = p.b_id and ${live})
+    where p.entity_type = ${type} and ${live}
     order by p.found_at desc, p.a_id, p.b_id
     limit ${MAX_PAIRS}
   `.execute(db)
@@ -176,15 +191,21 @@ async function contactRecords(
   }))
 }
 
+/**
+ * Сделки группы. Имя основного контакта — только если контакт в охвате чтения контактов
+ * пользователя (`contactsRead`; охват контактов бывает уже охвата сделок), иначе null — как
+ * на доске сделок (deals/board.ts).
+ */
 async function dealRecords(
   db: Kysely<Database>,
   ids: readonly string[],
+  contactsRead: Scope,
+  viewer: Viewer,
 ): Promise<DuplicateDealRecord[]> {
   const rows = await db
     .selectFrom('deal as d')
     .innerJoin('pipeline as p', 'p.id', 'd.pipeline_id')
     .innerJoin('stage as s', 's.id', 'd.stage_id')
-    .innerJoin('contact as c', 'c.id', 'd.primary_contact_id')
     .leftJoin('user as u', 'u.id', 'd.owner_id')
     .select([
       'd.id',
@@ -195,12 +216,22 @@ async function dealRecords(
       'd.amount',
       'd.currency',
       'u.name as owner_name',
-      'c.first_name',
-      'c.last_name',
+      'd.primary_contact_id',
       'd.created_at',
     ])
     .where('d.id', 'in', ids)
     .execute()
+  const contactIds = [...new Set(rows.map((row) => row.primary_contact_id))]
+  const contacts = new Map(
+    (
+      await db
+        .selectFrom('contact')
+        .select(['id', 'first_name', 'last_name'])
+        .where('id', 'in', contactIds)
+        .where((eb) => contactScopePredicate(eb, contactsRead, viewer))
+        .execute()
+    ).map((row) => [row.id, [row.first_name, row.last_name].filter(Boolean).join(' ')]),
+  )
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
@@ -210,7 +241,7 @@ async function dealRecords(
     amount: String(row.amount),
     currency: row.currency,
     ownerName: row.owner_name,
-    contactName: [row.first_name, row.last_name].filter(Boolean).join(' '),
+    contactName: contacts.get(row.primary_contact_id) ?? null,
     createdAt: iso(row.created_at),
   }))
 }
@@ -289,7 +320,7 @@ async function listGroups(c: Ctx): Promise<Result<Page<DuplicateGroupView>>> {
       ? []
       : type === 'contact'
         ? await contactRecords(r.db, ids)
-        : await dealRecords(r.db, ids)
+        : await dealRecords(r.db, ids, c.get('access').permissions.scopes.contacts.read, r.viewer)
   const byId = new Map(records.map((record) => [record.id, record]))
   const last = page.at(-1)
   return ok({

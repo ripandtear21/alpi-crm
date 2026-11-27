@@ -21,7 +21,8 @@
   "record": {
     "noKeys": "без телефону й email",
     "archived": "Архів",
-    "noOwner": "без відповідального"
+    "noOwner": "без відповідального",
+    "contactHidden": "контакт поза вашим охопленням"
   },
   "group": {
     "label": "Група схожих записів: {{count}}",
@@ -49,7 +50,6 @@
     "phones": "телефони: {{count}}",
     "emails": "email: {{count}}",
     "deals": "угоди: {{count}}",
-    "dealPairs": "конфліктні угоди, які об'єднаються: {{count}}",
     "participations": "участь в угодах: {{count}}",
     "products": "товари: {{count}}",
     "participants": "учасники: {{count}}",
