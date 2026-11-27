@@ -30,8 +30,13 @@ apps/api/src/intake/** или apps/api/src/registrations/** (запросы чт
 ## Done when
 
 - [ ] Тест изоляции: регистрация проекта A по id в контексте B — 404; списки не содержат регистраций B.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/registrations/registrations.test.ts` exit 0 · windows - · ada9feb51e4093c73a5afed6f75fdd36947d8626
 - [ ] Тест прав: ключ с ролью без «сделки: смотреть» — 403; роль с охватом «свои» не видит регистрации чужой сделки (404), видит своей; маршруты открыты ключу (нет `API_KEY_NOT_ALLOWED`).
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/registrations/registrations.test.ts` exit 0 · windows - · ada9feb51e4093c73a5afed6f75fdd36947d8626
 - [ ] Тест списков: новые сверху; курсор отдаёт все регистрации без повторов и пропусков; после слияния сделок регистрации второй — в списке оставшейся.
+  - evidence: test-run pass · `pnpm vitest run apps/api/src/registrations/registrations.test.ts` exit 0 · windows - · ada9feb51e4093c73a5afed6f75fdd36947d8626
 - [ ] Тест ответа: все поля пункта 12, `extra` и просмотр приходят; описание API совпадает с ответом.
 - [ ] Экран: блок регистраций в карточке сделки и контакта, `extra` строками «ключ: значение», просмотр; тексты uk и ru; работает на 375 px.
+  - evidence: test-run pass · `pnpm vitest run apps/web/src/routes/deals/$dealId/deal-card-page.test.tsx apps/web/src/routes/contacts/$contactId/contact-card-page.test.tsx` exit 0 · windows - · ada9feb51e4093c73a5afed6f75fdd36947d8626
 - [ ] `pnpm verify` зелёный.
+  - evidence: test-run pass · `pnpm verify` exit 0 · windows - · ada9feb51e4093c73a5afed6f75fdd36947d8626
