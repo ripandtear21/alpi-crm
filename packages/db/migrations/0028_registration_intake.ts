@@ -6,10 +6,12 @@ import { type Kysely, sql } from 'kysely'
 // - registration — регистрация с формы или лендинга: источник, `event_id` (уникален в пределах
 //   источника), контакт и сделка, в которые она легла, и поля заметки Pipedrive «Информация из
 //   формы» (пункт 12 ответов владельца); всё остальное из тела — в `extra`. Регистрация
-//   принадлежит контакту и сделке: окончательное удаление любого из них из корзины
-//   (purge_from_trash) удаляет и её — в ней персональные данные (внешние ключи on delete cascade;
-//   решено без владельца — подтвердить). Слияние контактов и сделок переносит её (UPDATE
-//   contact_id, deal_id — реестры apps/api/src/merge).
+//   принадлежит контакту: окончательное удаление контакта из корзины (purge_from_trash)
+//   удаляет и её — в ней персональные данные (on delete cascade). Окончательное удаление одной
+//   сделки (вручную или ночной очисткой корзины) оставляет регистрацию у контакта без сделки:
+//   обнуляется только deal_id (on delete set null (deal_id), project_id составного ключа не
+//   трогается; решено без владельца — подтвердить). Слияние контактов и сделок переносит её
+//   (UPDATE contact_id, deal_id — реестры apps/api/src/merge).
 // - intake_event — пара «источник, event_id» хранится вечно (пункт 4), без персональных данных:
 //   повтор события, чьи записи уже удалены окончательно, отвечает 200 без id и ничего не
 //   создаёт. Вставка сюда — точка повтора: одновременный второй запрос с тем же event_id ждёт
@@ -68,7 +70,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       intake_source_id uuid not null,
       event_id text not null check (char_length(event_id) between 1 and 255),
       contact_id uuid not null,
-      deal_id uuid not null,
+      deal_id uuid,
       created_at timestamptz not null default now(),
       phone text check (phone ~ '^\\+[1-9][0-9]{6,14}$'),
       ${textColumns}
@@ -78,7 +80,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       unique (project_id, intake_source_id, event_id),
       foreign key (project_id, intake_source_id) references intake_source (project_id, id),
       foreign key (project_id, contact_id) references contact (project_id, id) on delete cascade,
-      foreign key (project_id, deal_id) references deal (project_id, id) on delete cascade
+      foreign key (project_id, deal_id) references deal (project_id, id)
+        on delete set null (deal_id)
     )
   `)
     .execute(db)

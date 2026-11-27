@@ -9,6 +9,7 @@ import {
 import { sql } from 'kysely'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../app.ts'
+import { lockContactKeys } from '../contacts/contacts.ts'
 import {
   type ApiHarness,
   type Method,
@@ -19,6 +20,8 @@ import {
 } from '../testing/api-harness.ts'
 import { createApiKey, createRole } from '../testing/api-key.ts'
 import { problemOf } from '../testing/problem.ts'
+import { purgeProjectTrash } from '../trash/purge.ts'
+import { DEAL_PURGER } from '../trash/purgers.ts'
 
 // Приём регистраций (тикет crm-intake/06) на настоящем PostgreSQL: API ходит ролью приложения,
 // проверки — служебным подключением. Источник шлёт запрос с одним заголовком Authorization, как
@@ -838,6 +841,109 @@ describe('приём регистраций', () => {
         warnings: ['RECORDS_DELETED'],
       })
       expect({ contacts: await countOf('contact'), deals: await countOf('deal') }).toEqual(before)
+    })
+
+    it('удалена навсегда только сделка — регистрация остаётся у контакта без сделки; повтор — 200 с id регистрации и контакта, deal_id null, RECORDS_DELETED; потом удалён контакт — регистрации нет, повтор без id', async () => {
+      const body = { event_id: eventId(), phone: fakePhone() }
+      const first = await accepted(await register(body))
+      const dealId = first.deal_id ?? ''
+      const trash = await admin.api('DELETE', `/v1/deals/${dealId}`, { project: projectA })
+      expect(trash.status).toBe(204)
+      const purge = await admin.api('DELETE', `/v1/deals/${dealId}/permanent`, {
+        project: projectA,
+      })
+      expect(purge.status).toBe(204)
+      expect(
+        await h.owner.selectFrom('deal').select('id').where('id', '=', dealId).execute(),
+      ).toEqual([])
+      const kept = await registrationRow(first.registration_id ?? '')
+      expect([kept.contact_id, kept.deal_id, kept.phone]).toEqual([
+        first.contact_id,
+        null,
+        body.phone,
+      ])
+      const contact = await contactRow(first.contact_id ?? '')
+      expect([contact.deleted_at, contact.merged_into_id]).toEqual([null, null])
+
+      const before = { contacts: await countOf('contact'), deals: await countOf('deal') }
+      const again = await accepted(await register(body), 200)
+      expect(again).toEqual({
+        registration_id: first.registration_id,
+        contact_id: first.contact_id,
+        deal_id: null,
+        deal_created: false,
+        contact_created: false,
+        warnings: ['RECORDS_DELETED'],
+      })
+      expect({ contacts: await countOf('contact'), deals: await countOf('deal') }).toEqual(before)
+
+      // Регистрация без сделки всё равно уходит вместе с контактом.
+      const trashContact = await admin.api('DELETE', `/v1/contacts/${first.contact_id}`, {
+        project: projectA,
+      })
+      expect(trashContact.status).toBe(204)
+      const purgeContact = await admin.api('DELETE', `/v1/contacts/${first.contact_id}/permanent`, {
+        project: projectA,
+      })
+      expect(purgeContact.status).toBe(204)
+      expect(
+        await h.owner
+          .selectFrom('registration')
+          .select('id')
+          .where('id', '=', first.registration_id ?? '')
+          .execute(),
+      ).toEqual([])
+      expect(await accepted(await register(body), 200)).toEqual({
+        registration_id: null,
+        contact_id: null,
+        deal_id: null,
+        deal_created: false,
+        contact_created: false,
+        warnings: ['RECORDS_DELETED'],
+      })
+    })
+
+    it('ночная очистка корзины удаляет сделку старше 30 дней — регистрация остаётся у контакта с deal_id null', async () => {
+      const first = await accepted(await register({ event_id: eventId(), phone: fakePhone() }))
+      const dealId = first.deal_id ?? ''
+      const trash = await admin.api('DELETE', `/v1/deals/${dealId}`, { project: projectA })
+      expect(trash.status).toBe(204)
+      await h.owner
+        .updateTable('deal')
+        .set({ deleted_at: sql`now() - interval '31 days'` })
+        .where('id', '=', dealId)
+        .execute()
+      await purgeProjectTrash(h.appDb, projectA, new Map([['deal', DEAL_PURGER]]))
+      expect(
+        await h.owner.selectFrom('deal').select('id').where('id', '=', dealId).execute(),
+      ).toEqual([])
+      const kept = await registrationRow(first.registration_id ?? '')
+      expect([kept.contact_id, kept.deal_id]).toEqual([first.contact_id, null])
+      expect((await contactRow(first.contact_id ?? '')).deleted_at).toBeNull()
+    })
+  })
+
+  describe('порядок блокировок', () => {
+    it('восстановление контакта из корзины берёт блокировки его ключей до строки контакта, как правка и приём', async () => {
+      const phone = fakePhone()
+      const email = fakeEmail()
+      const contact = await createContact({ phones: [phone], emails: [email] })
+      const trash = await admin.api('DELETE', `/v1/contacts/${contact.id}`, { project: projectA })
+      expect(trash.status).toBe(204)
+
+      let restore: Promise<Response> | undefined
+      await h.owner.transaction().execute(async (trx) => {
+        // Держим блокировку email контакта, как одновременная правка или регистрация.
+        await lockContactKeys({ db: trx, projectId: projectA }, [], [email])
+        restore = admin.api('POST', `/v1/contacts/${contact.id}/restore`, { project: projectA })
+        await waitForLockWait()
+        // Восстановление ждёт ключ и строку контакта ещё не заняло: иначе правка того же
+        // контакта (ключи, потом строка) и восстановление ждали бы друг друга — 40P01.
+        await sql`select id from contact where id = ${contact.id} for update nowait`.execute(trx)
+      })
+      const restored = await restore
+      expect(restored?.status).toBe(200)
+      expect((await contactRow(contact.id)).deleted_at).toBeNull()
     })
   })
 })

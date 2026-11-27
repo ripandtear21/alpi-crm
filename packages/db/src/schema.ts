@@ -853,7 +853,8 @@ type RegistrationText = ColumnType<string | null, string | null | undefined, nev
 /**
  * Регистрация (migrations/0028_registration_intake.ts, тикет crm-intake/06): поля заметки
  * Pipedrive «Информация из формы», остальное — в `extra`. Меняются только контакт и сделка — их
- * переносит слияние. Удаляется вместе с контактом или сделкой (окончательное удаление).
+ * переносит слияние. Удаляется вместе с контактом (окончательное удаление); окончательное
+ * удаление сделки оставляет её у контакта с `deal_id` null.
  */
 export interface RegistrationTable {
   id: Generated<string>
@@ -862,7 +863,8 @@ export interface RegistrationTable {
   /** id события у источника: уникален в пределах источника. */
   event_id: ColumnType<string, string, never>
   contact_id: string
-  deal_id: string
+  /** null — сделку удалили окончательно, регистрация осталась у контакта. */
+  deal_id: string | null
   created_at: ColumnType<Date, Date | string | undefined, never>
   name: RegistrationText
   /** Телефон в E.164; null — не прислан или не разобран (тогда как прислан — `phone_raw`). */

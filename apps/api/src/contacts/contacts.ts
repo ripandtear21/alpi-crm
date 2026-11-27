@@ -441,6 +441,25 @@ export async function lockContactKeys(
   }
 }
 
+/** Блокировки ключей (lockContactKeys) по записанным телефонам и email контакта `id`. */
+async function lockStoredKeys(ctx: Pick<ChangeAuthor, 'db' | 'projectId'>, id: string) {
+  const phones = await ctx.db
+    .selectFrom('contact_phone')
+    .select('phone')
+    .where('contact_id', '=', id)
+    .execute()
+  const emails = await ctx.db
+    .selectFrom('contact_email')
+    .select('email')
+    .where('contact_id', '=', id)
+    .execute()
+  await lockContactKeys(
+    ctx,
+    phones.map((row) => row.phone),
+    emails.map((row) => row.email),
+  )
+}
+
 /**
  * Менеджер открытой сделки контакта (он основной): «клиент уже в работе у <менеджер>». Сначала
  * неархивная, затем самая новая; сделки общей очереди менеджера не имеют. null — таких нет.
@@ -743,6 +762,10 @@ function dependentRefusal(refused: DependentRefusal): Result<never> {
  * восстанавливается с отметкой «возможный дубль».
  */
 async function restoreContact(ctx: ContactContext, id: string): Promise<Result<ContactView>> {
+  // Ключи — до строки контакта, как у updateContact и приёма регистраций: иначе одновременные
+  // восстановление и правка ждали бы друг друга (40P01). Ключи контакта в корзине не меняются;
+  // checkKeys ниже берёт те же блокировки повторно (в той же транзакции — сразу).
+  if (UUID.test(id)) await lockStoredKeys(ctx, id)
   const found = await writableContact(ctx, id)
   if (!found.ok) return found
   const row = found.value

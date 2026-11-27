@@ -104,7 +104,7 @@ const ACCEPTED = {
         enum: ['PHONE_INVALID', 'EMAIL_INVALID', 'OWNER_NOT_FOUND', 'RECORDS_DELETED'],
       },
       description:
-        'PHONE_INVALID — телефон не разобран (принята по email, исходный телефон сохранён); EMAIL_INVALID — email не разобран (принята по телефону); OWNER_NOT_FOUND — owner_email не участник проекта; RECORDS_DELETED — повтор события, чьи записи удалены окончательно (id — null)',
+        'PHONE_INVALID — телефон не разобран (принята по email, исходный телефон сохранён); EMAIL_INVALID — email не разобран (принята по телефону); OWNER_NOT_FOUND — owner_email не участник проекта; RECORDS_DELETED — повтор события, чьи записи удалены окончательно (удалён контакт — все id null; удалена только сделка — deal_id null)',
     },
   },
 } as const

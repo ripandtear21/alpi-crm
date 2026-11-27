@@ -35,6 +35,11 @@ import type { IntakeSource } from './auth.ts'
 //    на первом этапе воронки. Существующей сделке ничего не меняется (ADR 0003).
 // 5. Регистрация, события, история.
 // Порядок блокировок — ключи, контакт, сделка (как у слияния контактов, тикет 12).
+// Известное ограничение: слияние сделок (merge/deal-registry.ts, строка основного контакта
+// слитой — FOR SHARE на контакт после блокировки сделок) и его откат берут сделку, потом
+// контакт; приём — контакт (lockLiveContact), потом сделку (lockOpenDeal). Одновременно
+// возможна взаимоблокировка (40P01): одна транзакция откатывается, приём отвечает 500 и пишет
+// строку журнала, источник может повторить. Единый порядок блокировок — тикет 12.
 // Обязательные поля «всегда» приём не проверяет (решено без владельца — подтвердить).
 
 /** Итог обработки: принята, повтор или отказ (откатывает всю обработку). */
@@ -61,7 +66,11 @@ function keyName(phone: string | null, email: string | null): string {
   return (phone === null ? (email ?? '') : formatPhone(phone)).slice(0, MAX_NAME_LENGTH)
 }
 
-/** Повтор `event_id`: id прежней регистрации; её записи удалены окончательно — без id. */
+/**
+ * Повтор `event_id`: id прежней регистрации. Контакт удалён окончательно (с ним и регистрация) —
+ * все id null; удалена только сделка — регистрация и контакт на месте, deal_id null. Любой
+ * null — предупреждение RECORDS_DELETED.
+ */
 async function repeated(
   trx: Kysely<Database>,
   source: IntakeSource,
@@ -85,7 +94,7 @@ async function repeated(
       deal_id: row.deal_id,
       deal_created: false,
       contact_created: false,
-      warnings: row.id === null ? ['RECORDS_DELETED'] : [],
+      warnings: row.id === null || row.deal_id === null ? ['RECORDS_DELETED'] : [],
     },
   }
 }
